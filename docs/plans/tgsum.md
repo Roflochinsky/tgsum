@@ -89,7 +89,7 @@ README.md
     "tsup": "^8.5.0",
     "tsx": "^4.22.0",
     "typescript": "^5.5.0",
-    "vitest": "^2.0.0"
+    "vitest": "^4.0.0"
   }
 }
 ```
@@ -1088,4 +1088,4 @@ git commit -m "feat: npm distribution metadata + double-click launchers + readme
 
 **Note for executor:** `streamChats` lives in one shared module `src/stream-chats.ts` (Task 3) and is imported by both passes — no duplication. If the `stream-json@3.x` wiring needs adjustment (R4), it changes in that one file only; public signatures (`streamChats`, `streamIndex`, `extractSelection`) stay fixed.
 
-**Stack corrections applied (from research, verify once via Context7 before coding):** `stream-json@3.x` functional API + `stream-chain`, Node ≥22, ESM; `@clack/prompts` `autocompleteMultiselect`; token heuristic chars/2.5 with 90k soft cap. If Context7 shows a newer API shape for any of these, update Task 1 (deps), `src/stream-chats.ts` (Task 3), or `src/wizard.ts` (Task 7) accordingly.
+**Stack VERIFIED against installed versions (2026-06-25, Node v24):** `stream-json@3.4.0` — the exact `chain([createReadStream, parser(), pick({filter:'chats.list'}), streamArray()])` pipeline in `src/stream-chats.ts` was run against a sample and emits `{value: chat}` per element ✓. `stream-chain@4.2.5` default `chain` import ✓. `@clack/prompts@1.6.0` exports `autocompleteMultiselect, text, confirm, spinner, intro, outro, isCancel, cancel` ✓. `vitest@4.x`. All ESM, Node ≥22. (Context7 was quota-blocked; verified via npm install + runtime introspection instead — more authoritative.)
