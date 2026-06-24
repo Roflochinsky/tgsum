@@ -37,4 +37,28 @@ describe('formatUnit', () => {
     expect(parts.length).toBeGreaterThan(1)
     for (const p of parts) expect(p).toContain('# Чат: C')
   })
+
+  it('repeats the day header on every part containing that day\'s messages', () => {
+    const big: ExtractedUnit = {
+      chatName: 'D', messages: Array.from({ length: 50 }, (_, i) => ({
+        id: i, type: 'message' as const, date: '2026-06-18T09:00:00', from: 'X', from_id: 'user1',
+        text: 'x'.repeat(40),
+      })),
+    }
+    const { parts } = formatUnit(big, 60) // splits mid-day
+    expect(parts.length).toBeGreaterThan(1)
+    for (const p of parts) {
+      // Every part with a message line must also carry the day header for it.
+      if (/^\[\d\d:\d\d\]/m.test(p)) expect(p).toContain('## 2026-06-18')
+    }
+  })
+
+  it('falls back to "chat" when chatName has no alphanumeric chars', () => {
+    const unit: ExtractedUnit = {
+      chatName: ':::',
+      messages: [{ id: 1, type: 'message', date: '2026-06-18T09:00:00', from: 'X', from_id: 'u1', text: 'hi' }],
+    }
+    const { filename } = formatUnit(unit, 100_000)
+    expect(filename).toBe('chat.md')
+  })
 })

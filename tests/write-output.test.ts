@@ -22,4 +22,21 @@ describe('writeUnits', () => {
     expect(written.length).toBe(files.length)
     expect(readFileSync(join(dir, 'A.md'), 'utf8')).toContain('# Чат: A')
   })
+
+  it('de-duplicates colliding filenames instead of overwriting', () => {
+    dir = mkdtempSync(join(tmpdir(), 'tgsum-'))
+    const units: ExtractedUnit[] = [
+      { chatName: 'Dup', messages: [{ id: 1, type: 'message', date: '2026-06-18T09:00:00', from: 'X', from_id: 'u1', text: 'first' }] },
+      { chatName: 'Dup', messages: [{ id: 2, type: 'message', date: '2026-06-18T09:01:00', from: 'Y', from_id: 'u2', text: 'second' }] },
+    ]
+    const written = writeUnits(units, dir, 100_000)
+    const files = readdirSync(dir).sort()
+    expect(files).toContain('Dup.md')
+    expect(files).toContain('Dup (2).md')
+    expect(new Set(written).size).toBe(2)
+    expect(written.length).toBe(2)
+    // Both units' content is preserved (no overwrite).
+    expect(readFileSync(join(dir, 'Dup.md'), 'utf8')).toContain('first')
+    expect(readFileSync(join(dir, 'Dup (2).md'), 'utf8')).toContain('second')
+  })
 })

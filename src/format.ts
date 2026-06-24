@@ -5,7 +5,9 @@ import { flattenText, resolveName } from './model.js'
 const estTokens = (s: string) => Math.ceil(s.length / 2.5)
 
 function safeName(s: string): string {
-  return s.replace(/[\/\\:*?"<>|]/g, '_').trim() || 'chat'
+  const cleaned = s.replace(/[\/\\:*?"<>|]/g, '_').trim()
+  // Fall back when nothing meaningful survives (no alphanumeric chars).
+  return /[\p{L}\p{N}]/u.test(cleaned) ? cleaned : 'chat'
 }
 
 function dayOf(date?: string): string {
@@ -56,24 +58,39 @@ export function formatUnit(unit: ExtractedUnit, maxTokens = 90_000): { filename:
     : `# Чат: ${unit.chatName}`
   const header = `${titleLine}\n# Период: ${period} | сообщений: ${unit.messages.length} | участники: ${participants}\n`
 
-  // Build body blocks per day; keep day header attached to its first line.
-  const blocks: string[] = []
+  // Build body blocks per day. Each block carries the day it belongs to so we can
+  // re-emit the day header at the top of any new part (keeping messages attached
+  // to their `## <date>` header even across a split).
+  type Block = { day: string; text: string; isDayHeader: boolean }
+  const blocks: Block[] = []
   let curDay = ''
   for (const m of unit.messages) {
     const day = dayOf(m.date)
-    if (day !== curDay) { blocks.push(`\n## ${day}`); curDay = day }
-    blocks.push(lineFor(m, byId))
+    if (day !== curDay) { blocks.push({ day, text: `\n## ${day}`, isDayHeader: true }); curDay = day }
+    blocks.push({ day, text: lineFor(m, byId), isDayHeader: false })
   }
 
-  // Pack blocks into parts under the token budget; header repeats per part.
+  // Pack blocks into parts under the token budget; unit header repeats per part,
+  // and the active day header is re-emitted at the top of each new part.
   const headerCost = estTokens(header)
   const parts: string[] = []
   let cur: string[] = []
   let cost = headerCost
+  let partDay = '' // day header already present in the current part
   for (const b of blocks) {
-    const c = estTokens(b) + 1
-    if (cur.length && cost + c > maxTokens) { parts.push(header + cur.join('\n')); cur = []; cost = headerCost }
-    cur.push(b); cost += c
+    const c = estTokens(b.text) + 1
+    if (cur.length && cost + c > maxTokens) {
+      parts.push(header + cur.join('\n'))
+      cur = []; cost = headerCost; partDay = ''
+    }
+    // Re-emit the day header if this part doesn't yet carry it for this day.
+    if (b.isDayHeader) {
+      partDay = b.day
+    } else if (partDay !== b.day) {
+      const dh = `\n## ${b.day}`
+      cur.push(dh); cost += estTokens(dh) + 1; partDay = b.day
+    }
+    cur.push(b.text); cost += c
   }
   if (cur.length) parts.push(header + cur.join('\n'))
 
