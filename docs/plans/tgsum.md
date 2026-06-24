@@ -4,9 +4,15 @@
 
 **Goal:** A local cross-platform CLI that turns a Telegram Desktop `result.json` export into clean, AI-ready Markdown files for selected chats/forum-topics, via a guided wizard.
 
-**Architecture:** Two-pass streaming over `chats.list` using `stream-json` (one chat held in memory at a time). Pass 1 builds a lightweight chat/topic index for the wizard; pass 2 re-streams and extracts only the selected chats/topics. A pure formatter turns messages into Markdown and splits oversized output into parts. A thin `@inquirer/prompts` wizard wires it together; output is `.md` files in a folder.
+**Architecture:** Two-pass streaming over `chats.list` using `stream-json` (one chat held in memory at a time). Pass 1 builds a lightweight chat/topic index for the wizard; pass 2 re-streams and extracts only the selected chats/topics. A pure formatter turns messages into Markdown and splits oversized output into parts. A thin `@clack/prompts` wizard wires it together; output is `.md` files in a folder.
 
-**Tech Stack:** Node 18+, TypeScript (ESM), `tsx` (dev), `tsup` (bundle), `vitest` (tests), `stream-json` (streaming parser), `@inquirer/prompts` (TUI).
+**Tech Stack:** Node **≥22** (required by stream-json 3.x), TypeScript (ESM), `tsx` (dev), `tsup` (bundle), `vitest` (tests), `stream-json@3.x` + `stream-chain` (streaming parser, functional API), `@clack/prompts` (TUI — built-in searchable multi-select).
+
+**⚠ Verified stack notes (from research, carry into implementation):**
+- `stream-json@3.x` is a **breaking rewrite** vs 1.x tutorials: ESM-only, Node ≥22, functional `parser()`/`pick()`/`streamArray()` composed via `stream-chain`'s `chain([...])`. Submodule imports are **lowercase** (`stream-json/filters/pick.js`, `stream-json/streamers/stream-array.js`). NOT the old `StreamArray`/`Pick` classes.
+- `@clack/prompts` ships `autocompleteMultiselect` (filter-as-you-type + multi-select) — no plugin needed. `@inquirer/checkbox` has no type-to-filter.
+- Token heuristic must be **chars/2.5** (not chars/4): the chat data is Cyrillic-heavy and chars/4 under-counts Russian ~2×, risking parts that overflow the budget. Use a soft cap (90k) below the 100k ceiling.
+- ⚠ UNVERIFIED at research time: exact `stack` shape for a deeply-nested function `filter` in `pick`. We avoid this by picking at `chats.list` level (one chat assembled at a time) — the simple path; confirm the `{value}` emit shape of `streamArray()` against the installed 3.x in Task 3.
 
 **Spec:** `docs/specs/tgsum.md`. **Issues:** epic `nikitatrubaev-9nf` + children (`pd7, ggi, lsh, 99u, jjq, 6nh, 5l7, 2my`).
 
@@ -14,8 +20,8 @@
 - Parse off `text_entities` (uniform), fall back to `text`. Identity = `from_id` (fallback `from`).
 - Topic = `id` of its `topic_created` service message; General topic = id `1`. Group messages by walking `reply_to_message_id` up to a topic root.
 - Ids kept as **strings** to avoid JS 53-bit float precision loss.
-- `streamArray` over `chats.list` holds **one chat at a time**. `// ponytail: one chat in memory at a time; if a single chat ever exceeds RAM, switch to nested message streaming`.
-- Token budget for splitting = `chars / 4` heuristic.
+- `streamArray()` over `chats.list` holds **one chat at a time** (the whole chat, incl. its messages, is assembled per element). `// ponytail: one chat in memory at a time; if a single chat ever exceeds RAM, switch to message-level pick via path-stack filter`.
+- Token budget for splitting = `chars / 2.5` heuristic (Cyrillic-aware), soft cap 90k under the 100k ceiling.
 
 ---
 
@@ -29,6 +35,7 @@ vitest.config.ts
 src/
   types.ts              # shared types (RawMessage, ChatIndex, TopicIndex, Selection)
   model.ts              # flattenText, resolveName, topic grouping, date helpers
+  stream-chats.ts       # streamChats(path): AsyncIterable<RawChat> via stream-json 3.x
   parse-index.ts        # pass 1: streamIndex(path) -> ChatIndex[]
   parse-extract.ts      # pass 2: extractSelection(path, selection) -> ExtractedUnit[]
   format.ts             # formatUnit(unit) -> {filename, parts: string[]}
@@ -65,7 +72,7 @@ README.md
   "type": "module",
   "bin": { "tgsum": "dist/index.js" },
   "files": ["dist", "launchers", "README.md"],
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=22" },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsup",
@@ -73,14 +80,14 @@ README.md
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "stream-json": "^1.8.0",
-    "@inquirer/prompts": "^7.0.0"
+    "stream-json": "^3.4.0",
+    "stream-chain": "^4.0.0",
+    "@clack/prompts": "^1.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/stream-json": "^1.7.7",
-    "tsup": "^8.0.0",
-    "tsx": "^4.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.22.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
@@ -113,7 +120,7 @@ import { defineConfig } from 'tsup'
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm'],
-  target: 'node18',
+  target: 'node22',
   clean: true,
   banner: { js: '#!/usr/bin/env node' },
 })
@@ -468,30 +475,39 @@ describe('streamIndex', () => {
 Run: `npx vitest run tests/parse-index.test.ts`
 Expected: FAIL — `streamIndex` not found.
 
-- [ ] **Step 4: Implement `src/parse-index.ts`**
+- [ ] **Step 4: Implement `src/stream-chats.ts` (shared streaming helper)**
 
 ```ts
 import { createReadStream } from 'node:fs'
-import StreamJsonParser from 'stream-json'
-import Pick from 'stream-json/filters/Pick.js'
-import StreamArray from 'stream-json/streamers/StreamArray.js'
-import type { ChatIndex, RawChat, RawMessage, TopicIndex } from './types.js'
-import { groupByTopic, isForum, stripService } from './model.js'
+import { parser } from 'stream-json'
+import { pick } from 'stream-json/filters/pick.js'
+import { streamArray } from 'stream-json/streamers/stream-array.js'
+import chain from 'stream-chain'
+import type { RawChat } from './types.js'
 
-// streamArray over chats.list -> one chat object at a time.
-// ponytail: one chat in memory at a time; if a single chat ever exceeds RAM, switch to nested message streaming.
-function streamChats(path: string): AsyncIterable<RawChat> {
-  const pipeline = createReadStream(path)
-    .pipe(StreamJsonParser.parser())
-    .pipe(Pick.pick({ filter: 'chats.list' }))
-    .pipe(StreamArray.streamArray())
-  async function* gen() {
-    for await (const item of pipeline as AsyncIterable<{ value: RawChat }>) {
-      yield item.value
-    }
+// stream-json 3.x functional API: chain([readStream, parser(), pick(...), streamArray()]).
+// pick('chats.list') + streamArray() emits { key, value } per chat — one chat assembled at a time.
+// ponytail: one chat in memory at a time; if a single chat ever exceeds RAM, switch to a
+// message-level pick({ filter: (stack) => ... }) that streams each message individually.
+export async function* streamChats(path: string): AsyncIterable<RawChat> {
+  const pipeline = chain([
+    createReadStream(path),
+    parser(),
+    pick({ filter: 'chats.list' }),
+    streamArray(),
+  ])
+  for await (const item of pipeline as AsyncIterable<{ value: RawChat }>) {
+    yield item.value
   }
-  return gen()
 }
+```
+
+- [ ] **Step 5: Implement `src/parse-index.ts`**
+
+```ts
+import type { ChatIndex, RawMessage, TopicIndex } from './types.js'
+import { groupByTopic, isForum, stripService } from './model.js'
+import { streamChats } from './stream-chats.js'
 
 function dateRange(msgs: RawMessage[]): { firstDate?: string; lastDate?: string } {
   const dates = msgs.map(m => m.date).filter((d): d is string => !!d)
@@ -526,16 +542,16 @@ export async function streamIndex(path: string): Promise<ChatIndex[]> {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 6: Run test to verify it passes**
 
 Run: `npx vitest run tests/parse-index.test.ts`
-Expected: PASS. If the `stream-json` submodule import paths or `pick`/`streamArray` shapes differ from the installed version, fix the imports here (this is the R4 validation point) until the test is green — the public `streamIndex` signature must not change.
+Expected: PASS. **R4 validation point:** if `streamArray()`'s emit shape or the `pick`/`streamArray` submodule paths differ from the installed `stream-json@3.x`, fix `src/stream-chats.ts` here until green — the public `streamChats`/`streamIndex` signatures must not change. (`for await` over the `chain(...)` pipeline; each item is `{ key, value }`.)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/parse-index.ts tests/parse-index.test.ts tests/fixtures/sample-export.json
-git commit -m "feat: pass 1 streaming chat/topic index"
+git add src/stream-chats.ts src/parse-index.ts tests/parse-index.test.ts tests/fixtures/sample-export.json
+git commit -m "feat: pass 1 streaming chat/topic index (stream-json 3.x)"
 ```
 
 ---
@@ -580,23 +596,9 @@ Expected: FAIL — `extractSelection` not found.
 - [ ] **Step 3: Implement `src/parse-extract.ts`**
 
 ```ts
-import { createReadStream } from 'node:fs'
-import StreamJsonParser from 'stream-json'
-import Pick from 'stream-json/filters/Pick.js'
-import StreamArray from 'stream-json/streamers/StreamArray.js'
-import type { ExtractedUnit, RawChat, Selection } from './types.js'
+import type { ExtractedUnit, Selection } from './types.js'
 import { groupByTopic, stripService } from './model.js'
-
-function streamChats(path: string): AsyncIterable<RawChat> {
-  const pipeline = createReadStream(path)
-    .pipe(StreamJsonParser.parser())
-    .pipe(Pick.pick({ filter: 'chats.list' }))
-    .pipe(StreamArray.streamArray())
-  async function* gen() {
-    for await (const item of pipeline as AsyncIterable<{ value: RawChat }>) yield item.value
-  }
-  return gen()
-}
+import { streamChats } from './stream-chats.js'
 
 export async function extractSelection(path: string, selection: Selection[]): Promise<ExtractedUnit[]> {
   const wanted = new Map(selection.map(s => [s.chatId, s]))
@@ -694,7 +696,8 @@ Expected: FAIL — `formatUnit` not found.
 import type { ExtractedUnit, RawMessage } from './types.js'
 import { flattenText, resolveName } from './model.js'
 
-const estTokens = (s: string) => Math.ceil(s.length / 4) // ponytail: chars/4 heuristic, no tokenizer dep
+// ponytail: chars/2.5 heuristic (Cyrillic-aware; chars/4 under-counts Russian ~2×), no tokenizer dep
+const estTokens = (s: string) => Math.ceil(s.length / 2.5)
 
 function safeName(s: string): string {
   return s.replace(/[\/\\:*?"<>|]/g, '_').trim() || 'chat'
@@ -738,7 +741,7 @@ function lineFor(m: RawMessage, byId: Map<string, RawMessage>): string {
   return `[${time}] ${name}${reply}: ${body}`
 }
 
-export function formatUnit(unit: ExtractedUnit, maxTokens = 100_000): { filename: string; parts: string[] } {
+export function formatUnit(unit: ExtractedUnit, maxTokens = 90_000): { filename: string; parts: string[] } {
   const byId = new Map(unit.messages.map(m => [String(m.id), m]))
   const dates = unit.messages.map(m => m.date).filter((d): d is string => !!d)
   const participants = [...new Set(unit.messages.map(resolveName))].join(', ')
@@ -837,7 +840,7 @@ import { join } from 'node:path'
 import type { ExtractedUnit } from './types.js'
 import { formatUnit } from './format.js'
 
-export function writeUnits(units: ExtractedUnit[], outDir: string, maxTokens = 100_000): string[] {
+export function writeUnits(units: ExtractedUnit[], outDir: string, maxTokens = 90_000): string[] {
   mkdirSync(outDir, { recursive: true })
   const written: string[] = []
   for (const unit of units) {
@@ -879,14 +882,14 @@ git commit -m "feat: output writer — folder, per-unit files, part suffixes"
 - Create: `src/wizard.ts`
 - Modify: `src/index.ts`
 
-Interactive prompts are verified manually (no unit test for the inquirer flow).
+Interactive prompts are verified manually (no unit test for the clack flow).
 
 - [ ] **Step 1: Implement `src/wizard.ts`**
 
 ```ts
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { input, checkbox, confirm } from '@inquirer/prompts'
+import { intro, outro, text, autocompleteMultiselect, confirm, isCancel, cancel, spinner } from '@clack/prompts'
 import { streamIndex } from './parse-index.js'
 import { extractSelection } from './parse-extract.js'
 import { writeUnits } from './write-output.js'
@@ -895,65 +898,69 @@ import type { ChatIndex, Selection } from './types.js'
 // Drag-and-drop in terminals often wraps the path in quotes — strip them.
 const cleanPath = (s: string) => s.trim().replace(/^['"]|['"]$/g, '')
 
-// Build searchable choices: one entry per whole-chat, plus one per forum topic.
-function toChoices(idx: ChatIndex[]) {
-  const choices: { name: string; value: Selection }[] = []
+// One selectable option per whole non-forum chat, or per forum topic.
+// Encode the Selection in the option value as a string key, decode after selection
+// (clack compares option values, so a stable primitive key is safer than an object).
+function toOptions(idx: ChatIndex[]) {
+  const options: { value: string; label: string; hint?: string }[] = []
+  const decode = new Map<string, Selection>()
   for (const c of idx) {
     if (c.topics.length) {
       for (const t of c.topics) {
-        choices.push({
-          name: `${c.name} › ${t.title} (${t.count} msgs)`,
-          value: { chatId: c.chatId, topicIds: [t.topicId] },
-        })
+        const key = `${c.chatId}::${t.topicId}`
+        options.push({ value: key, label: `${c.name} › ${t.title}`, hint: `${t.count} msgs` })
+        decode.set(key, { chatId: c.chatId, topicIds: [t.topicId] })
       }
     } else {
-      choices.push({ name: `${c.name} (${c.count} msgs, ${c.type})`, value: { chatId: c.chatId } })
+      options.push({ value: c.chatId, label: c.name, hint: `${c.count} msgs · ${c.type}` })
+      decode.set(c.chatId, { chatId: c.chatId })
     }
   }
-  return choices
+  return { options, decode }
 }
 
+function bail(): never { cancel('Отменено.'); process.exit(0) }
+
 export async function runWizard(): Promise<void> {
-  console.log('\n  tgsum — выгрузка Telegram → файлы для ИИ\n')
+  intro('tgsum — выгрузка Telegram → файлы для ИИ')
 
-  // Step 1: file
-  let path = ''
-  for (;;) {
-    path = cleanPath(await input({ message: 'Шаг 1/3 — путь к result.json (можно перетащить файл):' }))
-    if (path && existsSync(path)) break
-    console.log('  ✗ файл не найден, попробуйте ещё раз')
-  }
-
-  console.log('  …читаю список чатов (это может занять время на большой выгрузке)')
-  const idx = await streamIndex(path)
-  const choices = toChoices(idx)
-
-  // Step 2: searchable multi-select. @inquirer checkbox supports type-to-filter via `source`-less
-  // filtering is limited, so we expose a filter prompt then a checkbox of matches when the list is large.
-  let pool = choices
-  if (choices.length > 30) {
-    const term = (await input({ message: `Шаг 2/3 — найдено ${choices.length} чатов/топиков. Фильтр по названию (Enter — показать все):` })).toLowerCase().trim()
-    if (term) pool = choices.filter(c => c.name.toLowerCase().includes(term))
-  }
-  const selection = await checkbox<Selection>({
-    message: 'Отметьте чаты/топики (пробел — выбрать, Enter — подтвердить):',
-    choices: pool,
-    pageSize: 20,
-    loop: false,
+  // Step 1/3: file
+  const file = await text({
+    message: 'Шаг 1/3 — перетащите result.json сюда или вставьте путь:',
+    validate: (v) => (existsSync(cleanPath(v)) ? undefined : 'Файл не найден'),
   })
-  if (!selection.length) { console.log('  Ничего не выбрано. Выход.'); return }
+  if (isCancel(file)) bail()
+  const path = cleanPath(file)
 
-  // Step 3: output dir + confirm
-  const outDir = resolve(cleanPath(await input({ message: 'Шаг 3/3 — папка для файлов:', default: 'tgsum-output' })))
-  const ok = await confirm({ message: `Записать ${selection.length} выбранных в ${outDir}?`, default: true })
-  if (!ok) { console.log('  Отменено.'); return }
+  const s = spinner()
+  s.start('Читаю список чатов (на большой выгрузке это занимает время)')
+  const idx: ChatIndex[] = await streamIndex(path)
+  s.stop(`Найдено: ${idx.reduce((n, c) => n + (c.topics.length || 1), 0)} чатов/топиков`)
 
-  console.log('  …извлекаю и форматирую')
+  // Step 2/3: searchable multi-select (filter-as-you-type is built into clack)
+  const { options, decode } = toOptions(idx)
+  const picked = await autocompleteMultiselect({
+    message: 'Шаг 2/3 — печатайте для поиска, пробел — отметить, Enter — подтвердить:',
+    options,
+    placeholder: 'Поиск по названию…',
+  })
+  if (isCancel(picked)) bail()
+  const selection = (picked as string[]).map((k) => decode.get(k)!).filter(Boolean)
+  if (!selection.length) { outro('Ничего не выбрано.'); return }
+
+  // Step 3/3: output dir + confirm
+  const dir = await text({ message: 'Шаг 3/3 — папка для файлов:', placeholder: 'tgsum-output', defaultValue: 'tgsum-output' })
+  if (isCancel(dir)) bail()
+  const outDir = resolve(cleanPath(dir || 'tgsum-output'))
+  const ok = await confirm({ message: `Записать ${selection.length} выбранных в ${outDir}?` })
+  if (isCancel(ok) || !ok) bail()
+
+  const s2 = spinner()
+  s2.start('Извлекаю и форматирую')
   const units = await extractSelection(path, selection)
   const written = writeUnits(units, outDir)
-  console.log(`\n  ✓ Готово: ${written.length} файл(ов) в ${outDir}`)
-  for (const p of written) console.log(`    - ${p}`)
-  console.log('\n  Вставьте нужный файл в чат с ИИ вместе со скиллом-промптом.\n')
+  s2.stop(`Готово: ${written.length} файл(ов)`)
+  outro(`Файлы в ${outDir}. Вставьте нужный в чат с ИИ вместе со скиллом-промптом.`)
 }
 ```
 
@@ -963,7 +970,6 @@ export async function runWizard(): Promise<void> {
 import { runWizard } from './wizard.js'
 
 runWizard().catch((err) => {
-  if (err?.name === 'ExitPromptError') { console.log('\n  Прервано.'); process.exit(0) }
   console.error('  Ошибка:', err?.message ?? err)
   process.exit(1)
 })
@@ -1080,4 +1086,6 @@ git commit -m "feat: npm distribution metadata + double-click launchers + readme
 
 **Type consistency:** `Selection`, `ChatIndex`, `TopicIndex`, `ExtractedUnit`, `RawMessage`, `RawChat` defined in Task 2 `src/types.ts` and used unchanged in Tasks 3–7. `formatUnit(unit, maxTokens)`, `writeUnits(units, dir, maxTokens)`, `streamIndex(path)`, `extractSelection(path, selection)`, `groupByTopic(msgs)`, `flattenText(m)`, `resolveName(m)`, `stripService(msgs)` — signatures consistent across tasks. ✓
 
-**Note for executor:** Tasks 3 & 4 both define a private `streamChats` helper. If the `stream-json` wiring needs adjustment (R4), keep both in sync (or extract to a shared `src/stream-chats.ts` — acceptable small refactor).
+**Note for executor:** `streamChats` lives in one shared module `src/stream-chats.ts` (Task 3) and is imported by both passes — no duplication. If the `stream-json@3.x` wiring needs adjustment (R4), it changes in that one file only; public signatures (`streamChats`, `streamIndex`, `extractSelection`) stay fixed.
+
+**Stack corrections applied (from research, verify once via Context7 before coding):** `stream-json@3.x` functional API + `stream-chain`, Node ≥22, ESM; `@clack/prompts` `autocompleteMultiselect`; token heuristic chars/2.5 with 90k soft cap. If Context7 shows a newer API shape for any of these, update Task 1 (deps), `src/stream-chats.ts` (Task 3), or `src/wizard.ts` (Task 7) accordingly.

@@ -89,13 +89,13 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 - ASSUMPTION: ~100k tokens is a safe per-part budget for the target AI chats; configurable.
 - ASSUMPTION: the relevant pilot information is text (per US); voice/screenshot loss is acceptable.
 
-## Tech stack (recommended; exact APIs validated during execution)
+## Tech stack (verified via research; confirm once via Context7 before coding)
 
-- **Runtime:** Node + TypeScript; `tsx` in dev; bundle with `tsup`; `bin` entry `tgsum`.
-- **Streaming parser:** `stream-json` (mature, widely used). `chats.list` and each `messages` are plain JSON arrays → SAX/Pick-based streaming. Exact nested-stream wiring confirmed in implementation.
-- **TUI:** `@inquirer/prompts` — two-stage for hundreds of items: text search/filter → checkbox multi-select. Searchable-multiselect ergonomics validated against the installed version (fallback: `@clack/prompts` or an autocomplete-multiselect add-on).
-- **Distribution:** npm global package (`bin: tgsum`); primary path is `npm install -g tgsum`. Node SEA single-executable dropped from v1 (npm chosen as the simple path). Optional `.command`/`.bat` launchers as a bonus.
-- **Token estimate:** chars/4 heuristic, no tokenizer dependency.
+- **Runtime:** Node **≥22** (required by stream-json 3.x), TypeScript (ESM); `tsx` in dev; bundle with `tsup` (target node22); `bin` entry `tgsum`.
+- **Streaming parser:** `stream-json@3.x` + `stream-chain` — **functional API** `parser()`/`pick()`/`streamArray()` composed via `chain([...])` (3.x is a breaking ESM-only rewrite of the old 1.x classes). Pick at `chats.list` → one chat assembled per element (ceiling: one chat in memory; upgrade path = message-level pick).
+- **TUI:** `@clack/prompts` — built-in `autocompleteMultiselect` (filter-as-you-type + multi-select), which `@inquirer/checkbox` lacks. One wizard, no plugin.
+- **Distribution:** npm global package (`bin: tgsum`); primary path `npm install -g tgsum`. Optional `.command`/`.bat` launchers as a bonus. Future no-Node option: `bun build --compile` (Node SEA cannot cross-compile → dropped).
+- **Token estimate:** chars/**2.5** heuristic (Cyrillic-aware; chars/4 under-counts Russian ~2×) with a 90k soft cap under the 100k ceiling. No tokenizer dependency.
 
 ## Research
 
