@@ -60,7 +60,7 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 
 - Header: chat/topic, period, message count, participants (resolved names).
 - `## <date>` day headers; `[HH:MM] Name: text`; replies as `↳ Name «quote start»`.
-- Stripped: service messages, reactions, stickers. Media → `[photo]` / `[voice 0:42]` / `[file: name]`. Links, mentions, photo captions preserved.
+- Stripped: service messages, reactions. Media → markers `[photo]` / `[voice 0:42]` / `[file: name]` / `[sticker 👍]` (stickers kept as a marker — the emoji is a useful signal). Links, mentions, photo captions preserved.
 - Names resolved from `from` (fallback to `from_id` when `from` is null).
 
 ## Acceptance criteria
@@ -121,7 +121,7 @@ Sources: tdesktop `export_output_json.cpp`, `export_data_types.cpp`; `core.teleg
 ### Risks (from research)
 
 - **R1 — topic grouping not proven on live forum exports.** The reply-chain walk-up model is verified from the API, but it is **UNVERIFIED** that *every* in-topic message's chain terminates cleanly at the `topic_created` id in a real export (intermediate replies chain to immediate parent). **Mitigation:** validate against a real forum export early; provide a fallback (messages whose chain resolves to no known topic root → General) and surface a count of unresolved messages.
-- **R2 — id precision.** 64-bit ids exceed JS safe integers → keep ids as strings / BigInt where used as keys.
+- **R2 — id precision.** 64-bit ids exceed JS safe integers → keep ids as strings / BigInt where used as keys. **v1 known limitation:** `stream-json`'s parser returns numeric `id` as a JS float, so ids ≥ 2^53 (16+ digits) are rounded. Practical impact is low (message ids are small; `from_id` is already a string; chat ids are typically ≤13 digits; corruption is deterministic and identical in both passes so selection still round-trips). Fix deferred — needs a custom number tokenizer/assembler option. `// ponytail: float ids; switch to numberAsString tokenizer if real ids ever exceed 2^53`.
 - **R3 — old export format** (bare-int `from_id`, no `text_entities`) → parser must accept both shapes.
 - **R4 — nested streaming ergonomics** of `stream-json` for `chats.list[].messages[]` → validate the exact Pick/SAX wiring in implementation; two-pass disk re-read is acceptable.
 
