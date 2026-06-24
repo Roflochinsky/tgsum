@@ -1,0 +1,29 @@
+{
+  "about": "export",
+  "chats": {
+    "about": "chats",
+    "list": [
+      {
+        "name": "Direct with Bob",
+        "type": "personal_chat",
+        "id": 111,
+        "messages": [
+          { "id": 1, "type": "message", "date": "2026-06-18T10:00:00", "from": "Alice", "from_id": "user1", "text": "hi bob" },
+          { "id": 2, "type": "message", "date": "2026-06-19T11:00:00", "from": "Bob", "from_id": "user2", "reply_to_message_id": 1, "text": "hey alice" },
+          { "id": 3, "type": "service", "date": "2026-06-19T11:01:00", "action": "pin_message", "message_id": 1 }
+        ]
+      },
+      {
+        "name": "Pilot Forum",
+        "type": "private_supergroup",
+        "id": 222,
+        "messages": [
+          { "id": 50, "type": "message", "date": "2026-06-18T09:00:00", "from": "Alice", "from_id": "user1", "text": "general hello" },
+          { "id": 100, "type": "service", "date": "2026-06-18T09:30:00", "action": "topic_created", "title": "Bugs", "actor": "Alice", "actor_id": "user1" },
+          { "id": 101, "type": "message", "date": "2026-06-18T09:31:00", "from": "Bob", "from_id": "user2", "reply_to_message_id": 100, "text": "found a bug" },
+          { "id": 102, "type": "message", "date": "2026-06-20T09:31:00", "from": "Alice", "from_id": "user1", "reply_to_message_id": 101, "text": "fixing it", "media_type": "voice_message", "duration_seconds": 42, "file": "voice/x.ogg" }
+        ]
+      }
+    ]
+  }
+}
