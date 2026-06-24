@@ -1,12 +1,4 @@
-import type { RawMessage, TextRun, ExtractedUnit } from './types.js'
-
-const NOISE_ACTIONS = new Set([
-  'pin_message', 'invite_members', 'remove_members', 'join_group_by_link',
-  'join_group_by_request', 'edit_group_title', 'edit_group_photo', 'delete_group_photo',
-  'phone_call', 'group_call', 'group_call_scheduled', 'invite_to_group_call',
-  'take_screenshot', 'clear_history', 'set_messages_ttl', 'edit_chat_theme',
-  'migrate_to_supergroup', 'migrate_from_group', 'create_group', 'create_channel',
-])
+import type { RawMessage, TextRun } from './types.js'
 
 function runsToText(runs: TextRun[]): string {
   return runs.map(r => (typeof r === 'string' ? r : r.text)).join('')
@@ -27,13 +19,10 @@ export function resolveName(m: RawMessage): string {
   return 'unknown'
 }
 
-// Keep normal messages; drop noise service messages. topic_created is handled
-// by groupByTopic and is not emitted as a content message.
+// Keep normal messages; drop all service messages (non-content; topic titles are
+// captured separately by groupByTopic).
 export function stripService(msgs: RawMessage[]): RawMessage[] {
-  return msgs.filter(m => {
-    if (m.type !== 'service') return true
-    return false // all service messages are non-content; titles captured separately
-  })
+  return msgs.filter(m => m.type !== 'service')
 }
 
 interface Group { topicId: string; title: string; messages: RawMessage[] }
@@ -78,9 +67,3 @@ export function groupByTopic(msgs: RawMessage[]): Group[] {
 export function isForum(msgs: RawMessage[]): boolean {
   return msgs.some(m => m.type === 'service' && m.action === 'topic_created')
 }
-
-export function dateOf(m: RawMessage): string | undefined {
-  return m.date
-}
-
-export type { ExtractedUnit }
