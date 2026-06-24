@@ -35,7 +35,7 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 3. Two-pass streaming: pass 1 builds a lightweight index; pass 2 streams only the selected chats/topics.
 4. Format selected content to AI-ready Markdown (see Output Format).
 5. Write one `.md` file per selected chat/topic into an output folder; split oversized output into `…part-N.md` (≈100k-token budget per part, chars/4 heuristic), each part repeating the header.
-6. Double-click launchers for macOS (`.command`) and Windows (`.bat`).
+6. **Distribution via npm**: `npm install -g tgsum`, then run `tgsum` (launches the wizard). Optional double-click launchers (`.command`/`.bat`) as a convenience bonus. (Trade-off: npm install needs Node + a one-time terminal command; acceptable as a one-off setup, possibly with a colleague's help, after which the PM only runs `tgsum`.)
 
 ## Non-goals (explicitly NOT in this tool)
 
@@ -94,7 +94,7 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 - **Runtime:** Node + TypeScript; `tsx` in dev; bundle with `tsup`; `bin` entry `tgsum`.
 - **Streaming parser:** `stream-json` (mature, widely used). `chats.list` and each `messages` are plain JSON arrays → SAX/Pick-based streaming. Exact nested-stream wiring confirmed in implementation.
 - **TUI:** `@inquirer/prompts` — two-stage for hundreds of items: text search/filter → checkbox multi-select. Searchable-multiselect ergonomics validated against the installed version (fallback: `@clack/prompts` or an autocomplete-multiselect add-on).
-- **Launchers:** `.command` (chmod +x; note macOS Gatekeeper quarantine) + `.bat`; both `cd` to script dir and locate node. Optional: Node SEA single-executable so the PM needs no Node install.
+- **Distribution:** npm global package (`bin: tgsum`); primary path is `npm install -g tgsum`. Node SEA single-executable dropped from v1 (npm chosen as the simple path). Optional `.command`/`.bat` launchers as a bonus.
 - **Token estimate:** chars/4 heuristic, no tokenizer dependency.
 
 ## Research
