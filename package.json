@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsup",
+    "prepare": "node -e \"\"",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
