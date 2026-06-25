@@ -1,6 +1,6 @@
 {
   "name": "@roflochinsky/tgsum",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Telegram export -> AI-ready Markdown CLI",
   "license": "MIT",
   "homepage": "https://github.com/Roflochinsky/tgsum#readme",

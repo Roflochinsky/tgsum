@@ -39,4 +39,25 @@ describe('writeUnits', () => {
     expect(readFileSync(join(dir, 'Dup.md'), 'utf8')).toContain('first')
     expect(readFileSync(join(dir, 'Dup (2).md'), 'utf8')).toContain('second')
   })
+
+  it('clears stale part files when a re-run produces fewer parts', () => {
+    dir = mkdtempSync(join(tmpdir(), 'tgsum-'))
+    const big = (n: number): ExtractedUnit => ({
+      chatName: 'C',
+      messages: Array.from({ length: n }, (_, i) => ({
+        id: i, type: 'message' as const, date: '2026-06-18T09:00:00', from: 'X', from_id: 'u1', text: 'z'.repeat(40),
+      })),
+    })
+    // First run: many messages → several parts.
+    writeUnits([big(40)], dir, 60)
+    const firstParts = readdirSync(dir).filter(f => /^C\.part-\d+\.md$/.test(f)).length
+    expect(firstParts).toBeGreaterThan(2)
+    // Second run into the same dir: fewer messages → fewer parts; no stale leftovers.
+    writeUnits([big(6)], dir, 60)
+    const after = readdirSync(dir).filter(f => /^C\.part-\d+\.md$/.test(f)).length
+    expect(after).toBeLessThan(firstParts)
+    // No part number beyond the new count should survive.
+    const maxPart = Math.max(...readdirSync(dir).map(f => Number(/^C\.part-(\d+)\.md$/.exec(f)?.[1] ?? 0)))
+    expect(maxPart).toBe(after)
+  })
 })

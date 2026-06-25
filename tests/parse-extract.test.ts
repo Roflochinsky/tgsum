@@ -19,4 +19,13 @@ describe('extractSelection', () => {
     expect(units[0].topicTitle).toBe('Bugs')
     expect(units[0].messages.map(m => m.id)).toEqual([101, 102])
   })
+
+  it('keeps MULTIPLE topics of the same chat (regression: Map-by-chatId collapse)', async () => {
+    const units = await extractSelection(fixture, [
+      { chatId: '222', topicIds: ['1'] },   // General
+      { chatId: '222', topicIds: ['100'] }, // Bugs
+    ])
+    expect(units).toHaveLength(2)
+    expect(units.map(u => u.topicTitle).sort()).toEqual(['Bugs', 'General'])
+  })
 })

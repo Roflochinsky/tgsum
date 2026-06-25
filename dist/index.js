@@ -956,17 +956,24 @@ async function streamIndex(path) {
 
 // src/parse-extract.ts
 async function extractSelection(path, selection) {
-  const wanted = new Map(selection.map((s) => [s.chatId, s]));
+  const byChat = /* @__PURE__ */ new Map();
+  for (const s of selection) {
+    const e = byChat.get(s.chatId) ?? { whole: false, topicIds: /* @__PURE__ */ new Set() };
+    if (!s.topicIds || !s.topicIds.length) e.whole = true;
+    else for (const t2 of s.topicIds) e.topicIds.add(t2);
+    byChat.set(s.chatId, e);
+  }
   const units = [];
   for await (const chat of streamChats(path)) {
-    const sel = wanted.get(String(chat.id));
-    if (!sel) continue;
+    const e = byChat.get(String(chat.id));
+    if (!e) continue;
     const name = chat.name ?? `(no name ${chat.id})`;
-    if (!sel.topicIds || !sel.topicIds.length) {
+    if (e.whole) {
       units.push({ chatName: name, messages: stripService(chat.messages) });
-    } else {
+    }
+    if (e.topicIds.size) {
       const groups = groupByTopic(chat.messages);
-      for (const topicId of sel.topicIds) {
+      for (const topicId of e.topicIds) {
         const g2 = groups.find((x) => x.topicId === topicId);
         if (g2) units.push({ chatName: name, topicTitle: g2.title, messages: g2.messages });
       }
@@ -976,7 +983,7 @@ async function extractSelection(path, selection) {
 }
 
 // src/write-output.ts
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync, readdirSync, rmSync } from "fs";
 import { join } from "path";
 
 // src/format.ts
@@ -1072,6 +1079,17 @@ function formatUnit(unit, maxTokens = 9e4) {
 }
 
 // src/write-output.ts
+function clearStem(outDir, stem) {
+  let entries;
+  try {
+    entries = readdirSync(outDir);
+  } catch {
+    return;
+  }
+  const esc = stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${esc}(\\.part-\\d+)?\\.md$`);
+  for (const f of entries) if (re.test(f)) rmSync(join(outDir, f), { force: true });
+}
 function writeUnits(units, outDir, maxTokens = 9e4) {
   mkdirSync(outDir, { recursive: true });
   const written = [];
@@ -1082,6 +1100,7 @@ function writeUnits(units, outDir, maxTokens = 9e4) {
     const n = (seen.get(baseStem) ?? 0) + 1;
     seen.set(baseStem, n);
     const stem = n === 1 ? baseStem : `${baseStem} (${n})`;
+    clearStem(outDir, stem);
     if (parts.length === 1) {
       const p = join(outDir, `${stem}.md`);
       writeFileSync(p, parts[0], "utf8");
