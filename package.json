@@ -1,5 +1,5 @@
 {
-  "name": "tgsum",
+  "name": "@roflochinsky/tgsum",
   "version": "0.1.0",
   "description": "Telegram export -> AI-ready Markdown CLI",
   "type": "module",
