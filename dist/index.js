@@ -3,7 +3,7 @@
 // src/wizard.ts
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { intro, outro, text, autocompleteMultiselect, confirm, isCancel, cancel, spinner } from "@clack/prompts";
+import { intro, outro, text, note, autocompleteMultiselect, confirm, isCancel, cancel, spinner } from "@clack/prompts";
 
 // src/model.ts
 function runsToText(runs) {
@@ -259,6 +259,31 @@ function writeUnits(units, outDir, maxTokens = 9e4) {
   return written;
 }
 
+// src/logo.ts
+var BANNER = [
+  "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2588\u2557",
+  "\u255A\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255D\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2551",
+  "   \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2588\u2588\u2554\u2588\u2588\u2551",
+  "   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u255A\u2550\u2550\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551\u255A\u2588\u2588\u2554\u255D\u2588\u2588\u2551",
+  "   \u2588\u2588\u2551   \u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551 \u255A\u2550\u255D \u2588\u2588\u2551",
+  "   \u255A\u2550\u255D    \u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D     \u255A\u2550\u255D"
+];
+var lerp = (a, b, t) => Math.round(a + (b - a) * t);
+function renderLogo(color = true) {
+  if (!color) return BANNER.join("\n");
+  const [tr, tg, tb] = [0, 255, 255];
+  const [br, bg, bb] = [80, 120, 255];
+  return BANNER.map((line, i) => {
+    const t = BANNER.length > 1 ? i / (BANNER.length - 1) : 0;
+    const r = lerp(tr, br, t), g = lerp(tg, bg, t), b = lerp(tb, bb, t);
+    return `\x1B[1;38;2;${r};${g};${b}m${line}\x1B[0m`;
+  }).join("\n");
+}
+function printLogo() {
+  const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+  process.stdout.write("\n" + renderLogo(color) + "\n\n");
+}
+
 // src/wizard.ts
 var cleanPath = (s) => s.trim().replace(/^['"]|['"]$/g, "");
 function toOptions(idx) {
@@ -283,7 +308,16 @@ function bail() {
   process.exit(0);
 }
 async function runWizard() {
+  printLogo();
   intro("tgsum \u2014 \u0432\u044B\u0433\u0440\u0443\u0437\u043A\u0430 Telegram \u2192 \u0444\u0430\u0439\u043B\u044B \u0434\u043B\u044F \u0418\u0418");
+  note(
+    [
+      "Telegram Desktop \u2192 \u2699 Settings \u2192 Advanced \u2192 Export Telegram data",
+      "\u0424\u043E\u0440\u043C\u0430\u0442: Machine-readable JSON (\u043C\u0435\u0434\u0438\u0430 \u043C\u043E\u0436\u043D\u043E \u043D\u0435 \u0432\u043A\u043B\u044E\u0447\u0430\u0442\u044C) \u2192 Export.",
+      "\u0412 \u043F\u0430\u043F\u043A\u0435 \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0444\u0430\u0439\u043B result.json \u2014 \u0435\u0433\u043E \u043F\u0443\u0442\u044C \u0438 \u043D\u0443\u0436\u0435\u043D \u043D\u0438\u0436\u0435."
+    ].join("\n"),
+    "\u041A\u0430\u043A \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C result.json"
+  );
   const file = await text({
     message: "\u0428\u0430\u0433 1/3 \u2014 \u043F\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u0435 result.json \u0441\u044E\u0434\u0430 \u0438\u043B\u0438 \u0432\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043F\u0443\u0442\u044C:",
     validate: (v) => v && existsSync(cleanPath(v)) ? void 0 : "\u0424\u0430\u0439\u043B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D"

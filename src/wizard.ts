@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { intro, outro, text, autocompleteMultiselect, confirm, isCancel, cancel, spinner } from '@clack/prompts'
+import { intro, outro, text, note, autocompleteMultiselect, confirm, isCancel, cancel, spinner } from '@clack/prompts'
 import { streamIndex } from './parse-index.js'
 import { extractSelection } from './parse-extract.js'
 import { writeUnits } from './write-output.js'
+import { printLogo } from './logo.js'
 import type { ChatIndex, Selection } from './types.js'
 
 // Drag-and-drop in terminals often wraps the path in quotes — strip them.
@@ -33,7 +34,17 @@ function toOptions(idx: ChatIndex[]) {
 function bail(): never { cancel('Отменено.'); process.exit(0) }
 
 export async function runWizard(): Promise<void> {
+  printLogo()
   intro('tgsum — выгрузка Telegram → файлы для ИИ')
+
+  note(
+    [
+      'Telegram Desktop → ⚙ Settings → Advanced → Export Telegram data',
+      'Формат: Machine-readable JSON (медиа можно не включать) → Export.',
+      'В папке экспорта появится файл result.json — его путь и нужен ниже.',
+    ].join('\n'),
+    'Как получить result.json',
+  )
 
   // Step 1/3: file
   const file = await text({

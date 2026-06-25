@@ -1,6 +1,6 @@
 {
   "name": "@roflochinsky/tgsum",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Telegram export -> AI-ready Markdown CLI",
   "type": "module",
   "bin": { "tgsum": "dist/index.js" },
