@@ -1,7 +1,10 @@
 {
   "name": "@roflochinsky/tgsum",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Telegram export -> AI-ready Markdown CLI",
+  "license": "MIT",
+  "homepage": "https://github.com/Roflochinsky/tgsum#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/Roflochinsky/tgsum.git" },
   "type": "module",
   "bin": { "tgsum": "dist/index.js" },
   "files": ["dist", "launchers", "README.md"],
