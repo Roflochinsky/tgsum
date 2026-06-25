@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { intro, outro, text, note, autocompleteMultiselect, confirm, isCancel, cancel, spinner } from '@clack/prompts'
+import { intro, outro, text, note, confirm, isCancel, cancel, spinner } from '@clack/prompts'
+import { colorAutocompleteMultiselect } from './select-prompt.js'
 import { streamIndex } from './parse-index.js'
 import { extractSelection } from './parse-extract.js'
 import { writeUnits } from './write-output.js'
@@ -61,7 +62,7 @@ export async function runWizard(): Promise<void> {
 
   // Step 2/3: searchable multi-select (filter-as-you-type is built into clack)
   const { options, decode } = toOptions(idx)
-  const picked = await autocompleteMultiselect({
+  const picked = await colorAutocompleteMultiselect({
     message: 'Шаг 2/3 — печатайте для поиска, пробел — отметить, Enter — подтвердить:',
     options,
     placeholder: 'Поиск по названию…',
