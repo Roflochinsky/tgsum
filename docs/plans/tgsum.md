@@ -1,3 +1,5 @@
+> **Historical:** this is the implementation plan of the v0.1 Node/TypeScript CLI. Since v0.2 tgsum is a Rust + Tauri desktop app — see `docs/specs/tgsum.md` ("Revision v0.2") and the README.
+
 # tgsum Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

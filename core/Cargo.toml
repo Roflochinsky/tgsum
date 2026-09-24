@@ -1,0 +1,16 @@
+[package]
+name = "tgsum-core"
+description = "Telegram Desktop export (result.json) -> AI-ready Markdown: streaming parser, forum topics, formatter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
