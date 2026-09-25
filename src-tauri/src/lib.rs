@@ -5,6 +5,8 @@
 //! throttled `progress` events and stop early when the user cancels.
 
 mod desktop;
+#[cfg(target_os = "linux")]
+mod launcher;
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -319,6 +321,22 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
+    // `cargo install` builds add themselves to the app launcher. The
+    // environment is read up front: GTK modifies it while starting up.
+    #[cfg(target_os = "linux")]
+    {
+        let env: std::collections::HashMap<String, String> = std::env::vars_os()
+            .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+            .collect();
+        std::thread::spawn(move || {
+            let synced = std::env::current_exe()
+                .and_then(|exe| launcher::sync(|key| env.get(key).cloned(), &exe));
+            if let Err(err) = synced {
+                eprintln!("tgsum: could not update the launcher entry: {err}");
+            }
+        });
     }
 
     app(tauri::Builder::default())
