@@ -3,7 +3,7 @@
   "productName": "tgsum",
   "identifier": "com.roflochinsky.tgsum",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "ui"
   },
   "app": {
     "withGlobalTauri": true,

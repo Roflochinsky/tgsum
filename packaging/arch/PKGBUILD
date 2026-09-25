@@ -39,7 +39,7 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
   install -Dm755 target/release/tgsum -t "$pkgdir/usr/bin"
-  install -Dm644 packaging/linux/tgsum.desktop -t "$pkgdir/usr/share/applications"
+  install -Dm644 src-tauri/tgsum.desktop -t "$pkgdir/usr/share/applications"
   install -Dm644 src-tauri/icons/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/tgsum.svg"
   local size
   for size in 32 64 128; do
