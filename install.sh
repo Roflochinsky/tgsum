@@ -29,23 +29,52 @@ as_root() {
   fi
 }
 
+# Which package family the system is, from os-release (a Debian box can
+# have pacman installed and the other way round); what is installed decides
+# only when os-release does not tell.
+distro() {
+  ids=
+  if [ -r /etc/os-release ]; then
+    # shellcheck source=/dev/null
+    ids=$(. /etc/os-release && echo "${ID:-} ${ID_LIKE:-}")
+  fi
+  case " $ids " in
+  *" arch "*) echo arch ;;
+  *" debian "* | *" ubuntu "*) echo debian ;;
+  *" fedora "* | *" rhel "*) echo fedora ;;
+  *" suse "* | *" opensuse "*) echo suse ;;
+  *)
+    if have apt-get; then
+      echo debian
+    elif have dnf; then
+      echo fedora
+    elif have zypper; then
+      echo suse
+    elif have pacman; then
+      echo arch
+    fi
+    ;;
+  esac
+}
+
 # The WebKitGTK the app draws its window with, pkg-config and a C compiler.
 install_system_deps() {
   case "$(uname -s)" in
   Linux)
-    if have pacman; then
+    family=$(distro)
+    if [ "$family" = arch ]; then
       say "Ставлю WebKitGTK и инструменты сборки (pacman)…"
       as_root pacman -S --needed --noconfirm base-devel webkit2gtk-4.1 ||
         die "pacman не справился; обнови систему (sudo pacman -Syu) и запусти установку ещё раз"
-    elif have apt-get; then
+    elif [ "$family" = debian ]; then
       say "Ставлю WebKitGTK и инструменты сборки (apt)…"
       as_root apt-get update
       as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
         build-essential pkg-config curl libwebkit2gtk-4.1-dev
-    elif have dnf; then
+    elif [ "$family" = fedora ]; then
       say "Ставлю WebKitGTK и инструменты сборки (dnf)…"
       as_root dnf install -y gcc pkgconf-pkg-config curl webkit2gtk4.1-devel
-    elif have zypper; then
+    elif [ "$family" = suse ]; then
       say "Ставлю WebKitGTK и инструменты сборки (zypper)…"
       as_root zypper --non-interactive install gcc pkg-config curl webkit2gtk3-devel
     else
