@@ -51,15 +51,28 @@
 
 ## Установка
 
-### Одной командой: `cargo install`
+### Одной командой
 
-Как `npm install -g`, только через cargo. Нужен [Rust](https://rustup.rs) ≥ 1.85:
+Как `npm install -g`: скрипт сам ставит всё нужное (WebKitGTK и компилятор через pacman, apt, dnf
+или zypper, Rust, если его нет), собирает tgsum через `cargo install` и открывает его. Linux и macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Roflochinsky/tgsum/main/install.sh | sh
+```
+
+Для системных пакетов спросит пароль sudo. Сборка занимает несколько минут, дальше tgsum открывается
+из лаунчера (в Omarchy — **Super + Space**). Обновить: та же команда, удалить: `cargo uninstall tgsum`.
+Самая свежая версия из репозитория: `curl … | TGSUM_GIT=1 sh`.
+
+### Через cargo вручную
+
+Если Rust уже стоит, а зависимости хочется поставить самому:
 
 ```bash
 cargo install tgsum --locked
 ```
 
-На Linux сначала поставь WebKitGTK (движок, которым приложение рисует окно):
+На Linux перед этим нужен WebKitGTK (движок, которым приложение рисует окно):
 
 | Система | Команда |
 |---|---|
@@ -67,12 +80,8 @@ cargo install tgsum --locked
 | Debian / Ubuntu | `sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev` |
 | Другие | [зависимости Tauri для Linux](https://v2.tauri.app/start/prerequisites/#linux) |
 
-Сборка занимает несколько минут. На Linux первый запуск (`tgsum` в терминале) добавляет приложение
-в лаунчер, дальше открывай его оттуда. Обновить: та же команда `cargo install`, удалить:
-`cargo uninstall tgsum`.
-
-Самая свежая версия прямо из репозитория:
-`cargo install --git https://github.com/Roflochinsky/tgsum --locked`.
+На Linux первый запуск (`tgsum` в терминале) добавляет приложение в лаунчер. Свежая версия
+прямо из репозитория: `cargo install --git https://github.com/Roflochinsky/tgsum --locked`.
 
 ### Готовые установщики
 
@@ -98,7 +107,7 @@ cargo install tgsum --locked
 
 <img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/night.jpg" alt="Ночная тема: то же поле под луной и звёздами" width="560" align="right">
 
-Подходит любой способ выше: `cargo install` или пакет `.pkg.tar.zst`. tgsum появится в лаунчере
+Подходит любой способ выше: скрипт, `cargo install` или пакет `.pkg.tar.zst`. tgsum появится в лаунчере
 (**Super + Space**). В Omarchy приложение:
 
 - с тёмной темой Omarchy показывает ночную версию картины, со светлой — дневную;
@@ -168,6 +177,7 @@ core/          tgsum-core — Rust-библиотека: потоковый па
 src-tauri/     приложение tgsum на Tauri 2: окно, команды, диалоги, прогресс и отмена
 src-tauri/ui/  интерфейс: HTML + CSS + JS без сборки и без npm
 packaging/     пакет для Arch/Omarchy (PKGBUILD)
+install.sh     установка одной командой: зависимости, Rust, cargo install
 ```
 
 ## Сборка из исходников
