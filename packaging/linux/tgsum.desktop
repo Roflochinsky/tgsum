@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=tgsum
+GenericName=Telegram export to Markdown
+GenericName[ru]=Выгрузка Telegram в Markdown
+Comment=Turn a Telegram Desktop export into clean Markdown for AI chats
+Comment[ru]=Превращает выгрузку Telegram в чистые .md для чата с ИИ
+Exec=tgsum %f
+Icon=tgsum
+Terminal=false
+Categories=Utility;TextTools;
+Keywords=telegram;export;markdown;chat;ai;result.json;
+MimeType=application/json;
+StartupWMClass=tgsum
+StartupNotify=true
