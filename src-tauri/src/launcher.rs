@@ -23,16 +23,16 @@ const MARKER: &str = "X-Tgsum-Generated=true";
 /// Icons for `Icon=tgsum`, relative to the data dir.
 const ICONS: [(&str, &[u8]); 3] = [
     (
-        "icons/hicolor/scalable/apps/tgsum.svg",
-        include_bytes!("../icons/icon.svg"),
-    ),
-    (
         "icons/hicolor/128x128/apps/tgsum.png",
         include_bytes!("../icons/128x128.png"),
     ),
     (
         "icons/hicolor/256x256/apps/tgsum.png",
         include_bytes!("../icons/128x128@2x.png"),
+    ),
+    (
+        "icons/hicolor/512x512/apps/tgsum.png",
+        include_bytes!("../icons/icon.png"),
     ),
 ];
 
@@ -242,7 +242,7 @@ mod tests {
 
     const USER_ENTRY: &str = ".local/share/applications/tgsum.desktop";
     const SYSTEM_ENTRY: &str = "usr/share/applications/tgsum.desktop";
-    const USER_ICON: &str = ".local/share/icons/hicolor/scalable/apps/tgsum.svg";
+    const USER_ICON: &str = ".local/share/icons/hicolor/512x512/apps/tgsum.png";
 
     #[test]
     fn registers_a_cargo_install_binary() {
