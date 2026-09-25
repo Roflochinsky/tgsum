@@ -10,6 +10,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "tgsum",
         "width": 1080,
         "height": 760,

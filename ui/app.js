@@ -624,6 +624,25 @@ document.addEventListener('contextmenu', (e) => {
   if (!e.target.closest('input, .folder, .alert, .toast')) e.preventDefault()
 })
 
+// ---------- desktop theme (Omarchy) ----------
+
+// theme.js applied the theme the app started with; follow later switches
+// (Omarchy's theme menu) when the window regains focus and, on a themed
+// desktop, every few seconds while visible.
+let themeKey = JSON.stringify(window.__TGSUM_THEME__ || null)
+
+async function syncTheme() {
+  const theme = await invoke('desktop_theme').catch(() => null)
+  const key = JSON.stringify(theme)
+  if (key === themeKey) return
+  themeKey = key
+  window.tgsumApplyTheme(theme)
+}
+
+window.addEventListener('focus', syncTheme)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTheme() })
+if (window.__TGSUM_THEME__) setInterval(() => { if (!document.hidden) syncTheme() }, 3000)
+
 // ---------- boot ----------
 
 show('start')

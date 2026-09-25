@@ -4,6 +4,8 @@
 //! Both passes run on a blocking thread, stream the export from disk, emit
 //! throttled `progress` events and stop early when the user cancels.
 
+mod desktop;
+
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -12,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Builder, Emitter, Runtime, State};
+use tauri::{AppHandle, Builder, Emitter, Runtime, State, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tgsum_core::{
@@ -243,6 +245,36 @@ fn cancel_job(jobs: State<'_, Jobs>) {
     jobs.cancel();
 }
 
+/// The desktop theme to follow (the active Omarchy theme), if any.
+#[tauri::command]
+fn desktop_theme() -> Option<desktop::DesktopTheme> {
+    current_theme()
+}
+
+fn current_theme() -> Option<desktop::DesktopTheme> {
+    if cfg!(target_os = "linux") {
+        desktop::omarchy_theme(|key| std::env::var(key).ok())
+    } else {
+        None
+    }
+}
+
+/// Creates the main window from its config (`create: false` there), without
+/// the system title bar on tiling compositors, and with the desktop theme
+/// available to `ui/theme.js` before the first paint.
+fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else {
+        return Ok(());
+    };
+    let decorations = config.decorations && desktop::native_decorations(|k| std::env::var(k).ok());
+    let theme = serde_json::to_string(&current_theme())?;
+    WebviewWindowBuilder::from_config(app, config)?
+        .decorations(decorations)
+        .initialization_script(format!("window.__TGSUM_THEME__ = {theme};"))
+        .build()?;
+    Ok(())
+}
+
 /// Opens a folder in the system file manager.
 #[tauri::command]
 fn open_folder<R: Runtime>(app: AppHandle<R>, path: String) -> Result<(), CmdError> {
@@ -266,8 +298,10 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Jobs::default())
+        .setup(|app| Ok(create_main_window(app.handle())?))
         .invoke_handler(tauri::generate_handler![
             initial_path,
+            desktop_theme,
             pick_export,
             pick_out_dir,
             index_export,
