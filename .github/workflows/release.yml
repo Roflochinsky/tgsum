@@ -1,0 +1,120 @@
+name: Release
+
+# Push a tag like `v0.2.0` (matching the version in Cargo.toml and
+# packaging/arch/PKGBUILD) to build the installers for every platform and
+# attach them to a draft GitHub release. A manual run builds the same
+# installers as workflow artifacts only.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.release.outputs.id }}
+    steps:
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NOTES: |
+            Установщики — ниже, в Assets:
+            - **macOS**: `…_aarch64.dmg` (Apple Silicon), `…_x64.dmg` (Intel)
+            - **Windows**: `…_x64-setup.exe` (или `.msi`)
+            - **Omarchy / Arch Linux**: `tgsum-…-x86_64.pkg.tar.zst` → `sudo pacman -U ./tgsum-*.pkg.tar.zst`
+            - **Debian/Ubuntu**: `.deb`, **Fedora**: `.rpm`, другие дистрибутивы: `.AppImage`
+
+            Первый запуск неподписанной сборки на macOS/Windows — см. раздел «Установка» в README.
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
+          if [ -z "$id" ]; then
+            id=$(gh api "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" \
+              -f name="tgsum $TAG" -f body="$NOTES" -F draft=true --jq .id)
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    needs: draft
+    if: ${{ !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WebKitGTK
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev libayatana-appindicator3-dev xdg-utils
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: cargo tauri
+          args: --target ${{ matrix.target }}
+          releaseId: ${{ needs.draft.outputs.id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tgsum-${{ matrix.target }}
+          path: ${{ join(fromJSON(steps.tauri.outputs.artifactPaths), fromJSON('"\n"')) }}
+          if-no-files-found: error
+
+  # Native pacman package for Omarchy / Arch Linux (the AppImage bundles
+  # graphics libraries that clash with Arch's Mesa on Wayland).
+  arch:
+    needs: draft
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: pacman -Syu --noconfirm --needed git rust cairo gdk-pixbuf2 glib2 gtk3 hicolor-icon-theme libsoup3 pango webkit2gtk-4.1 librsvg xdg-utils
+      - uses: actions/checkout@v4
+      - name: Build the package
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "git config --global --add safe.directory '*' && packaging/arch/build-local.sh --noconfirm"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tgsum-arch-package
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+      - name: Attach to the release
+        if: needs.draft.outputs.id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.draft.outputs.id }}
+        run: |
+          for f in packaging/arch/*.pkg.tar.zst; do
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" --data-binary @"$f" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$(basename "$f")" \
+              > /dev/null
+          done

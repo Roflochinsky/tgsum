@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tgsum</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <img src="icon.svg" alt="" width="22" height="22">
+      <span>tgsum</span>
+    </div>
+    <ol class="steps" data-tauri-drag-region>
+      <li data-step="1"><span class="dot">1</span>Файл</li>
+      <li data-step="2"><span class="dot">2</span>Чаты</li>
+      <li data-step="3"><span class="dot">3</span>Сохранение</li>
+    </ol>
+    <div class="titlebar-end" data-tauri-drag-region>
+      <span class="local-badge" title="Ничего не отправляется в сеть">
+        <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        локально
+      </span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Step 1: pick the export -->
+    <section id="screen-start" class="screen">
+      <div class="start">
+        <svg class="logo" viewBox="0 0 466 126" role="img" aria-label="TGSUM" shape-rendering="crispEdges">
+          <defs>
+            <linearGradient id="logo-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="120">
+              <stop offset="0" stop-color="#00ffff"/>
+              <stop offset="1" stop-color="#5078ff"/>
+            </linearGradient>
+          </defs>
+          <g class="logo-shadow" transform="translate(5 6)"><rect x="0" y="0" width="80" height="20"/><rect x="100" y="0" width="60" height="20"/><rect x="180" y="0" width="70" height="20"/><rect x="260" y="0" width="20" height="20"/><rect x="320" y="0" width="20" height="20"/><rect x="350" y="0" width="30" height="20"/><rect x="420" y="0" width="30" height="20"/><rect x="30" y="20" width="20" height="20"/><rect x="90" y="20" width="20" height="20"/><rect x="180" y="20" width="20" height="20"/><rect x="260" y="20" width="20" height="20"/><rect x="320" y="20" width="20" height="20"/><rect x="350" y="20" width="40" height="20"/><rect x="410" y="20" width="40" height="20"/><rect x="30" y="40" width="20" height="20"/><rect x="90" y="40" width="20" height="20"/><rect x="140" y="40" width="30" height="20"/><rect x="180" y="40" width="70" height="20"/><rect x="260" y="40" width="20" height="20"/><rect x="320" y="40" width="20" height="20"/><rect x="350" y="40" width="20" height="20"/><rect x="380" y="40" width="40" height="20"/><rect x="430" y="40" width="20" height="20"/><rect x="30" y="60" width="20" height="20"/><rect x="90" y="60" width="20" height="20"/><rect x="150" y="60" width="20" height="20"/><rect x="230" y="60" width="20" height="20"/><rect x="260" y="60" width="20" height="20"/><rect x="320" y="60" width="20" height="20"/><rect x="350" y="60" width="20" height="20"/><rect x="390" y="60" width="20" height="20"/><rect x="430" y="60" width="20" height="20"/><rect x="30" y="80" width="20" height="20"/><rect x="100" y="80" width="60" height="20"/><rect x="180" y="80" width="70" height="20"/><rect x="270" y="80" width="60" height="20"/><rect x="350" y="80" width="20" height="20"/><rect x="430" y="80" width="20" height="20"/></g>
+          <g fill="url(#logo-grad)"><rect x="0" y="0" width="80" height="20"/><rect x="100" y="0" width="60" height="20"/><rect x="180" y="0" width="70" height="20"/><rect x="260" y="0" width="20" height="20"/><rect x="320" y="0" width="20" height="20"/><rect x="350" y="0" width="30" height="20"/><rect x="420" y="0" width="30" height="20"/><rect x="30" y="20" width="20" height="20"/><rect x="90" y="20" width="20" height="20"/><rect x="180" y="20" width="20" height="20"/><rect x="260" y="20" width="20" height="20"/><rect x="320" y="20" width="20" height="20"/><rect x="350" y="20" width="40" height="20"/><rect x="410" y="20" width="40" height="20"/><rect x="30" y="40" width="20" height="20"/><rect x="90" y="40" width="20" height="20"/><rect x="140" y="40" width="30" height="20"/><rect x="180" y="40" width="70" height="20"/><rect x="260" y="40" width="20" height="20"/><rect x="320" y="40" width="20" height="20"/><rect x="350" y="40" width="20" height="20"/><rect x="380" y="40" width="40" height="20"/><rect x="430" y="40" width="20" height="20"/><rect x="30" y="60" width="20" height="20"/><rect x="90" y="60" width="20" height="20"/><rect x="150" y="60" width="20" height="20"/><rect x="230" y="60" width="20" height="20"/><rect x="260" y="60" width="20" height="20"/><rect x="320" y="60" width="20" height="20"/><rect x="350" y="60" width="20" height="20"/><rect x="390" y="60" width="20" height="20"/><rect x="430" y="60" width="20" height="20"/><rect x="30" y="80" width="20" height="20"/><rect x="100" y="80" width="60" height="20"/><rect x="180" y="80" width="70" height="20"/><rect x="270" y="80" width="60" height="20"/><rect x="350" y="80" width="20" height="20"/><rect x="430" y="80" width="20" height="20"/></g>
+        </svg>
+        <h1>Telegram-выгрузка → чистые <code>.md</code> для чата с ИИ</h1>
+        <p class="lead">Выберите чаты и форум-топики — tgsum сохранит каждый в аккуратный Markdown.
+          Локально: без API, без сети, без облака.</p>
+
+        <button id="dropzone" class="dropzone" type="button">
+          <span class="dz-icon">
+            <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
+          </span>
+          <span class="dz-title">Перетащите <b>result.json</b> или папку выгрузки сюда</span>
+          <span class="dz-sub">или нажмите, чтобы выбрать файл <kbd class="mod-key">⌘O</kbd></span>
+        </button>
+        <div id="start-error" class="alert" hidden></div>
+
+        <details class="howto">
+          <summary>Как получить result.json</summary>
+          <ol>
+            <li>Откройте <b>Telegram Desktop</b> → <b>Настройки</b> → <b>Продвинутые настройки</b>.</li>
+            <li>Нажмите <b>Экспорт данных из Telegram</b> <span class="muted">(Export Telegram data)</span>.</li>
+            <li>Формат — <b>Машиночитаемый JSON</b>; медиа можно не включать.</li>
+            <li>После экспорта в папке появится <code>result.json</code> — перетащите его сюда.</li>
+          </ol>
+        </details>
+      </div>
+    </section>
+
+    <!-- Long-running passes -->
+    <section id="screen-progress" class="screen" hidden>
+      <div class="progress-card card">
+        <div class="spinner" aria-hidden="true"></div>
+        <h2 id="progress-title">Читаю выгрузку…</h2>
+        <p id="progress-file" class="muted ellipsis"></p>
+        <div class="bar"><div id="progress-fill" class="bar-fill"></div></div>
+        <div class="progress-meta">
+          <span id="progress-percent" class="percent">0%</span>
+          <span id="progress-detail" class="muted"></span>
+        </div>
+        <button id="btn-cancel" class="btn btn-ghost" type="button">Отмена</button>
+      </div>
+    </section>
+
+    <!-- Step 2: pick chats and topics -->
+    <section id="screen-select" class="screen" hidden>
+      <div class="select-head">
+        <div class="file-chip" title="">
+          <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+          <span id="file-name" class="ellipsis"></span>
+          <span id="file-meta" class="muted"></span>
+          <button id="btn-other-file" class="link" type="button">другой файл</button>
+        </div>
+        <div class="toolbar">
+          <label class="search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="search" type="search" placeholder="Поиск по чатам и топикам…" autocomplete="off" spellcheck="false">
+            <kbd class="mod-key">⌘F</kbd>
+          </label>
+          <select id="sort" class="select" title="Сортировка">
+            <option value="export">Как в Telegram</option>
+            <option value="count">Больше сообщений</option>
+            <option value="recent">Недавние</option>
+            <option value="name">По названию</option>
+          </select>
+        </div>
+        <div id="filters" class="chips" role="tablist"></div>
+      </div>
+
+      <div id="list" class="list" role="listbox" aria-multiselectable="true"></div>
+      <div id="list-empty" class="empty" hidden>
+        <p>Ничего не найдено</p>
+        <button id="btn-clear-search" class="btn btn-ghost" type="button">Сбросить поиск</button>
+      </div>
+
+      <footer class="actionbar">
+        <div class="summary">
+          <b id="sel-count">Ничего не выбрано</b>
+          <span id="sel-detail" class="muted"></span>
+        </div>
+        <div class="actions">
+          <button id="btn-select-visible" class="btn btn-ghost" type="button">Отметить найденные</button>
+          <button id="btn-clear-selection" class="btn btn-ghost" type="button" disabled>Снять выбор</button>
+          <button id="btn-next" class="btn btn-primary" type="button" disabled>
+            Далее
+            <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+      </footer>
+    </section>
+
+    <!-- Step 3: where to save -->
+    <section id="screen-save" class="screen" hidden>
+      <div class="save">
+        <h2>Сохранение</h2>
+        <div class="card save-card">
+          <div class="field">
+            <div class="field-label">Выбрано</div>
+            <div id="save-summary" class="field-value"></div>
+            <ul id="save-items" class="save-items"></ul>
+          </div>
+          <div class="field">
+            <div class="field-label">Папка</div>
+            <div class="folder">
+              <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              <span id="out-dir" class="ellipsis"></span>
+              <button id="btn-pick-dir" class="btn btn-ghost btn-sm" type="button">Изменить…</button>
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Размер одного файла</div>
+            <div id="budgets" class="segmented" role="radiogroup"></div>
+            <p class="hint">Большие чаты режутся на части <code>имя.part-1.md</code>, <code>part-2.md</code>… без потерь:
+              у каждой части своя шапка, ни одно сообщение не выпадает.</p>
+          </div>
+        </div>
+        <div class="save-actions">
+          <button id="btn-back" class="btn btn-ghost" type="button">
+            <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
+            Назад
+          </button>
+          <button id="btn-export" class="btn btn-primary btn-lg" type="button">Сохранить</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Done -->
+    <section id="screen-done" class="screen" hidden>
+      <div class="done">
+        <div class="done-icon">
+          <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        </div>
+        <h2 id="done-title">Готово</h2>
+        <p id="done-sub" class="muted"></p>
+        <div class="done-actions">
+          <button id="btn-open-folder" class="btn btn-primary btn-lg" type="button">
+            <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            Открыть папку
+          </button>
+          <button id="btn-more" class="btn btn-ghost" type="button">Выбрать другие чаты</button>
+          <button id="btn-new-file" class="btn btn-ghost" type="button">Другой файл</button>
+        </div>
+        <ul id="done-files" class="files card"></ul>
+        <p class="hint center">Вставьте нужный файл в чат с ИИ (Claude, ChatGPT…) и попросите саммари.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="drop-overlay" class="drop-overlay" hidden>
+    <div class="drop-target">
+      <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      <p>Отпустите, чтобы открыть</p>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

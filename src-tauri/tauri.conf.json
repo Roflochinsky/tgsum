@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "tgsum",
+  "identifier": "com.roflochinsky.tgsum",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "tgsum",
+        "width": 1080,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560,
+        "center": true,
+        "dragDropEnabled": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Telegram export → AI-ready Markdown",
+    "longDescription": "tgsum turns a Telegram Desktop export (result.json) into clean, token-efficient Markdown files per chat or forum topic, ready to paste into Claude or ChatGPT. Fully local: no network, no API keys.",
+    "copyright": "MIT",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "languages": [
+          "Russian",
+          "English"
+        ]
+      }
+    }
+  }
+}

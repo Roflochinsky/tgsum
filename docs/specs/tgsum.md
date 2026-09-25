@@ -1,6 +1,6 @@
 # tgsum — Design Spec
 
-**Status:** approved (design), pre-implementation
+**Status:** v0.1 shipped as a Node/TypeScript TUI; **v0.2 rewritten as a Rust + Tauri desktop app** (see "Revision v0.2" below)
 **Date:** 2026-06-25
 **Owner:** Roflochinsky
 
@@ -16,7 +16,7 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 
 - **No LLM, no network, no API key, no embeddings.** Summarization is the job of the AI chat, not this tool. Embeddings are a retrieval tool; summarization needs *coverage*, not *relevance*, so RAG would actively drop content and bias the result. → `tgsum` only extracts and formats.
 - **Output is AI-ready Markdown files**, designed to be pasted into an AI chat that does the summary. Quality of that summary, not raw token-economy, drives the format (speakers, replies, dates, header context).
-- **Form factor = guided TUI wizard + double-click launcher.** The target user "can barely launch it", so a bare CLI with flags is a wall. A 3-step wizard (pick file → check chats/topics → done) plus `.command`/`.bat` launchers removes the terminal barrier.
+- **Form factor = desktop app with a guided 3-step flow** (v0.2; v0.1 was a TUI wizard + double-click launchers). The target user "can barely launch it", so a bare CLI with flags is a wall — and so is a terminal. An installable app (`.dmg` / `.exe` / `.AppImage`) with drag-and-drop of `result.json`, a searchable chat list and an "Open folder" button removes the terminal entirely.
 - **Cross-platform macOS + Windows is mandatory.**
 - **Streaming parser is mandatory.** Exports reach multi-GB; `JSON.parse` on the whole file is impossible (Node max string ~512 MB + memory). Two-pass streaming: light index pass, then extract-selected pass.
 - **Parse off `text_entities`, key identity off `from_id`.** `text` mixes strings and objects; `text_entities` is uniform. `from` (display name) can be `null` and is unstable; `from_id` is stable.
@@ -28,14 +28,26 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 ## Scope (v1)
 
 1. Read a Telegram Desktop `result.json` full-account export.
-2. Guided TUI wizard:
-   - Step ① choose the export file (path prompt, drag-and-drop friendly, validated).
+2. Guided desktop flow (v0.1: TUI wizard):
+   - Step ① choose the export file (drag-and-drop of the file or the export folder, or a native file dialog).
    - Step ② searchable multi-select of chats and (where present) forum topics, with per-item metadata (message count, date range).
    - Step ③ confirmation + output folder report.
 3. Two-pass streaming: pass 1 builds a lightweight index; pass 2 streams only the selected chats/topics.
 4. Format selected content to AI-ready Markdown (see Output Format).
 5. Write one `.md` file per selected chat/topic into an output folder; split oversized output into `…part-N.md` (≈100k-token budget per part, chars/4 heuristic), each part repeating the header.
-6. **Distribution via npm**: `npm install -g tgsum`, then run `tgsum` (launches the wizard). Optional double-click launchers (`.command`/`.bat`) as a convenience bonus. (Trade-off: npm install needs Node + a one-time terminal command; acceptable as a one-off setup, possibly with a colleague's help, after which the PM only runs `tgsum`.)
+6. **Distribution (v0.2): installers from GitHub Releases** — `.dmg` (macOS, Apple Silicon + Intel), `.exe`/`.msi` (Windows), `.AppImage`/`.deb`/`.rpm` (Linux), built by CI on tag push. No Node, no terminal. (v0.1 shipped via `npm install -g`.)
+
+## Revision v0.2 — Rust + Tauri desktop app
+
+The v0.1 TypeScript CLI worked but kept the terminal barrier and needed Node ≥ 22. v0.2 is a rewrite:
+
+- **`core/` (`tgsum-core`)** — pure Rust library: serde-visitor streaming over `chats.list` (one chat in memory at a time; the index pass keeps only per-message metadata), lenient field coercion (ids as numbers or strings, `text` as string or runs, old exports), topic grouping, formatter, writer. Output is byte-for-byte identical to v0.1 (verified on 174 randomized exports / 19k files), except where v0.1 cut an emoji in half inside a reply quote (it wrote U+FFFD; v0.2 drops the whole character).
+- **`src-tauri/`** — the app: Tauri 2 commands `index_export` / `export_selection` run on a blocking thread, emit throttled `progress` events, support cancellation; native dialogs; "open folder" / "reveal file".
+- **`ui/`** — static HTML/CSS/JS (no framework, no build step), served from the app bundle; light/dark theme follows the OS.
+- **R2 (id precision) resolved:** ids are read as exact 64-bit integers (or strings), never floats.
+- **Performance:** 200 MB export indexed in 0.8 s / 15 MB RSS (v0.1: 16.9 s / 546 MB); 1 GB in ~4 s.
+- **Omarchy (Arch + Hyprland) support:** a native pacman package (`packaging/arch/PKGBUILD`, built in an Arch container by CI and attached to releases); on tiling Wayland compositors the window has no system title bar (the app header is the title bar); the UI adopts the active Omarchy theme (`colors.toml`, Omarchy 3 and 4 layouts) and follows theme switches live.
+- **Small fixes over v0.1:** duplicate output names are compared case-insensitively (macOS/Windows file systems), a dropped export folder resolves to its `result.json`, selecting nothing is not a dead end, the index shows date ranges.
 
 ## Non-goals (explicitly NOT in this tool)
 
@@ -89,13 +101,16 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 - ASSUMPTION: ~100k tokens is a safe per-part budget for the target AI chats; configurable.
 - ASSUMPTION: the relevant pilot information is text (per US); voice/screenshot loss is acceptable.
 
-## Tech stack (verified via research; confirm once via Context7 before coding)
+## Tech stack
 
-- **Runtime:** Node **≥22** (required by stream-json 3.x), TypeScript (ESM); `tsx` in dev; bundle with `tsup` (target node22); `bin` entry `tgsum`.
-- **Streaming parser:** `stream-json@3.x` + `stream-chain` — **functional API** `parser()`/`pick()`/`streamArray()` composed via `chain([...])` (3.x is a breaking ESM-only rewrite of the old 1.x classes). Pick at `chats.list` → one chat assembled per element (ceiling: one chat in memory; upgrade path = message-level pick).
-- **TUI:** `@clack/prompts` — built-in `autocompleteMultiselect` (filter-as-you-type + multi-select), which `@inquirer/checkbox` lacks. One wizard, no plugin.
-- **Distribution:** npm global package (`bin: tgsum`); primary path `npm install -g tgsum`. Optional `.command`/`.bat` launchers as a bonus. Future no-Node option: `bun build --compile` (Node SEA cannot cross-compile → dropped).
-- **Token estimate:** chars/**2.5** heuristic (Cyrillic-aware; chars/4 under-counts Russian ~2×) with a 90k soft cap under the 100k ceiling. No tokenizer dependency.
+**v0.2 (current):**
+
+- **Core:** Rust (`tgsum-core`), `serde` + `serde_json` streaming visitors over `chats.list` — no DOM of the whole file, one chat in memory at a time.
+- **App:** Tauri 2 (system webview: WebView2 / WKWebView / WebKitGTK), plugins `dialog` (native pickers) and `opener` (open folder / reveal file). Installers via `cargo tauri build`.
+- **UI:** static `ui/` — HTML, CSS, vanilla JS module; talks to Rust via `window.__TAURI__` (`withGlobalTauri`). No npm, no bundler.
+- **Token estimate:** chars/**2.5** heuristic (UTF-16 length, Cyrillic-aware; chars/4 under-counts Russian ~2×) with a 90k default soft cap; the UI offers 30k / 60k / 90k / 150k / no split.
+
+**v0.1 (historical):** Node ≥ 22, TypeScript, `stream-json@3` + `stream-chain`, `@clack/prompts` TUI, distributed via npm.
 
 ## Research
 
