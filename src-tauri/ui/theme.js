@@ -1,12 +1,12 @@
-// Desktop theme support (Omarchy). A classic script in <head>, so the theme the
-// app injects as `window.__TGSUM_THEME__` applies before the first paint;
-// app.js calls `tgsumApplyTheme` again whenever the desktop theme changes.
+// Desktop theme support: with `TGSUM_THEME=omarchy` the app wears the active
+// Omarchy theme instead of its painting. A classic script in <head>, so the
+// theme the app injects as `window.__TGSUM_THEME__` applies before the first
+// paint; app.js calls `tgsumApplyTheme` again whenever the theme changes.
 ;(() => {
   const VARS = [
     '--bg', '--surface', '--surface-2', '--surface-3', '--border', '--border-strong',
     '--text', '--muted', '--accent', '--accent-text', '--accent-soft', '--accent-ring',
-    '--on-accent', '--grad-a', '--grad-b', '--logo-a', '--logo-b', '--glow-a', '--glow-b',
-    '--success', '--danger', '--danger-soft',
+    '--on-accent', '--grad-a', '--grad-b', '--success', '--danger', '--danger-soft',
   ]
 
   const mix = (a, b, pct) => `color-mix(in srgb, ${a} ${pct}%, ${b})`
@@ -55,10 +55,6 @@
       '--on-accent': contrast(accent, '#ffffff') >= contrast(accent, dark) ? '#ffffff' : dark,
       '--grad-a': mix(accent, fg, 72),
       '--grad-b': accent,
-      '--logo-a': mix(accent, fg, 60),
-      '--logo-b': accent,
-      '--glow-a': mix(accent, 'transparent', 9),
-      '--glow-b': mix(accent, 'transparent', 7),
       '--success': c.green || c.color2,
       '--danger': red,
       '--danger-soft': red && mix(red, 'transparent', 12),

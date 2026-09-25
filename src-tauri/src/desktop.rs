@@ -55,11 +55,12 @@ pub struct DesktopTheme {
     pub colors: BTreeMap<String, String>,
 }
 
-/// The active Omarchy theme, if this is an Omarchy system. Omarchy 4 keeps it
-/// in `~/.local/state/omarchy/current/theme`, Omarchy 3 in
-/// `~/.config/omarchy/current/theme`. `TGSUM_THEME=builtin` opts out.
+/// The active Omarchy theme when `TGSUM_THEME=omarchy` asks the app to wear
+/// it instead of its own painting-based design. Omarchy 4 keeps it in
+/// `~/.local/state/omarchy/current/theme`, Omarchy 3 in
+/// `~/.config/omarchy/current/theme`.
 pub fn omarchy_theme(var: impl Fn(&str) -> Option<String>) -> Option<DesktopTheme> {
-    if var("TGSUM_THEME").is_some_and(|v| v.trim() == "builtin") {
+    if var("TGSUM_THEME").as_deref().map(str::trim) != Some("omarchy") {
         return None;
     }
     let dir = |xdg: &str, fallback: &str| -> Option<PathBuf> {
@@ -255,7 +256,8 @@ mod tests {
     fn loads_the_current_theme_from_state_or_config_dir() {
         let home = tempfile::tempdir().unwrap();
         let h = home.path().to_str().unwrap();
-        assert_eq!(omarchy_theme(env(&[("HOME", h)])), None);
+        let on = ("TGSUM_THEME", "omarchy");
+        assert_eq!(omarchy_theme(env(&[("HOME", h), on])), None);
 
         // Omarchy 3: ~/.config/omarchy/current/theme, light themes ship `light.mode`.
         let v3 = home.path().join(".config/omarchy/current/theme");
@@ -264,7 +266,7 @@ mod tests {
             "accent = \"#56949f\"\nbackground = \"#faf4ed\"\nforeground = \"#575279\"\n",
         );
         fs::write(v3.join("light.mode"), "").unwrap();
-        let theme = omarchy_theme(env(&[("HOME", h)])).unwrap();
+        let theme = omarchy_theme(env(&[("HOME", h), on])).unwrap();
         assert_eq!(theme.mode, "light");
         assert_eq!(theme.colors["accent"], "#56949f");
 
@@ -275,12 +277,14 @@ mod tests {
             "mode = \"dark\"\naccent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\nforeground = \"#a9b1d6\"\n",
         );
         fs::write(state.join("theme.name"), "tokyo-night\n").unwrap();
-        let theme = omarchy_theme(env(&[("HOME", h)])).unwrap();
+        let theme = omarchy_theme(env(&[("HOME", h), on])).unwrap();
         assert_eq!(
             (theme.mode, theme.name.as_deref()),
             ("dark", Some("tokyo-night"))
         );
 
+        // The app's own design unless the theme is asked for.
+        assert_eq!(omarchy_theme(env(&[("HOME", h)])), None);
         assert_eq!(
             omarchy_theme(env(&[("HOME", h), ("TGSUM_THEME", "builtin")])),
             None
@@ -289,7 +293,8 @@ mod tests {
         assert_eq!(
             omarchy_theme(env(&[
                 ("HOME", h),
-                ("XDG_STATE_HOME", xdg.to_str().unwrap())
+                ("XDG_STATE_HOME", xdg.to_str().unwrap()),
+                on
             ]))
             .unwrap()
             .mode,

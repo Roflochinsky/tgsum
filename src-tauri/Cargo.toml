@@ -1,22 +1,26 @@
 [package]
 name = "tgsum"
-description = "Telegram export -> AI-ready Markdown, desktop app"
+description = "Desktop app that turns a Telegram Desktop export (result.json) into clean Markdown for AI chats"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+readme.workspace = true
+keywords = ["telegram", "markdown", "export", "llm", "tauri"]
+categories = ["gui", "text-processing"]
 
+# A plain Rust library (for the integration tests); no mobile targets, so no
+# staticlib/cdylib to link on every release build.
 [lib]
 name = "tgsum_app"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tgsum-core = { path = "../core" }
+tgsum-core.workspace = true
 # `custom-protocol` = always serve the embedded `ui/` (there is no dev server).
 tauri = { version = "2", features = ["custom-protocol"] }
 tauri-plugin-dialog = "2"

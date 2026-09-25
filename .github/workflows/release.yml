@@ -2,8 +2,9 @@ name: Release
 
 # Push a tag like `v0.2.0` (matching the version in Cargo.toml and
 # packaging/arch/PKGBUILD) to build the installers for every platform and
-# attach them to a draft GitHub release. A manual run builds the same
-# installers as workflow artifacts only.
+# attach them to a draft GitHub release, then publish the crates behind
+# `cargo install tgsum`. A manual run builds the same installers as workflow
+# artifacts only.
 on:
   push:
     tags: ['v*']
@@ -118,3 +119,33 @@ jobs:
               "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$(basename "$f")" \
               > /dev/null
           done
+
+  # `cargo install tgsum`: once every installer built, publish tgsum-core and
+  # then the app to crates.io, if the repository has a CARGO_REGISTRY_TOKEN
+  # secret (a crates.io API token). The app skips cargo's verify build:
+  # tauri-build writes ACL schemas into the crate's gen/ folder, which that
+  # check rejects; the bundle jobs above have just built the same sources.
+  crates:
+    needs: [bundle, arch]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::notice::No CARGO_REGISTRY_TOKEN secret: skipping crates.io"
+            exit 0
+          fi
+          version=$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "tgsum") | .version')
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match the crate version $version"
+            exit 1
+          fi
+          cargo publish --locked -p tgsum-core
+          cargo publish --locked -p tgsum --no-verify

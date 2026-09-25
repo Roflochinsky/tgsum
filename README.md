@@ -17,7 +17,7 @@
 ![tauri](https://img.shields.io/badge/app-Tauri%202-24c8db)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="docs/screenshots/select.png" alt="Выбор чатов и топиков" width="760">
+<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/start.jpg" alt="Первый экран: ночное небо из мазков, неоновая подпись tgsum" width="760">
 
 </div>
 
@@ -42,63 +42,87 @@
 - ✂️ **Автонарезка на части** под лимит контекста (30k–150k токенов или без нарезки) **без потерь**:
   у каждой части своя шапка.
 - 🧹 **Чистый формат.** Спикеры, реплаи, даты; служебные сообщения и реакции вырезаны.
-- 🌗 **Светлая и тёмная тема** следуют системным настройкам.
-- 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме, цвета текущей
-  темы Omarchy (и её смена на лету).
+- 🌌 **Ночь в духе Ван Гога.** Фон — живопись, которая пишется на глазах из тысяч мазков: вихри,
+  звёзды, луна, кипарис. Неоновая подпись, заголовки Literata, текст Onest, код JetBrains Mono
+  (шрифты встроены в приложение).
+- 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме; по желанию —
+  цвета текущей темы Omarchy вместо картины.
 - 🔒 **Полностью локально.** Ни сети, ни ключей, ни телеметрии.
 
 ## Установка
 
-Скачай установщик для своей системы со страницы [**Releases**](https://github.com/Roflochinsky/tgsum/releases):
+### Одной командой
+
+Как `npm install -g`: скрипт сам ставит всё нужное (WebKitGTK и компилятор через pacman, apt, dnf
+или zypper, Rust, если его нет), собирает tgsum через `cargo install` и открывает его. Linux и macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Roflochinsky/tgsum/main/install.sh | sh
+```
+
+Для системных пакетов спросит пароль sudo. Сборка занимает несколько минут, дальше tgsum открывается
+из лаунчера (в Omarchy — **Super + Space**). Обновить: та же команда, удалить: `cargo uninstall tgsum`.
+Самая свежая версия из репозитория: `curl … | TGSUM_GIT=1 sh`.
+
+### Через cargo вручную
+
+Если Rust уже стоит, а зависимости хочется поставить самому:
+
+```bash
+cargo install tgsum --locked
+```
+
+На Linux перед этим нужен WebKitGTK (движок, которым приложение рисует окно):
+
+| Система | Команда |
+|---|---|
+| Omarchy / Arch | `sudo pacman -S --needed base-devel webkit2gtk-4.1` |
+| Debian / Ubuntu | `sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev` |
+| Другие | [зависимости Tauri для Linux](https://v2.tauri.app/start/prerequisites/#linux) |
+
+На Linux первый запуск (`tgsum` в терминале) добавляет приложение в лаунчер. Свежая версия
+прямо из репозитория: `cargo install --git https://github.com/Roflochinsky/tgsum --locked`.
+
+### Готовые установщики
+
+Без Rust и без сборки: скачай файл для своей системы со страницы [**Releases**](https://github.com/Roflochinsky/tgsum/releases).
 
 | Система | Файл |
 |---|---|
 | macOS (Apple Silicon: M1…M4) | `tgsum_…_aarch64.dmg` |
 | macOS (Intel) | `tgsum_…_x64.dmg` |
 | Windows 10/11 | `tgsum_…_x64-setup.exe` (или `.msi`) |
-| Omarchy / Arch Linux | `tgsum-…-x86_64.pkg.tar.zst` (см. ниже) |
+| Omarchy / Arch Linux | `tgsum-…-x86_64.pkg.tar.zst`, ставится командой `sudo pacman -U ./tgsum-*.pkg.tar.zst` |
 | Другие Linux | `.deb` (Debian/Ubuntu), `.rpm` (Fedora) или `.AppImage` |
-
-> До v0.2 tgsum был консольным мастером на Node и ставился через npm (`@roflochinsky/tgsum`).
-> Теперь это отдельное приложение, Node не нужен; npm-пакет больше не обновляется.
 
 > **Первый запуск.** Сборки пока не подписаны сертификатом разработчика, поэтому система переспросит:
 > - **macOS:** открой приложение через правый клик → **Открыть**. Если не помогло:
 >   **Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть»**.
 > - **Windows:** в окне SmartScreen нажми **Подробнее → Выполнить в любом случае**.
 
-### Omarchy / Arch Linux
+> До v0.2 tgsum был консольным мастером на Node и ставился через npm (`@roflochinsky/tgsum`).
+> Теперь это приложение на Rust: вместо `npm install -g` — `cargo install tgsum`. npm-пакет больше не обновляется.
 
-<img src="docs/screenshots/omarchy.png" alt="tgsum в тайловом Wayland-композиторе с темой Omarchy Tokyo Night" width="560" align="right">
+### Omarchy
 
-Поставь пакет из Releases:
+<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/done.jpg" alt="Готово: список сохранённых файлов" width="560" align="right">
 
-```bash
-sudo pacman -U ./tgsum-*-x86_64.pkg.tar.zst
-```
+Подходит любой способ выше: скрипт, `cargo install` или пакет `.pkg.tar.zst`. tgsum появится в лаунчере
+(**Super + Space**). В Omarchy приложение:
 
-или собери его из исходников (нужны `git` и `base-devel`):
-
-```bash
-git clone https://github.com/Roflochinsky/tgsum
-cd tgsum && packaging/arch/build-local.sh -si
-```
-
-tgsum появится в лаунчере (**Super + Space**). В Omarchy приложение:
-
-- берёт цвета текущей темы Omarchy и перекрашивается, когда ты её меняешь;
 - в Hyprland открывается без системной рамки, как остальные окна (закрыть — **Super + W**);
 - работает нативно на Wayland.
 
 AppImage на Arch с Hyprland может открыться пустым окном (он везёт свои графические библиотеки),
-поэтому ставь пакет. Переменные окружения: `TGSUM_THEME=builtin` — своя палитра вместо темы Omarchy,
-`TGSUM_DECORATIONS=1` — вернуть системную рамку окна.
+поэтому на Omarchy ставь через cargo или пакетом. Переменные окружения: `TGSUM_THEME=omarchy` — цвета
+текущей темы Omarchy вместо картины (и смена темы на лету), `TGSUM_DECORATIONS=1` — вернуть системную
+рамку окна.
 
 <br clear="right">
 
 ## Как пользоваться
 
-<img src="docs/screenshots/start.png" alt="Стартовый экран" width="560" align="right">
+<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/select.jpg" alt="Выбор чатов и топиков" width="560" align="right">
 
 1. **Файл.** Перетащи `result.json` (или всю папку выгрузки) в окно. Можно и кнопкой.
 2. **Чаты.** Найди и отметь нужные чаты и топики.
@@ -148,10 +172,11 @@ Telegram Desktop → ⚙ **Настройки** → **Продвинутые н�
 `part-2.md`… **без потери сообщений**: каждая часть несёт ту же шапку, ни одно сообщение не выпадает.
 
 ```
-core/        tgsum-core — Rust-библиотека: потоковый парсер, топики, Markdown, запись файлов
-src-tauri/   приложение на Tauri 2: окно, команды, диалоги, прогресс и отмена
-ui/          интерфейс: HTML + CSS + JS без сборки и без npm
-packaging/   пакет для Arch/Omarchy (PKGBUILD) и .desktop-файл
+core/          tgsum-core — Rust-библиотека: потоковый парсер, топики, Markdown, запись файлов
+src-tauri/     приложение tgsum на Tauri 2: окно, команды, диалоги, прогресс и отмена
+src-tauri/ui/  интерфейс: HTML + CSS + JS без сборки и без npm
+packaging/     пакет для Arch/Omarchy (PKGBUILD)
+install.sh     установка одной командой: зависимости, Rust, cargo install
 ```
 
 ## Сборка из исходников
@@ -166,16 +191,23 @@ sudo pacman -S --needed rust webkit2gtk-4.1 gtk3 librsvg xdg-utils
 ```
 
 ```bash
-cargo run -p tgsum                    # запустить приложение
-cargo test --workspace                # тесты (ядро + команды приложения)
+cargo run -p tgsum                       # запустить приложение
+cargo test --workspace                   # тесты (ядро + команды приложения)
+
+cargo install --path src-tauri --locked  # поставить собранное из этой папки
+packaging/arch/build-local.sh -si        # собрать и поставить пакет для Arch/Omarchy
 
 cargo install tauri-cli --version "^2" --locked
-cargo tauri build                     # установщики → target/release/bundle/
+cargo tauri build                        # установщики → target/release/bundle/
 ```
 
 Релизы собирает GitHub Actions: пуш тега `v*` публикует черновик релиза с установщиками
-для всех платформ (`.github/workflows/release.yml`).
+для всех платформ (`.github/workflows/release.yml`). Если в секретах репозитория есть
+`CARGO_REGISTRY_TOKEN` (токен crates.io), тот же тег публикует и крейты для `cargo install tgsum`.
 
 ## Лицензия
 
-MIT
+MIT. Фон рисует генеративный движок живописи с сайта автора (`src-tauri/ui/paint.js`).
+Иконка — фрагмент картины Винсента ван Гога «Пшеничное поле с кипарисами» (1889, общественное
+достояние). Шрифты Literata, Onest и JetBrains Mono — SIL Open Font License 1.1
+(`src-tauri/ui/fonts/`); подпись «tgsum» — контуры букв шрифта Caveat (OFL).

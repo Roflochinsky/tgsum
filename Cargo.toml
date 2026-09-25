@@ -9,6 +9,11 @@ rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/Roflochinsky/tgsum"
 homepage = "https://github.com/Roflochinsky/tgsum#readme"
+readme = "README.md"
+
+# The app depends on the core crate by path here and by version on crates.io.
+[workspace.dependencies]
+tgsum-core = { path = "core", version = "0.2.0" }
 
 [profile.release]
 codegen-units = 1
