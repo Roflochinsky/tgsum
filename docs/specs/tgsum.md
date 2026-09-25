@@ -46,6 +46,7 @@ The v0.1 TypeScript CLI worked but kept the terminal barrier and needed Node ≥
 - **`ui/`** — static HTML/CSS/JS (no framework, no build step), served from the app bundle; light/dark theme follows the OS.
 - **R2 (id precision) resolved:** ids are read as exact 64-bit integers (or strings), never floats.
 - **Performance:** 200 MB export indexed in 0.8 s / 15 MB RSS (v0.1: 16.9 s / 546 MB); 1 GB in ~4 s.
+- **Omarchy (Arch + Hyprland) support:** a native pacman package (`packaging/arch/PKGBUILD`, built in an Arch container by CI and attached to releases); on tiling Wayland compositors the window has no system title bar (the app header is the title bar); the UI adopts the active Omarchy theme (`colors.toml`, Omarchy 3 and 4 layouts) and follows theme switches live.
 - **Small fixes over v0.1:** duplicate output names are compared case-insensitively (macOS/Windows file systems), a dropped export folder resolves to its `result.json`, selecting nothing is not a dead end, the index shows date ranges.
 
 ## Non-goals (explicitly NOT in this tool)

@@ -43,6 +43,8 @@
   у каждой части своя шапка.
 - 🧹 **Чистый формат.** Спикеры, реплаи, даты; служебные сообщения и реакции вырезаны.
 - 🌗 **Светлая и тёмная тема** следуют системным настройкам.
+- 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме, цвета текущей
+  темы Omarchy (и её смена на лету).
 - 🔒 **Полностью локально.** Ни сети, ни ключей, ни телеметрии.
 
 ## Установка
@@ -54,7 +56,8 @@
 | macOS (Apple Silicon: M1…M4) | `tgsum_…_aarch64.dmg` |
 | macOS (Intel) | `tgsum_…_x64.dmg` |
 | Windows 10/11 | `tgsum_…_x64-setup.exe` (или `.msi`) |
-| Linux | `.AppImage`, `.deb` или `.rpm` |
+| Omarchy / Arch Linux | `tgsum-…-x86_64.pkg.tar.zst` (см. ниже) |
+| Другие Linux | `.deb` (Debian/Ubuntu), `.rpm` (Fedora) или `.AppImage` |
 
 > До v0.2 tgsum был консольным мастером на Node и ставился через npm (`@roflochinsky/tgsum`).
 > Теперь это отдельное приложение, Node не нужен; npm-пакет больше не обновляется.
@@ -63,6 +66,35 @@
 > - **macOS:** открой приложение через правый клик → **Открыть**. Если не помогло:
 >   **Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть»**.
 > - **Windows:** в окне SmartScreen нажми **Подробнее → Выполнить в любом случае**.
+
+### Omarchy / Arch Linux
+
+<img src="docs/screenshots/omarchy.png" alt="tgsum в тайловом Wayland-композиторе с темой Omarchy Tokyo Night" width="560" align="right">
+
+Поставь пакет из Releases:
+
+```bash
+sudo pacman -U ./tgsum-*-x86_64.pkg.tar.zst
+```
+
+или собери его из исходников (нужны `git` и `base-devel`):
+
+```bash
+git clone https://github.com/Roflochinsky/tgsum
+cd tgsum && packaging/arch/build-local.sh -si
+```
+
+tgsum появится в лаунчере (**Super + Space**). В Omarchy приложение:
+
+- берёт цвета текущей темы Omarchy и перекрашивается, когда ты её меняешь;
+- в Hyprland открывается без системной рамки, как остальные окна (закрыть — **Super + W**);
+- работает нативно на Wayland.
+
+AppImage на Arch с Hyprland может открыться пустым окном (он везёт свои графические библиотеки),
+поэтому ставь пакет. Переменные окружения: `TGSUM_THEME=builtin` — своя палитра вместо темы Omarchy,
+`TGSUM_DECORATIONS=1` — вернуть системную рамку окна.
+
+<br clear="right">
 
 ## Как пользоваться
 
@@ -119,6 +151,7 @@ Telegram Desktop → ⚙ **Настройки** → **Продвинутые н�
 core/        tgsum-core — Rust-библиотека: потоковый парсер, топики, Markdown, запись файлов
 src-tauri/   приложение на Tauri 2: окно, команды, диалоги, прогресс и отмена
 ui/          интерфейс: HTML + CSS + JS без сборки и без npm
+packaging/   пакет для Arch/Omarchy (PKGBUILD) и .desktop-файл
 ```
 
 ## Сборка из исходников
@@ -128,6 +161,8 @@ ui/          интерфейс: HTML + CSS + JS без сборки и без n
 ```bash
 # Debian/Ubuntu
 sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev
+# Arch/Omarchy
+sudo pacman -S --needed rust webkit2gtk-4.1 gtk3 librsvg xdg-utils
 ```
 
 ```bash
