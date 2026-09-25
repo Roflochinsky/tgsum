@@ -277,6 +277,46 @@ lint на Linux, тесты на Linux/macOS/Windows. ShellCheck отдельн�
 [Clippy](https://doc.rust-lang.org/clippy/usage.html),
 [наследование lint-правил](https://doc.rust-lang.org/cargo/reference/workspaces.html#the-lints-table).
 
+## Работа агента и память
+
+[AGENTS.md](AGENTS.md) задаёт порядок работы: восстановить контекст, выбрать
+задачу в **Beads**, выполнить изменения, проверить результат и сохранить
+состояние. Обоснование настроек SOL 6, рекомендации OpenAI и их ограничения —
+в [исследовании](docs/research/openai-sol6-agent-workflow.md).
+
+Задачи, решения по ходу работы и следующий шаг хранятся в Beads; долговечные
+выводы — через `bd remember`. Спецификации и исследования остаются в `docs/`.
+GitHub Issues можно связывать с задачами Beads для внешних обращений.
+`/goal` удерживает цель текущего треда, а Beads помогает продолжить работу в другом.
+
+```bash
+bd prime                             # правила и сохранённые выводы
+bd list --status in_progress          # незавершённая работа
+bd ready                             # доступные задачи
+bd show <id>                         # критерии, решения, следующий шаг
+bd memories <ключевое-слово>           # найти сохранённое знание
+```
+
+База `.beads/` хранится локально и не включается в коммиты исходников.
+Для её синхронизации используется отдельный Dolt remote в этом GitHub-репозитории:
+
+```bash
+bd dolt commit -m "Update project memory"
+bd dolt push
+```
+
+После обычного `git clone`, при установленном `bd`, восстанови базу **из корня
+клона**, до создания новых задач:
+
+```bash
+bd init --non-interactive --skip-agents --skip-hooks --setup-exclude \
+  --remote git+https://github.com/Roflochinsky/tgsum.git
+```
+
+Для уже инициализированной базы используй `bd dolt pull`; сначала сохрани локальные
+изменения через `bd dolt commit`. Ошибки синхронизации нужно устранить и проверить,
+прежде чем считать память сохранённой на удалённой стороне.
+
 ## Лицензия
 
 MIT. Фон рисует генеративный движок живописи с сайта автора (`src-tauri/ui/paint.js`).
