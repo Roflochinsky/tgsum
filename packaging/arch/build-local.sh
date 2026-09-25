@@ -8,9 +8,17 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(git -C "$here" rev-parse --show-toplevel)
 pkgver=$(sed -n 's/^pkgver=//p' "$here/PKGBUILD")
-tree=$(git -C "$root" stash create)
+
+# `git stash create` exits 1 without a word when files differ from the index
+# only in stat data (a fresh CI checkout, a chown), so let `git status`
+# refresh the index and decide whether there is anything to pack first.
+if [ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]; then
+  tree=$(git -C "$root" stash create)
+else
+  tree=HEAD
+fi
 
 git -C "$root" archive --format=tar.gz --prefix="tgsum-$pkgver/" \
-  -o "$here/tgsum-$pkgver.tar.gz" "${tree:-HEAD}"
+  -o "$here/tgsum-$pkgver.tar.gz" "$tree"
 cd "$here"
 makepkg --cleanbuild --force "$@"

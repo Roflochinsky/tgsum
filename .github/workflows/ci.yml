@@ -54,7 +54,7 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Install build dependencies
-        run: pacman -Syu --noconfirm --needed git rust webkit2gtk-4.1 gtk3 librsvg xdg-utils
+        run: pacman -Syu --noconfirm --needed git rust cairo gdk-pixbuf2 glib2 gtk3 hicolor-icon-theme libsoup3 pango webkit2gtk-4.1 librsvg xdg-utils
       - uses: actions/checkout@v4
       - name: Build the package
         run: |
