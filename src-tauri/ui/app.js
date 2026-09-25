@@ -1,6 +1,8 @@
 // tgsum UI — plain ES module, no build step. All heavy lifting happens in
 // Rust (`src-tauri`); this file only renders state and calls commands.
 
+import { mountPaintings } from './paint.js'
+
 const { invoke } = window.__TAURI__.core
 const { listen } = window.__TAURI__.event
 
@@ -127,6 +129,7 @@ const STEPS = { start: 1, select: 2, save: 3, done: 3 }
 
 function show(name) {
   state.screen = name
+  document.body.dataset.screen = name
   for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== `screen-${name}`
   const step = name === 'progress' ? (state.job?.phase === 'extract' ? 3 : 1) : STEPS[name]
   for (const li of document.querySelectorAll('.steps li')) {
@@ -134,6 +137,7 @@ function show(name) {
     li.classList.toggle('is-active', n === step && name !== 'done')
     li.classList.toggle('is-done', n < step || name === 'done')
   }
+  if (name === 'start') requestAnimationFrame(placeStarTags)
 }
 
 let toastTimer
@@ -642,6 +646,88 @@ async function syncTheme() {
 window.addEventListener('focus', syncTheme)
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTheme() })
 if (window.__TGSUM_THEME__) setInterval(() => { if (!document.hidden) syncTheme() }, 3000)
+
+// ---------- the night painting ----------
+
+// The neon sign lights up letter by letter, like the tubes of a sign.
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches
+for (const sign of document.querySelectorAll('svg.signature')) {
+  if (REDUCED) sign.classList.add('is-lit')
+  else requestAnimationFrame(() => sign.classList.add('is-lit'))
+}
+
+// Facts under the painting's stars on the first screen: three stars near the
+// edges get a ring, their facts sit underneath (as on the author's site).
+// With no room beside the text the facts stay in a row at the bottom.
+const RING_COLORS = ['#f5c451', '#9fc3e4', '#e2663a']
+let paintModel = null
+
+function placeStarTags() {
+  const list = $('.star-tags')
+  const rings = $('.constellation')
+  const tags = [...list.querySelectorAll('.star-tag')]
+  list.classList.remove('is-placed')
+  rings.classList.remove('is-placed')
+  rings.replaceChildren()
+  const painted = document.querySelector('.paint.is-done')
+  document.body.style.setProperty('--wait', painted ? '0ms' : '2400ms')
+  const m = paintModel
+  if (!m || state.screen !== 'start' || m.W < 900) return
+
+  const screen = $('#screen-start').getBoundingClientRect()
+  const rects = [...document.querySelectorAll('.hero > :not([hidden])')].map((el) => el.getBoundingClientRect())
+  const leftMax = Math.min(...rects.map((r) => r.left)) - 16
+  const rightMin = Math.max(...rects.map((r) => r.right)) + 16
+  const tw = Math.max(...tags.map((t) => t.offsetWidth))
+  if (leftMax - 12 < tw || m.W - 12 - rightMin < tw) return
+  const edge = m.orbs
+    .filter((o) => o.kind === 'star' && o.y > screen.top + 28 && o.y < m.H * 0.7 && (o.x < leftMax || o.x > rightMin))
+    .sort((a, b) => a.x - b.x)
+  const n = tags.length
+  if (edge.length < n) return
+  const chosen = Array.from({ length: n }, (_, k) => edge[Math.round((k * (edge.length - 1)) / Math.max(1, n - 1))])
+
+  rings.setAttribute('viewBox', `0 0 ${m.W} ${m.H}`)
+  chosen.forEach((o, i) => {
+    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    ring.setAttribute('cx', o.x)
+    ring.setAttribute('cy', o.y)
+    ring.setAttribute('r', o.halo * 0.62)
+    ring.setAttribute('style', `--c:${RING_COLORS[i % RING_COLORS.length]};--k:${i}`)
+    rings.append(ring)
+  })
+  list.classList.add('is-placed')
+  rings.classList.add('is-placed')
+  // Under its star, inside its side band; a fact that would cover another
+  // one moves below it (in this window two stars can be close together).
+  const boxes = chosen
+    .map((o, i) => {
+      const w = tags[i].offsetWidth
+      const h = tags[i].offsetHeight
+      const band = o.x < m.W / 2 ? [12, leftMax] : [rightMin, m.W - 12]
+      const left = Math.min(Math.max(o.x - w / 2, band[0]), Math.max(band[0], band[1] - w))
+      return { i, left, top: Math.max(o.y + o.halo * 0.8 + 10, screen.top + 14), w, h }
+    })
+    .sort((a, b) => a.top - b.top)
+  boxes.forEach((b, k) => {
+    for (const a of boxes.slice(0, k)) {
+      const across = b.left < a.left + a.w + 8 && a.left < b.left + b.w + 8
+      if (across && b.top < a.top + a.h + 10) b.top = a.top + a.h + 10
+    }
+    b.top = Math.min(b.top, m.H - b.h - 16)
+    const tag = tags[b.i]
+    tag.style.setProperty('--k', b.i)
+    tag.style.left = `${b.left - screen.left}px`
+    tag.style.top = `${b.top - screen.top}px`
+  })
+}
+
+document.addEventListener('paint:model', (e) => {
+  paintModel = e.detail
+  placeStarTags()
+})
+
+mountPaintings()
 
 // ---------- boot ----------
 
