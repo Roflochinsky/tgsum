@@ -2,13 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,14 +24,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install repository Rust toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: bash scripts/check.sh lint
       - name: Shell scripts
-        run: shellcheck -s sh install.sh && shellcheck packaging/arch/build-local.sh
+        run: shellcheck -s sh install.sh && shellcheck packaging/arch/build-local.sh scripts/check.sh
 
   test:
     strategy:
@@ -44,9 +44,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install repository Rust toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - run: bash scripts/check.sh test
 
   # Omarchy is Arch Linux: build and test the real pacman package against
   # Arch's own WebKitGTK and Rust.

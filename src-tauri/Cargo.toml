@@ -11,6 +11,9 @@ readme.workspace = true
 keywords = ["telegram", "markdown", "export", "llm", "tauri"]
 categories = ["gui", "text-processing"]
 
+[lints]
+workspace = true
+
 # A plain Rust library (for the integration tests); no mobile targets, so no
 # staticlib/cdylib to link on every release build.
 [lib]

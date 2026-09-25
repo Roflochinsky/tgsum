@@ -1,0 +1,2 @@
+# The shared check script also runs under Git Bash in Windows CI.
+*.sh text eol=lf

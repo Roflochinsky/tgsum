@@ -181,18 +181,19 @@ install.sh     установка одной командой: зависимо�
 
 ## Сборка из исходников
 
-Нужен [Rust](https://rustup.rs) ≥ 1.85, а на Linux ещё системные библиотеки WebKitGTK:
+Установи [Rust через rustup](https://rustup.rs): версия для разработки и компоненты
+выбираются из `rust-toolchain.toml`. На Linux ещё нужны системные библиотеки WebKitGTK:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev
+sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev
 # Arch/Omarchy
 sudo pacman -S --needed rust webkit2gtk-4.1 gtk3 librsvg xdg-utils
 ```
 
 ```bash
 cargo run -p tgsum                       # запустить приложение
-cargo test --workspace                   # тесты (ядро + команды приложения)
+bash scripts/check.sh                    # полный набор проверок Rust
 
 cargo install --path src-tauri --locked  # поставить собранное из этой папки
 packaging/arch/build-local.sh -si        # собрать и поставить пакет для Arch/Omarchy
@@ -204,6 +205,77 @@ cargo tauri build                        # установщики → target/rel
 Релизы собирает GitHub Actions: пуш тега `v*` публикует черновик релиза с установщиками
 для всех платформ (`.github/workflows/release.yml`). Если в секретах репозитория есть
 `CARGO_REGISTRY_TOKEN` (токен crates.io), тот же тег публикует и крейты для `cargo install tgsum`.
+
+## Проверки для разработки
+
+После небольшого изменения агент запускает быструю проверку, исправляет ошибки
+и запускает её снова. Перед завершением задачи — полный набор:
+
+```bash
+bash scripts/check.sh quick           # типы, владение, заимствования, API
+bash scripts/check.sh                 # форматирование → компилятор → Clippy → тесты
+```
+
+Скрипт показывает выполняемую команду и исходную диагностику, останавливается
+на первой ошибке с ненулевым кодом выхода. `PASS` появляется только после всех
+проверок выбранного режима. Файлы автоматически не исправляются.
+
+| Проверка | Что ловит |
+|---|---|
+| `cargo fmt --all --check` | Отклонения от единого форматирования Rust |
+| `cargo check` | Ошибки типов, времени жизни, владения, заимствований, отсутствующие методы и импорты |
+| `cargo clippy … -- -D warnings` | Подозрительные конструкции, лишние операции, предупреждения компилятора; любое предупреждение проваливает проверку |
+| `cargo test` | Ошибки поведения: тесты ядра, команд Tauri, интеграционные тесты и примеры из документации |
+
+Компилятор уже выполняет роль типизатора Rust. `check` и Clippy охватывают оба
+пакета, все цели (включая тесты и примеры) и все features на текущей ОС.
+Тесты запускаются с обычным выбором целей Cargo, чтобы сохранить doctests.
+Все команды сборки используют `--locked`: случайное изменение зависимостей
+не переписывает `Cargo.lock` незаметно.
+
+В обоих пакетах также включены ошибки на `unsafe`-код, проигнорированные значения
+с `#[must_use]` (включая `Result`), `dbg!`, `todo!` и `unimplemented!`.
+Правила заданы в `[workspace.lints]` корневого `Cargo.toml` и наследуются пакетами.
+Обычные `unwrap`/`expect` не запрещены глобально: в тестах они уместны;
+ошибки пользовательского ввода и файловых операций следует возвращать через `Result`.
+
+Дополнительные режимы:
+
+```bash
+bash scripts/check.sh core            # форматирование всего проекта + проверки только ядра, без GTK/WebKit
+bash scripts/check.sh lint            # форматирование + Clippy, как в CI
+bash scripts/check.sh test            # тесты всего проекта, как в CI
+cargo test --locked -p tgsum-core --test parse   # один набор тестов при разработке
+cargo fmt --all                       # исправить форматирование
+```
+
+Нужны Bash (на Windows — Git Bash) и rustup. При первом запуске rustup установит
+версию Rust, `rustfmt` и Clippy из `rust-toolchain.toml`; этот файл задаёт версию
+для разработки и CI, а `rust-version` в Cargo.toml — заявленный минимальный Rust.
+Первая сборка Tauri скачивает и компилирует зависимости, последующие используют кеш.
+Обновление toolchain делается отдельной правкой с полным прогоном проверок.
+
+| Если проверка упала | Что делать |
+|---|---|
+| Разница форматирования | `cargo fmt --all`, затем повторить проверку |
+| Ошибка вроде `E0308`, `E0382`, `E0502` | Прочитать сообщение и `rustc --explain E0382` (подставить свой код), исправить типы или владение |
+| Предупреждение Clippy | Исправить причину по диагностике; точечное исключение требует объяснения в коде |
+| Нет `rustfmt` или Clippy | `rustup component add rustfmt clippy` |
+| `pkg-config` не находит GTK/WebKit | Установить библиотеки из раздела сборки; режим `core` проверяет только ядро |
+| Cargo требует изменить lockfile | При намеренном изменении зависимостей обновить и проверить diff `Cargo.lock`, затем снова запустить проверки с `--locked` |
+
+CI запускается на каждый push и pull request и использует тот же скрипт:
+lint на Linux, тесты на Linux/macOS/Windows. ShellCheck отдельно проверяет скрипты:
+`shellcheck -s sh install.sh` и `shellcheck packaging/arch/build-local.sh scripts/check.sh`
+(локально устанавливается через `apt install shellcheck`, `pacman -S shellcheck` или `brew install shellcheck`).
+Отдельная задача собирает пакет Arch/Omarchy системным Rust. Локальный успех
+проверяет текущую ОС; результаты остальных платформ видны в GitHub Actions.
+Инструкция для агента — в [AGENTS.md](AGENTS.md). Изменения интерфейса дополнительно
+проверяются запуском приложения: эти команды не проверяют поведение HTML/CSS/JS.
+
+Справка: [Cargo check](https://doc.rust-lang.org/cargo/commands/cargo-check.html),
+[Clippy](https://doc.rust-lang.org/clippy/usage.html),
+[наследование lint-правил](https://doc.rust-lang.org/cargo/reference/workspaces.html#the-lints-table).
 
 ## Лицензия
 

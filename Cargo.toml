@@ -15,6 +15,15 @@ readme = "README.md"
 [workspace.dependencies]
 tgsum-core = { path = "core", version = "0.2.0" }
 
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
 [profile.release]
 codegen-units = 1
 lto = true
