@@ -139,9 +139,20 @@ fn entry_for(exe: &Path) -> Option<String> {
     Some(text + MARKER + "\n")
 }
 
-/// `path` as one quoted `Exec` argument: the spec's quoting rules, then its
-/// string escapes on top, and `%%` for a literal `%`.
+/// Characters the spec reserves in `Exec`: an argument with any of them must
+/// be quoted.
+const RESERVED: [char; 19] = [
+    ' ', '\t', '\n', '"', '\'', '\\', '>', '<', '~', '|', '&', ';', '$', '*', '?', '#', '(', ')',
+    '`',
+];
+
+/// `path` as one `Exec` argument, `%%` for a literal `%`. Quoted only when it
+/// has to be (launchers that split `Exec` on spaces get a plain path): the
+/// spec's quoting rules, then its string escapes on top.
 fn exec_arg(path: &str) -> String {
+    if !path.contains(RESERVED) {
+        return path.replace('%', "%%");
+    }
     let mut arg = String::from('"');
     for c in path.chars() {
         match c {
@@ -242,7 +253,7 @@ mod tests {
         let entry = home.read(USER_ENTRY).unwrap();
         let exe = exe.to_str().unwrap();
         assert!(entry.starts_with("[Desktop Entry]\n"));
-        assert!(entry.contains(&format!("\nExec=\"{exe}\" %f\nTryExec={exe}\n")));
+        assert!(entry.contains(&format!("\nExec={exe} %f\nTryExec={exe}\n")));
         assert!(entry.contains("\nIcon=tgsum\n"));
         assert!(entry.contains("\nName=tgsum\n"));
         assert!(entry.ends_with(&format!("\n{MARKER}\n")));
@@ -358,11 +369,13 @@ mod tests {
     }
 
     #[test]
-    fn exec_paths_are_quoted_and_escaped() {
+    fn exec_paths_are_quoted_only_when_needed() {
         assert_eq!(
             exec_arg("/home/me/.cargo/bin/tgsum"),
-            r#""/home/me/.cargo/bin/tgsum""#
+            "/home/me/.cargo/bin/tgsum"
         );
+        assert_eq!(exec_arg("/opt/100%/tgsum"), "/opt/100%%/tgsum");
+        assert_eq!(exec_arg("/home/a b/tgsum"), r#""/home/a b/tgsum""#);
         assert_eq!(
             exec_arg(r#"/home/a b/"q"/$x/`c`/back\slash/100%/tgsum"#),
             r#""/home/a b/\\"q\\"/\\$x/\\`c\\`/back\\\\slash/100%%/tgsum""#
