@@ -17,7 +17,7 @@
 ![tauri](https://img.shields.io/badge/app-Tauri%202-24c8db)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/select.png" alt="Выбор чатов и топиков" width="760">
+<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/select.jpg" alt="Выбор чатов и топиков" width="760">
 
 </div>
 
@@ -42,9 +42,11 @@
 - ✂️ **Автонарезка на части** под лимит контекста (30k–150k токенов или без нарезки) **без потерь**:
   у каждой части своя шапка.
 - 🧹 **Чистый формат.** Спикеры, реплаи, даты; служебные сообщения и реакции вырезаны.
-- 🌗 **Светлая и тёмная тема** следуют системным настройкам.
-- 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме, цвета текущей
-  темы Omarchy (и её смена на лету).
+- 🎨 **Дизайн по картине Ван Гога** «Пшеничное поле с кипарисами»: днём поле и небо в завитках,
+  ночью (тёмная тема системы) то же поле под луной и звёздами. Рукописные заголовки (Caveat)
+  и каллиграфичный текст (Alegreya Sans), шрифты встроены в приложение.
+- 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме; по желанию —
+  цвета текущей темы Omarchy вместо картины.
 - 🔒 **Полностью локально.** Ни сети, ни ключей, ни телеметрии.
 
 ## Установка
@@ -94,24 +96,25 @@ cargo install tgsum --locked
 
 ### Omarchy
 
-<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/omarchy.png" alt="tgsum в тайловом Wayland-композиторе с темой Omarchy Tokyo Night" width="560" align="right">
+<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/night.jpg" alt="Ночная тема: то же поле под луной и звёздами" width="560" align="right">
 
 Подходит любой способ выше: `cargo install` или пакет `.pkg.tar.zst`. tgsum появится в лаунчере
 (**Super + Space**). В Omarchy приложение:
 
-- берёт цвета текущей темы Omarchy и перекрашивается, когда ты её меняешь;
+- с тёмной темой Omarchy показывает ночную версию картины, со светлой — дневную;
 - в Hyprland открывается без системной рамки, как остальные окна (закрыть — **Super + W**);
 - работает нативно на Wayland.
 
 AppImage на Arch с Hyprland может открыться пустым окном (он везёт свои графические библиотеки),
-поэтому на Omarchy ставь через cargo или пакетом. Переменные окружения: `TGSUM_THEME=builtin` — своя
-палитра вместо темы Omarchy, `TGSUM_DECORATIONS=1` — вернуть системную рамку окна.
+поэтому на Omarchy ставь через cargo или пакетом. Переменные окружения: `TGSUM_THEME=omarchy` — цвета
+текущей темы Omarchy вместо картины (и смена темы на лету), `TGSUM_DECORATIONS=1` — вернуть системную
+рамку окна.
 
 <br clear="right">
 
 ## Как пользоваться
 
-<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/start.png" alt="Стартовый экран" width="560" align="right">
+<img src="https://raw.githubusercontent.com/Roflochinsky/tgsum/main/docs/screenshots/start.jpg" alt="Стартовый экран" width="560" align="right">
 
 1. **Файл.** Перетащи `result.json` (или всю папку выгрузки) в окно. Можно и кнопкой.
 2. **Чаты.** Найди и отметь нужные чаты и топики.
@@ -195,4 +198,5 @@ cargo tauri build                        # установщики → target/rel
 
 ## Лицензия
 
-MIT
+MIT. Картина: Винсент ван Гог, «Пшеничное поле с кипарисами» (1889), общественное достояние.
+Шрифты Caveat и Alegreya Sans — SIL Open Font License 1.1 (`src-tauri/ui/fonts/`).
