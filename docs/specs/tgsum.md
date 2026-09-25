@@ -35,7 +35,7 @@ A full Telegram account export is a huge JSON file (hundreds of chats, years of 
 3. Two-pass streaming: pass 1 builds a lightweight index; pass 2 streams only the selected chats/topics.
 4. Format selected content to AI-ready Markdown (see Output Format).
 5. Write one `.md` file per selected chat/topic into an output folder; split oversized output into `…part-N.md` (≈100k-token budget per part, chars/4 heuristic), each part repeating the header.
-6. **Distribution (v0.2): installers from GitHub Releases** — `.dmg` (macOS, Apple Silicon + Intel), `.exe`/`.msi` (Windows), `.AppImage`/`.deb`/`.rpm` (Linux), built by CI on tag push. No Node, no terminal. (v0.1 shipped via `npm install -g`.)
+6. **Distribution (v0.2): installers from GitHub Releases** — `.dmg` (macOS, Apple Silicon + Intel), `.exe`/`.msi` (Windows), `.AppImage`/`.deb`/`.rpm` (Linux), built by CI on tag push. No Node, no terminal. For people with Rust, `cargo install tgsum` (crates.io, published by the same tag) is the `npm install -g` of v0.1; on Linux such a build adds its own launcher entry on first start.
 
 ## Revision v0.2 — Rust + Tauri desktop app
 
@@ -43,7 +43,7 @@ The v0.1 TypeScript CLI worked but kept the terminal barrier and needed Node ≥
 
 - **`core/` (`tgsum-core`)** — pure Rust library: serde-visitor streaming over `chats.list` (one chat in memory at a time; the index pass keeps only per-message metadata), lenient field coercion (ids as numbers or strings, `text` as string or runs, old exports), topic grouping, formatter, writer. Output is byte-for-byte identical to v0.1 (verified on 174 randomized exports / 19k files), except where v0.1 cut an emoji in half inside a reply quote (it wrote U+FFFD; v0.2 drops the whole character).
 - **`src-tauri/`** — the app: Tauri 2 commands `index_export` / `export_selection` run on a blocking thread, emit throttled `progress` events, support cancellation; native dialogs; "open folder" / "reveal file".
-- **`ui/`** — static HTML/CSS/JS (no framework, no build step), served from the app bundle; light/dark theme follows the OS.
+- **`src-tauri/ui/`** — static HTML/CSS/JS (no framework, no build step), served from the app bundle; light/dark theme follows the OS.
 - **R2 (id precision) resolved:** ids are read as exact 64-bit integers (or strings), never floats.
 - **Performance:** 200 MB export indexed in 0.8 s / 15 MB RSS (v0.1: 16.9 s / 546 MB); 1 GB in ~4 s.
 - **Omarchy (Arch + Hyprland) support:** a native pacman package (`packaging/arch/PKGBUILD`, built in an Arch container by CI and attached to releases); on tiling Wayland compositors the window has no system title bar (the app header is the title bar); the UI adopts the active Omarchy theme (`colors.toml`, Omarchy 3 and 4 layouts) and follows theme switches live.
@@ -107,7 +107,7 @@ The v0.1 TypeScript CLI worked but kept the terminal barrier and needed Node ≥
 
 - **Core:** Rust (`tgsum-core`), `serde` + `serde_json` streaming visitors over `chats.list` — no DOM of the whole file, one chat in memory at a time.
 - **App:** Tauri 2 (system webview: WebView2 / WKWebView / WebKitGTK), plugins `dialog` (native pickers) and `opener` (open folder / reveal file). Installers via `cargo tauri build`.
-- **UI:** static `ui/` — HTML, CSS, vanilla JS module; talks to Rust via `window.__TAURI__` (`withGlobalTauri`). No npm, no bundler.
+- **UI:** static `src-tauri/ui/` (inside the app crate, so it ships to crates.io) — HTML, CSS, vanilla JS module; talks to Rust via `window.__TAURI__` (`withGlobalTauri`). No npm, no bundler.
 - **Token estimate:** chars/**2.5** heuristic (UTF-16 length, Cyrillic-aware; chars/4 under-counts Russian ~2×) with a 90k default soft cap; the UI offers 30k / 60k / 90k / 150k / no split.
 
 **v0.1 (historical):** Node ≥ 22, TypeScript, `stream-json@3` + `stream-chain`, `@clack/prompts` TUI, distributed via npm.
