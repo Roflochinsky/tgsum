@@ -1,12 +1,14 @@
 # TGSUM: полный состав для согласования
 
-Снимок Beads от 2026-09-26 14:44 UTC (17:44 МСК). Решение по этой сверке: `tgsum-9x6`.
+Снимок Beads от 2026-09-26 23:06 UTC (2026-09-27 02:06 МСК), код на `056859e`.
+Решение по этой сверке: `tgsum-9x6`. Первоначальный снимок от 14:44 UTC обновлён
+после повторной проверки всех 118 записей: 12 эпиков и 106 дочерних задач.
 
 Это представление существующих задач для согласования по запросу пользователя. Состояния ниже относятся только к моменту выгрузки. Задачи, критерии, зависимости и дальнейшие изменения ведутся в **Beads**; этот документ не редактируется как отдельный трекер. Предыдущие отметки approval не являются ответом пользователя на текущую сверку.
 
 Основание: [roadmap](context-gateway-roadmap.md), [спецификация](../specs/context-gateway.md), [архитектура коннекторов](../connectors/architecture.md), [цикл проверки](../connectors/review-policy.md).
 
-## Обновление исполнения 2026-09-27
+## Текущее исполнение на 2026-09-27
 
 Повторная сверка Beads подтверждает прежний состав: **12 эпиков / 106 задач**,
 из них 7 closed, 1 in_progress, 98 open; **35 verification**, включая **17
@@ -14,16 +16,18 @@ user-controlled backlog**. Все 12 эпиков остаются незаве�
 цель — выполнять все эпики по установленным правилам; состав и критерии ниже не
 расширены. Beads остаётся источником актуального состояния.
 
-Статус `hzm.7` ниже относится к исходному снимку 26 сентября. С тех пор реализованы
-Codex request/decoder, offline qualification, выбранный read-only auth mount и
-отдельный namespace relay → bounded gateway → HTTPS. Установленный CLI 0.155.1
-проверен на локальных готовых ответах с synthetic auth; реальные аккаунты и
-провайдеры не использовались. Полный gate — 141 passed; все 13 environment tests
-выполнены отдельно. [Контракт и границы проверки](../development/inference-egress.md).
-Следующий backend-срез связал ticket, receiver/model, typed validation, durable
-result и baseline commit. Новый полный gate — **150 passed / 13 ignored**;
-два HTTPS-теста с 8 local synthetic сценариями выполнены отдельно, включая 401
-и receiver mismatch. [Журнал результатов](../development/analyses.md).
+В `hzm.7` реализованы Codex request/decoder, offline qualification, выбранный
+read-only auth mount и отдельный namespace relay → bounded gateway → HTTPS.
+Backend связывает ticket, receiver/model, typed validation, durable result и
+baseline commit. Установленный CLI 0.155.1 проверен на локальных готовых ответах
+с synthetic auth; реальные аккаунты и провайдеры не использовались.
+[Контракт и границы проверки](../development/inference-egress.md),
+[журнал результатов](../development/analyses.md).
+
+Последний полный gate на `056859e` — **150 passed / 13 ignored**. Два HTTPS-теста
+с 8 local synthetic сценариями выполнены отдельно на этой версии, включая 401
+и receiver mismatch. Остальные 11 environment tests последний раз выполнены
+на `6dcc185`; в последнем срезе launch/isolation не менялись.
 `hzm.7` остаётся в работе: нужны synthetic ChatGPT/OAuth qualification,
 Review/Run и упаковка runtime. Облачная интеграция и весь Context Engine
 не объявляются завершёнными.
@@ -43,10 +47,11 @@ Review/Run и упаковка runtime. Облачная интеграция и
 ## Уже начатая реализация
 
 - В `tgsum-hzm` завершены 7 из 13 задач: `hzm.1` (Project store), `hzm.2` (canonical schema), `hzm.3` (scope, период, delta), `hzm.4` (интерфейсы источников), `hzm.5` (минимальный sanitizer), `hzm.6` (общий изолированный runner) и `tgsum-ax6` (evidence и Export only bundle).
-- Последняя реализация — commit `41b285d`: общий offline runner для Linux x86_64. В Beads сохранены полный gate — 118 тестов — и отдельный запуск 6 проверок изоляции с fake executable. Review и Export only ранее проверены на synthetic данных через настоящий Linux Tauri UI (`f97a53f`). Это не квалификация настоящего AI-агента или messenger account; Windows/macOS и облачная авторизация runner ещё не подтверждены.
-- `hzm.7` (Codex adapter) в работе на стадии research: проверены CLI help/version в пустом временном профиле, код адаптера ещё не реализован. Запуск с авторизацией, изоляция cloud-профиля и structured result остаются работой этого среза. Claude adapter, recipes, onboarding и отдельные E2E/adversarial suites открыты.
+- Последняя реализация — commit `056859e`: сохранение результатов Codex и атомарное обновление baseline после проверки ответа. Общий offline runner Linux x86_64 реализован ранее в `41b285d`; выбранный auth mount и HTTPS transport — последующими срезами. Review и Export only ранее проверены на synthetic данных через настоящий Linux Tauri UI (`f97a53f`). Эти проверки не подтверждают работу настоящего аккаунта или Windows/macOS runner.
+- `hzm.7` (Codex adapter) остаётся в работе. Ещё нужны synthetic ChatGPT/OAuth qualification, упаковка runtime и подключение к Review/Run/result UI. Claude adapter (`hzm.8`), шесть recipes (`hzm.9`), onboarding (`hzm.10`) и отдельные E2E/adversarial suites (`hzm.11`, `hzm.12`) открыты. Реальная квалификация Codex/Claude — отдельная backlog-задача `t8t.19` под контролем пользователя.
 - Остальные 98 задач открыты. Все 12 эпиков незавершены. Закрытый `tgsum-d9b` — предшествующая основа, отдельно от этих 106 задач.
 - Все задачи плана уже имеют родительские эпики в Beads; недостающих задач не обнаружено, дубликаты не создавались. Во время этой сверки продуктовый код не изменялся, проверки на реальных аккаунтах не проводились.
+- Видимые в текущей сессии исследовательские субагенты завершены. Продолжающих работу субагентов при этой сверке нет.
 
 ## Порядок поставки
 
