@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +47,41 @@ pub struct ProjectSource {
     pub scope: SourceScope,
     pub archive_path: Option<PathBuf>,
     pub latest_snapshot_id: Option<String>,
+    #[serde(default)]
+    pub selection: SourceSelection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalysisBaseline {
+    pub source_id: String,
+    pub source: SourceScope,
+    pub snapshot_id: String,
+    pub filter: MessageFilter,
+    pub analysis_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalysisInput {
+    pub source_id: String,
+    pub source: SourceScope,
+    pub snapshot_id: String,
+    pub selection: SourceSelection,
+    pub baseline: Option<AnalysisBaseline>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisOutcome {
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalysisRun {
+    pub run_id: String,
+    pub inputs: Vec<AnalysisInput>,
+    pub outcome: Option<AnalysisOutcome>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +92,10 @@ pub struct Project {
     pub name: String,
     pub sources: Vec<ProjectSource>,
     pub settings: ProjectSettings,
+    #[serde(default)]
+    pub analysis_run: Option<AnalysisRun>,
+    #[serde(default)]
+    pub baselines: Vec<AnalysisBaseline>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +105,17 @@ pub enum ProjectChange {
     Source(ProjectSource),
     RemoveSource(String),
     Settings(ProjectSettings),
+    Selection {
+        source_id: String,
+        selection: SourceSelection,
+    },
+    BeginAnalysis {
+        run_id: String,
+    },
+    FinishAnalysis {
+        run_id: String,
+        outcome: AnalysisOutcome,
+    },
     RecordSnapshot {
         source_id: String,
         snapshot_id: String,
@@ -75,7 +126,7 @@ pub enum ProjectChange {
 #[derive(Debug, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ProjectEntry {
-    Ready { project: Project },
+    Ready { project: Box<Project> },
     Unavailable { project_id: String, message: String },
 }
 
@@ -144,6 +195,8 @@ impl ProjectStore {
             name: name.trim().to_owned(),
             sources: Vec::new(),
             settings: ProjectSettings::default(),
+            analysis_run: None,
+            baselines: Vec::new(),
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -193,12 +246,15 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if value["schema_version"].as_u64() != Some(u64::from(SCHEMA_VERSION)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1) | Some(2)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
         }
-        let project: Project = serde_json::from_value(value).map_err(invalid)?;
+        let mut project: Project = serde_json::from_value(value).map_err(invalid)?;
+        // Version 1 had no scope or analysis ledger. Defaults preserve its
+        // full-source behavior; a later update publishes v2 as a new revision.
+        project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != latest.0 {
             return Err(invalid(
@@ -226,7 +282,9 @@ impl ProjectStore {
         Ok(ids
             .into_iter()
             .map(|id| match self.open(&id) {
-                Ok(project) => ProjectEntry::Ready { project },
+                Ok(project) => ProjectEntry::Ready {
+                    project: Box::new(project),
+                },
                 Err(error) => ProjectEntry::Unavailable {
                     project_id: id,
                     message: error.to_string(),
@@ -259,6 +317,9 @@ impl ProjectStore {
                 project.name = name.trim().into();
             }
             ProjectChange::Source(source) => {
+                project
+                    .baselines
+                    .retain(|b| b.source_id != source.source_id || b.source == source.scope);
                 if let Some(old) = project
                     .sources
                     .iter_mut()
@@ -274,8 +335,90 @@ impl ProjectStore {
                     return Err(invalid("source not connected to this project"));
                 }
                 project.sources.retain(|s| s.source_id != id);
+                project.baselines.retain(|b| b.source_id != id);
             }
             ProjectChange::Settings(settings) => project.settings = settings,
+            ProjectChange::Selection {
+                source_id,
+                selection,
+            } => {
+                selection.filter.validate()?;
+                project
+                    .sources
+                    .iter_mut()
+                    .find(|s| s.source_id == source_id)
+                    .ok_or_else(|| invalid("source not connected to this project"))?
+                    .selection = selection;
+            }
+            ProjectChange::BeginAnalysis { run_id } => {
+                validate_snapshot_id(&run_id)?;
+                if project
+                    .analysis_run
+                    .as_ref()
+                    .is_some_and(|run| run.outcome.is_none() || run.run_id == run_id)
+                {
+                    return Err(invalid("analysis already active or run ID reused"));
+                }
+                let snapshots = self.snapshots(project_id)?;
+                let mut inputs = Vec::new();
+                for source in project.sources.iter().filter(|s| s.selection.enabled) {
+                    let snapshot_id = source
+                        .latest_snapshot_id
+                        .as_ref()
+                        .ok_or_else(|| invalid("refresh selected sources before analysis"))?;
+                    if snapshots.load(snapshot_id)?.source != source.scope {
+                        return Err(invalid("analysis snapshot source mismatch"));
+                    }
+                    inputs.push(AnalysisInput {
+                        source_id: source.source_id.clone(),
+                        source: source.scope.clone(),
+                        snapshot_id: snapshot_id.clone(),
+                        selection: source.selection.clone(),
+                        baseline: project
+                            .baselines
+                            .iter()
+                            .find(|b| b.source_id == source.source_id && b.source == source.scope)
+                            .cloned(),
+                    });
+                }
+                if inputs.is_empty() {
+                    return Err(invalid("select at least one source before analysis"));
+                }
+                project.analysis_run = Some(AnalysisRun {
+                    run_id,
+                    inputs,
+                    outcome: None,
+                });
+            }
+            ProjectChange::FinishAnalysis { run_id, outcome } => {
+                let run = project
+                    .analysis_run
+                    .as_mut()
+                    .filter(|run| run.run_id == run_id && run.outcome.is_none())
+                    .ok_or_else(|| invalid("analysis is not active or run ID does not match"))?;
+                if outcome == AnalysisOutcome::Succeeded {
+                    for input in &run.inputs {
+                        // A disconnected/replaced source must not be reattached by
+                        // a delayed result. An ordinary refresh is independent.
+                        if !project
+                            .sources
+                            .iter()
+                            .any(|s| s.source_id == input.source_id && s.scope == input.source)
+                        {
+                            continue;
+                        }
+                        project.baselines.retain(|b| b.source_id != input.source_id);
+                        project.baselines.push(AnalysisBaseline {
+                            source_id: input.source_id.clone(),
+                            source: input.source.clone(),
+                            snapshot_id: input.snapshot_id.clone(),
+                            filter: input.selection.filter.clone(),
+                            analysis_id: run_id.clone(),
+                        });
+                    }
+                }
+                run.outcome = Some(outcome);
+            }
             ProjectChange::RecordSnapshot {
                 source_id,
                 snapshot_id,
@@ -352,6 +495,7 @@ fn validate_project(project: &Project) -> io::Result<()> {
         validate_snapshot_id(&source.source_id)?;
         validate_snapshot_id(&source.connector_id)?;
         source.scope.validate()?;
+        source.selection.filter.validate()?;
         if !ids.insert(&source.source_id) {
             return Err(invalid("duplicate source ID"));
         }
@@ -364,6 +508,40 @@ fn validate_project(project: &Project) -> io::Result<()> {
         }
         if let Some(id) = &source.latest_snapshot_id {
             validate_snapshot_id(id)?;
+        }
+    }
+    let mut baseline_ids = BTreeSet::new();
+    for baseline in &project.baselines {
+        validate_baseline(baseline)?;
+        if !baseline_ids.insert(&baseline.source_id)
+            || !project
+                .sources
+                .iter()
+                .any(|s| s.source_id == baseline.source_id && s.scope == baseline.source)
+        {
+            return Err(invalid("baseline source is duplicated or disconnected"));
+        }
+    }
+    if let Some(run) = &project.analysis_run {
+        validate_snapshot_id(&run.run_id)?;
+        if run.inputs.is_empty() {
+            return Err(invalid("analysis has no inputs"));
+        }
+        let mut ids = BTreeSet::new();
+        for input in &run.inputs {
+            validate_snapshot_id(&input.source_id)?;
+            validate_snapshot_id(&input.snapshot_id)?;
+            input.source.validate()?;
+            input.selection.filter.validate()?;
+            if !ids.insert(&input.source_id) {
+                return Err(invalid("duplicate analysis source"));
+            }
+            if let Some(baseline) = &input.baseline {
+                validate_baseline(baseline)?;
+                if baseline.source_id != input.source_id || baseline.source != input.source {
+                    return Err(invalid("analysis baseline source mismatch"));
+                }
+            }
         }
     }
     for id in [
@@ -394,6 +572,14 @@ fn write_revision(directory: &Path, project: &Project) -> io::Result<()> {
         .persist_noclobber(directory.join(format!("{:020}.json", project.revision)))
         .map_err(|e| e.error)?;
     Ok(())
+}
+
+fn validate_baseline(baseline: &AnalysisBaseline) -> io::Result<()> {
+    validate_snapshot_id(&baseline.source_id)?;
+    validate_snapshot_id(&baseline.snapshot_id)?;
+    validate_snapshot_id(&baseline.analysis_id)?;
+    baseline.source.validate()?;
+    baseline.filter.validate()
 }
 
 fn parse_revision_name(name: &str) -> io::Result<u64> {

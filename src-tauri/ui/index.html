@@ -23,6 +23,7 @@
       <li data-step="3"><span class="dot">3</span>Сохранение</li>
     </ol>
     <div class="titlebar-end" data-tauri-drag-region>
+      <button id="btn-projects" class="btn btn-ghost btn-sm" type="button">Проекты</button>
       <span class="local-badge" title="Ничего не отправляется в сеть">
         <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         локально
@@ -31,6 +32,23 @@
   </header>
 
   <main>
+    <section id="screen-projects" class="screen project-screen" hidden>
+      <div class="project-shell glass">
+        <div class="project-actions"><h2>Проекты</h2><button id="btn-projects-back" type="button" class="btn btn-ghost">Разовый экспорт</button></div>
+        <form id="new-project-form" class="project-actions">
+          <label>Новый проект<input id="new-project-name" required maxlength="160" placeholder="Например, пилот ACME"></label>
+          <button type="submit" class="btn btn-primary">Создать</button>
+        </form>
+        <div id="project-list" class="project-actions"></div>
+        <p id="project-list-empty" class="muted">Подключите выбранные чаты к проекту, чтобы обновлять их и сохранять настройки выбора.</p>
+        <div id="project-detail" hidden>
+          <form id="rename-project-form" class="project-actions"><label>Название проекта<input id="project-name" required maxlength="160"></label><button type="submit" class="btn btn-ghost">Переименовать</button></form>
+          <button id="btn-project-add-source" type="button" class="btn btn-primary">Подключить чаты из архива…</button>
+          <p id="project-empty" class="hint">Выберите локальный JSON, затем отметьте чаты или темы проекта.</p>
+          <div id="project-sources"></div>
+        </div>
+      </div>
+    </section>
     <!-- Step 1: pick the export -->
     <section id="screen-start" class="screen">
       <div class="hero">
@@ -79,6 +97,10 @@
     <!-- Step 2: pick chats and topics -->
     <section id="screen-select" class="screen glass" hidden>
       <div class="select-head">
+        <div id="project-attach-options" class="project-actions" hidden>
+          <span>Проект: <b id="project-attach-title"></b></span>
+          <label>Локальная метка аккаунта<input id="project-account-label" value="Основной" maxlength="100" title="Разные Telegram-аккаунты должны иметь разные метки"></label>
+        </div>
         <div class="file-chip" title="">
           <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
           <span id="file-name" class="ellipsis"></span>

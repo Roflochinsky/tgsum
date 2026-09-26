@@ -2,6 +2,7 @@
 // Rust (`src-tauri`); this file only renders state and calls commands.
 
 import { mountPaintings } from './paint.js'
+import { mountProjects } from './projects.js'
 
 const { invoke } = window.__TAURI__.core
 const { listen } = window.__TAURI__.event
@@ -126,6 +127,9 @@ const state = {
 }
 
 const STEPS = { start: 1, select: 2, save: 3, done: 3 }
+const projects = mountProjects({ invoke, show, pickFile, startJob,
+  endJob: () => { state.job = null }, busy: () => Boolean(state.job),
+  selection: () => [...state.selected.values()], index: () => state.index, toast })
 
 function show(name) {
   state.screen = name
@@ -200,7 +204,8 @@ function showStartError(msg) {
 async function pickFile() {
   if (state.job) return
   const path = await invoke('pick_export')
-  if (path) openExport(path)
+  if (path) await openExport(path)
+  return Boolean(path)
 }
 
 async function openExport(path) {
@@ -501,6 +506,7 @@ $('#btn-next').addEventListener('click', openSave)
 
 function openSave() {
   if (!state.selected.size) return
+  if (projects.isConnecting()) { projects.attachSelected(); return }
   renderSave()
   show('save')
 }

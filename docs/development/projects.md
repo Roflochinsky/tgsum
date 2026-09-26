@@ -1,7 +1,10 @@
 # Project storage
 
-Implemented backend contract for `tgsum-hzm.1`, 2026-09-26. The desktop guided
-flow is a separate slice (`tgsum-hzm.10`); these commands are not yet in the UI.
+Implemented backend contract for `tgsum-hzm.1`, extended by the Project scope
+editor in `tgsum-hzm.3`, 2026-09-26. The Projects screen creates, opens, renames
+and connects selected Telegram archive conversations. See [scope and analysis
+baselines](scope.md) for its filters and refresh behavior. Full onboarding and
+analysis/result screens remain separate slices.
 
 `ProjectStore` creates, lists, opens and updates project configuration. Tauri
 keeps it under its application-local data directory, in `projects/`. Tests
@@ -19,10 +22,12 @@ projects/project-<random>/
 
 ## Persistence and recovery
 
-Manifests have `schema_version: 1`. This is the first Project storage format;
-there is no earlier released Project schema to migrate. Unknown versions are
-rejected before interpreting their fields and are never rewritten implicitly.
-Future format changes must provide an explicit migration and fixture tests.
+Manifests have `schema_version: 2`, adding source selections and an analysis
+baseline ledger. Version 1 opens in memory with default selections and no
+analysis baseline. Reading does not modify the original file; the next update
+publishes a separate v2 revision. Unknown versions are rejected before
+interpreting their fields and are never rewritten implicitly. Tests verify
+that the v1 bytes remain unchanged after both reading and upgrading.
 
 Each update supplies `expected_revision`. Publication uses a flushed, synced
 temporary file and `persist_noclobber` for the next immutable revision. Two
@@ -66,13 +71,18 @@ a separately prepared, sanitized context bundle.
 | `open_project` | `projectId` → Project |
 | `update_project` | `projectId`, `expectedRevision`, `change` → Project |
 | `project_source_status` | `projectId`, `sourceId` → availability |
+| `preview_project_source` | `projectId`, `sourceId` → selection counts, topics, coverage, baseline ID |
+| `refresh_project_source` | `projectId`, `sourceId`, `expectedRevision` → Project with new snapshot |
 
 Command arguments use Tauri camelCase. Project fields use the Rust snake_case
 schema. Changes use `{kind, value}`: `rename`, `source` (upsert), `remove_source`,
-`settings`, `record_snapshot`. Errors are `failed`, `conflict` or `cancelled`.
+`settings`, `record_snapshot`, `selection`, `begin_analysis`, `finish_analysis`.
+Errors are `failed`, `conflict` or `cancelled`.
 The default settings select `export_only`, `summary`, and the `secrets` preset;
 these are configuration references, not a claim that a runner or sanitizer has
 already executed.
 
-Verified with synthetic core lifecycle/concurrency/corruption tests and Tauri
-mock IPC. No real account, client GUI or credentials are used by these tests.
+Verified with synthetic core lifecycle/concurrency/corruption/migration tests,
+Tauri mock IPC, and the actual Linux Tauri Project editor with a synthetic
+Telegram fixture. No real messenger account, client export or credentials are
+used. Windows/macOS desktop qualification remains a separate QA task.

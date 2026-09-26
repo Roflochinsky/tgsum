@@ -224,3 +224,75 @@ fn project_commands_persist_and_report_conflicts_and_missing_sources() {
     .unwrap_err();
     assert_eq!(error["kind"], "failed");
 }
+
+#[test]
+fn project_import_scope_and_failed_analysis_use_real_backend_commands() {
+    use tgsum_core::project::ProjectStore;
+    let dir = tempfile::tempdir().unwrap();
+    let app = tgsum_app::app(mock_builder().manage(ProjectStore::new(dir.path())))
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let w = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let mut project = invoke(&w, "create_project", json!({"name":"Scoped fixture"})).unwrap();
+    let id = project["project_id"].clone();
+    project = invoke(&w, "update_project", json!({"projectId":id,"expectedRevision":project["revision"],
+        "change":{"kind":"source","value":{
+            "source_id":"forum","connector_id":"telegram_json",
+            "scope":{"platform":"telegram","account_local_id":"synthetic","conversation_id":"222"},
+            "archive_path":fixture(),"latest_snapshot_id":null,
+            "selection":{"enabled":true,"only_changes":true,"filter":{
+                "topic_ids":["100"],"dates":{"from":"2026-06-18","through":"2026-06-18","basis":"source_date"}
+            }}
+        }}})).unwrap();
+    project = invoke(
+        &w,
+        "refresh_project_source",
+        json!({"projectId":id,"sourceId":"forum","expectedRevision":project["revision"]}),
+    )
+    .unwrap();
+    assert!(project["sources"][0]["latest_snapshot_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("import-"));
+    let preview = invoke(
+        &w,
+        "preview_project_source",
+        json!({"projectId":id,"sourceId":"forum"}),
+    )
+    .unwrap();
+    assert_eq!(preview["stats"]["selected"], 1);
+    assert_eq!(preview["stats"]["has_baseline"], false);
+    assert!(preview["topics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["title"] == "Bugs"));
+    project = invoke(
+        &w,
+        "update_project",
+        json!({"projectId":id,"expectedRevision":project["revision"],
+        "change":{"kind":"begin_analysis","value":{"run_id":"synthetic-failure"}}}),
+    )
+    .unwrap();
+    project = invoke(&w,"update_project",json!({"projectId":id,"expectedRevision":project["revision"],
+        "change":{"kind":"finish_analysis","value":{"run_id":"synthetic-failure","outcome":"failed"}}})).unwrap();
+    assert_eq!(project["baselines"], json!([]));
+    assert_eq!(
+        invoke(
+            &w,
+            "preview_project_source",
+            json!({"projectId":id,"sourceId":"forum"})
+        )
+        .unwrap()["stats"]["selected"],
+        1
+    );
+    let conflict = invoke(
+        &w,
+        "refresh_project_source",
+        json!({"projectId":id,"sourceId":"forum","expectedRevision":0}),
+    )
+    .unwrap_err();
+    assert_eq!(conflict["kind"], "conflict");
+}

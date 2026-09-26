@@ -11,7 +11,7 @@ mod launcher;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,8 @@ use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, State, WebviewWindowB
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tgsum_core::project::{Project, ProjectChange, ProjectEntry, ProjectStore, SourceAvailability};
+use tgsum_core::scope::{select_messages, ScopeStats};
+use tgsum_core::snapshot::Coverage;
 use tgsum_core::{
     cancelled, extract_reader, index_reader, is_cancelled, resolve_export_path, write_units,
     ChatIndex, ProgressReader, Selection, DEFAULT_MAX_TOKENS,
@@ -162,6 +164,154 @@ async fn project_source_status(
             .find(|s| s.source_id == source_id)
             .ok_or_else(|| CmdError::Failed("source not connected to this project".into()))?;
         Ok(source.availability())
+    })
+    .await
+}
+
+#[derive(Serialize)]
+struct ProjectTopic {
+    id: String,
+    title: String,
+    count: usize,
+}
+
+#[derive(Serialize)]
+struct ProjectScopePreview {
+    snapshot_id: String,
+    title: String,
+    topics: Vec<ProjectTopic>,
+    stats: ScopeStats,
+    coverage: Coverage,
+    baseline_analysis_id: Option<String>,
+}
+
+#[tauri::command]
+async fn preview_project_source(
+    store: State<'_, ProjectStore>,
+    project_id: String,
+    source_id: String,
+) -> Result<ProjectScopePreview, CmdError> {
+    let store = store.inner().clone();
+    run_blocking(move || {
+        let project = store.open(&project_id)?;
+        let source = project
+            .sources
+            .iter()
+            .find(|s| s.source_id == source_id)
+            .ok_or_else(|| CmdError::Failed("source not connected to this project".into()))?;
+        let id = source
+            .latest_snapshot_id
+            .as_ref()
+            .ok_or_else(|| CmdError::Failed("Сначала обновите архив источника".into()))?;
+        let snapshots = store.snapshots(&project_id)?;
+        let snapshot = snapshots.load(id)?;
+        let baseline = project.baselines.iter().find(|b| b.source_id == source_id);
+        let previous = baseline
+            .map(|b| snapshots.load(&b.snapshot_id))
+            .transpose()?;
+        let selected = select_messages(
+            &snapshot,
+            &source.selection,
+            previous.as_ref().zip(baseline.map(|b| &b.filter)),
+        )?;
+        let mut topics = std::collections::BTreeMap::<String, ProjectTopic>::new();
+        for message in &snapshot.messages {
+            let topic_id = if message.service_action.as_deref() == Some("topic_created") {
+                Some(&message.key.message_id)
+            } else {
+                message.thread_id.as_ref()
+            };
+            if let Some(id) = topic_id {
+                let topic = topics.entry(id.clone()).or_insert_with(|| ProjectTopic {
+                    id: id.clone(),
+                    title: if id == "1" {
+                        "General".into()
+                    } else {
+                        format!("Тема {id}")
+                    },
+                    count: 0,
+                });
+                if !message.is_service {
+                    topic.count += 1;
+                }
+                if message.service_action.as_deref() == Some("topic_created") {
+                    if let Some(title) = &message.service_title {
+                        topic.title = title.clone();
+                    }
+                }
+            }
+        }
+        Ok(ProjectScopePreview {
+            snapshot_id: id.clone(),
+            title: snapshot
+                .conversation_title
+                .clone()
+                .unwrap_or_else(|| source.scope.conversation_id.clone()),
+            topics: topics.into_values().collect(),
+            stats: selected.stats,
+            coverage: snapshot.coverage.clone(),
+            baseline_analysis_id: baseline.map(|b| b.analysis_id.clone()),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn refresh_project_source<R: Runtime>(
+    app: AppHandle<R>,
+    jobs: State<'_, Jobs>,
+    store: State<'_, ProjectStore>,
+    project_id: String,
+    source_id: String,
+    expected_revision: u64,
+) -> Result<Project, CmdError> {
+    let store = store.inner().clone();
+    let cancel = jobs.start();
+    run_blocking(move || {
+        let project = store.open(&project_id)?;
+        if project.revision != expected_revision {
+            return Err(CmdError::Conflict(
+                "Проект изменён. Откройте его заново.".into(),
+            ));
+        }
+        let source = project
+            .sources
+            .iter()
+            .find(|s| s.source_id == source_id)
+            .ok_or_else(|| CmdError::Failed("source not connected to this project".into()))?;
+        if source.scope.platform != "telegram" || source.connector_id != "telegram_json" {
+            return Err(CmdError::Failed("Этот импортёр ещё не подключён".into()));
+        }
+        let path = source
+            .archive_path
+            .as_ref()
+            .ok_or_else(|| CmdError::Failed("Выберите локальный архив источника".into()))?;
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| CmdError::Failed(e.to_string()))?
+            .as_nanos();
+        let id = format!(
+            "import-{stamp:x}-{:x}-{:x}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
+        store.snapshots(&project_id)?.import_telegram(
+            &id,
+            &source.scope,
+            open_tracked(&app, path, "import", cancel.clone())?,
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err(cancelled().into());
+        }
+        Ok(store.update(
+            &project_id,
+            expected_revision,
+            ProjectChange::RecordSnapshot {
+                source_id,
+                snapshot_id: id,
+            },
+        )?)
     })
     .await
 }
@@ -377,6 +527,8 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             open_project,
             update_project,
             project_source_status,
+            preview_project_source,
+            refresh_project_source,
         ])
 }
 

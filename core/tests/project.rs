@@ -16,6 +16,7 @@ fn source(path: &Path) -> ProjectSource {
         scope: SourceScope::telegram("work", "1"),
         archive_path: Some(path.to_owned()),
         latest_snapshot_id: None,
+        selection: Default::default(),
     }
 }
 
@@ -23,6 +24,49 @@ fn manifest(root: &Path, project: &Project) -> std::path::PathBuf {
     root.join(&project.project_id)
         .join("revisions")
         .join(format!("{:020}.json", project.revision))
+}
+
+#[test]
+fn version_one_opens_with_default_scope_without_rewriting_old_revision() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let created = store.create("legacy project").unwrap();
+    let project = store
+        .update(
+            &created.project_id,
+            created.revision,
+            ProjectChange::Source(source(&root.path().join("export.json"))),
+        )
+        .unwrap();
+    let path = manifest(root.path(), &project);
+    let mut legacy = serde_json::to_value(&project).unwrap();
+    legacy["schema_version"] = 1.into();
+    let object = legacy.as_object_mut().unwrap();
+    object.remove("analysis_run");
+    object.remove("baselines");
+    object["sources"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("selection");
+    let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
+    fs::write(&path, &legacy_bytes).unwrap();
+
+    let reopened = store.open(&project.project_id).unwrap();
+    assert_eq!(reopened.schema_version, 2);
+    assert_eq!(reopened.sources[0].selection, Default::default());
+    assert!(reopened.analysis_run.is_none() && reopened.baselines.is_empty());
+    assert_eq!(fs::read(&path).unwrap(), legacy_bytes);
+    let updated = store
+        .update(
+            &project.project_id,
+            reopened.revision,
+            ProjectChange::Rename("upgraded".into()),
+        )
+        .unwrap();
+    assert_eq!(updated.schema_version, 2);
+    assert_eq!(updated.revision, reopened.revision + 1);
+    assert_eq!(store.open(&project.project_id).unwrap(), updated);
+    assert_eq!(fs::read(path).unwrap(), legacy_bytes);
 }
 
 #[test]

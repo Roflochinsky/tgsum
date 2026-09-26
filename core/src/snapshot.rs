@@ -193,7 +193,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    fn validate(&self) -> io::Result<()> {
+    pub(crate) fn validate(&self) -> io::Result<()> {
         if self.schema_version != SCHEMA_VERSION {
             return Err(invalid("unsupported snapshot schema"));
         }

@@ -213,6 +213,18 @@ body:not([data-screen="start"]) .constellation { display: none; }
 
 main { flex: 1; min-height: 0; }
 .screen { position: absolute; inset: 0; display: flex; flex-direction: column; animation: enter 0.35s ease-out; }
+.project-screen { overflow-y: auto; padding: 18px; }
+.project-shell { width: min(1050px, 100%); margin: 0 auto; padding: 24px; }
+.project-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; }
+.project-actions h2 { margin-right: auto; }
+.project-screen label, #project-attach-options label { display: flex; flex-direction: column; gap: 6px; }
+.project-screen input:not([type="checkbox"]), #project-account-label { color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); padding: 9px 12px; border-radius: 8px; font: inherit; }
+.project-source { padding: 20px; margin-top: 18px; }
+.project-source h3 { margin: 0; }
+.project-source label.project-check { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 8px 0; }
+.project-fields { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
+.project-topics { border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; }
+.project-screen[aria-busy="true"] button { pointer-events: none; opacity: .65; }
 @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* Panels over the painting: solid, no blur underneath. */
