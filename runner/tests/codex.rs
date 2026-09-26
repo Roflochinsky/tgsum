@@ -199,6 +199,25 @@ fn cli_errors_tools_and_unknown_items_are_not_results_or_diagnostics() {
 }
 
 #[test]
+fn only_exact_pre_turn_code_mode_notice_is_nonfatal() {
+    let message = "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.";
+    let event =
+        json!({"type":"item.completed","item":{"id":"startup","type":"error","message":message}});
+    let needle = "{\"type\":\"turn.started\"}";
+    let valid = SUCCESS.replace(needle, &format!("{event}\n{needle}"));
+    assert_eq!(
+        decode(&valid).unwrap().notices,
+        [codex::Notice::CodeModeDisabled]
+    );
+    assert!(decode(&SUCCESS.replace(needle, &format!("{needle}\n{event}"))).is_err());
+    assert!(decode(&SUCCESS.replace(needle, &format!("{event}\n{event}\n{needle}"))).is_err());
+    assert!(decode(&valid.replace(message, &format!("{message} Unexpected failure."))).is_err());
+    assert!(decode(&valid.replace("\"id\":\"answer\"", "\"id\":\"startup\"")).is_err());
+    assert!(decode(&valid.replace("\"message\":", "\"text\":\"extra\",\"message\":")).is_err());
+    assert!(decode(&format!("{event}\n{SUCCESS}")).is_err());
+}
+
+#[test]
 fn typed_and_semantic_validation_rejects_invented_evidence_and_wrong_schema() {
     for text in [
         "not JSON",
@@ -235,10 +254,11 @@ mod process {
     use std::time::Duration;
     use tgsum_core::bundle::EvidenceRef;
     use tgsum_runner::{
-        AdapterContract, OfflineRunner, RuntimeFile, RuntimeSpec, LINUX_OFFLINE_PROFILE,
+        AdapterContract, OfflineRunner, RuntimeFile, RuntimeSpec, LINUX_OFFLINE_PROC_PROFILE,
+        LINUX_OFFLINE_PROFILE,
     };
 
-    fn runner(request: &CodexRequest<'_>) -> OfflineRunner {
+    fn runtime_files(request: &CodexRequest<'_>) -> Vec<RuntimeFile> {
         let mut files: Vec<_> = [
             ("libc.so.6", "/usr/lib/libc.so.6"),
             ("libgcc_s.so.1", "/usr/lib/libgcc_s.so.1"),
@@ -255,6 +275,10 @@ mod process {
         })
         .collect();
         files.push(request.schema_runtime_file());
+        files
+    }
+
+    fn runner(request: &CodexRequest<'_>) -> OfflineRunner {
         OfflineRunner::qualify(
             AdapterContract {
                 id: "synthetic-codex-protocol-fixture".into(),
@@ -264,11 +288,127 @@ mod process {
             },
             RuntimeSpec {
                 executable: env!("CARGO_BIN_EXE_tgsum-codex-fixture").into(),
-                files,
+                files: runtime_files(request),
             },
             &Cancellation::default(),
         )
         .unwrap()
+    }
+
+    #[test]
+    #[ignore = "requires offline Linux sandbox and TGSUM_CODEX_TEST_BINARY pointing to static Codex 0.155.1"]
+    fn installed_cli_uses_mock_provider_without_accounts_or_external_network() {
+        let binary = std::env::var_os("TGSUM_CODEX_TEST_BINARY")
+            .expect("explicit static Codex 0.155.1 executable path required");
+        let fixture = context("SELECTED token=SYNTHETIC_SECRET");
+        let cancel = Cancellation::default();
+        let request = CodexRequest::prepare(
+            &fixture.context,
+            // Bundled metadata exists in this CLI; the mock never runs a model.
+            "gpt-6-astra",
+            "Summarize the selected context with evidence.",
+            &schema(),
+            &cancel,
+        )
+        .unwrap();
+        let mut files = runtime_files(&request);
+        files.push(RuntimeFile {
+            source: PathBuf::from(binary),
+            guest: "/runtime/codex".into(),
+        });
+        let runner = OfflineRunner::qualify(
+            AdapterContract {
+                id: "installed-codex-with-canned-provider".into(),
+                isolation_profile: LINUX_OFFLINE_PROC_PROFILE.into(),
+                version_probe: codex::version_probe(),
+                expected_version_output: codex::VERSION_STDOUT.to_vec(),
+            },
+            RuntimeSpec {
+                executable: env!("CARGO_BIN_EXE_tgsum-codex-server-fixture").into(),
+                files,
+            },
+            &cancel,
+        )
+        .unwrap();
+        let mut limits = codex::run_limits();
+        limits.timeout = Duration::from_secs(20);
+        let output = runner
+            .run(
+                request.context(),
+                request.invocation().unwrap(),
+                limits,
+                &cancel,
+            )
+            .unwrap();
+        // This fixture has no access to accounts or host HOME. On a failure,
+        // its bounded diagnostic output is safe synthetic test evidence.
+        assert!(
+            output.process_succeeded(),
+            "{output:?}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = std::str::from_utf8(&output.stderr).unwrap();
+        let report: Value = serde_json::from_str(
+            stderr
+                .lines()
+                .find_map(|line| line.strip_prefix("TGSUM_CATALOG "))
+                .unwrap(),
+        )
+        .unwrap();
+        let requests = report["requests"].as_array().unwrap();
+        assert_eq!(requests.len(), 1);
+        // This CLI omits an empty list for some bundled model metadata.
+        let tools = match &requests[0]["tools"] {
+            Value::Null => &[][..],
+            Value::Array(tools) => tools.as_slice(),
+            _ => panic!("unexpected tools shape"),
+        };
+        let names: Vec<_> = tools
+            .iter()
+            .map(|tool| {
+                tool.get("name")
+                    .or_else(|| tool.get("type"))
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+            })
+            .collect();
+        eprintln!("Installed CLI tool catalog: {names:?}");
+        assert!(names.is_empty(), "unexpected tools: {names:?}");
+        assert_eq!(requests[0]["model"], "gpt-6-astra");
+        assert_eq!(requests[0]["structured_output"]["schema"], schema());
+        let store = ProjectStore::new(fixture.root.path());
+        let result = codex::decode(&output, |a: &Answer| {
+            a.evidence.len() == 1
+                && a.evidence.iter().all(|reference| {
+                    let Some((id, revision)) = reference.split_once('@') else {
+                        return false;
+                    };
+                    store
+                        .resolve_evidence(
+                            &fixture.project.project_id,
+                            &fixture.bundle_id,
+                            &EvidenceRef {
+                                id: id.into(),
+                                revision: revision.into(),
+                            },
+                        )
+                        .is_ok()
+                })
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "canned response rejected: {error}\n{}",
+                String::from_utf8_lossy(&output.stdout[..output.stdout.len().min(16 * 1024)])
+            )
+        });
+        assert_eq!(result.value.summary, "Canned response, no inference");
+        assert_eq!(result.notices, [codex::Notice::CodeModeDisabled]);
+        assert!(store
+            .open(&fixture.project.project_id)
+            .unwrap()
+            .baselines
+            .is_empty());
     }
 
     #[test]

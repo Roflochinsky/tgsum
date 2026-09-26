@@ -3,9 +3,14 @@ use std::collections::HashMap;
 use serde::{de::DeserializeOwned, Deserialize};
 
 use super::{
-    DecodeError, Decoded, Usage, MAX_EVENTS, MAX_EVENT_BYTES, MAX_OUTPUT_BYTES, MAX_RESULT_BYTES,
+    DecodeError, Decoded, Notice, Usage, MAX_EVENTS, MAX_EVENT_BYTES, MAX_OUTPUT_BYTES,
+    MAX_RESULT_BYTES,
 };
 use crate::RunOutput;
+
+// Observed from installed 0.155.1 in the offline mock-provider qualification.
+// Match the entire startup message, never classify provider failures by prefix.
+const CODE_MODE_DISABLED: &str = "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.";
 
 #[derive(Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
@@ -38,6 +43,7 @@ struct Item {
     kind: String,
     text: Option<String>,
     items: Option<Vec<Todo>>,
+    message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +98,7 @@ pub fn decode<T: DeserializeOwned>(
     let mut usage = None;
     let mut items = HashMap::<String, ItemState>::new();
     let mut final_text = None;
+    let mut startup_notice_id: Option<String> = None;
     // strip_suffix permits one final newline, but no blank embedded records.
     let bytes = output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout);
     for (index, bytes) in bytes.split(|b| *b == b'\n').enumerate() {
@@ -128,6 +135,19 @@ pub fn decode<T: DeserializeOwned>(
                 }
                 usage = Some(tokens);
             }
+            Event::ItemCompleted { item } if item.kind == "error" => {
+                if !thread_started
+                    || turn_started
+                    || startup_notice_id.is_some()
+                    || !valid_id(&item.id)
+                    || item.text.is_some()
+                    || item.items.is_some()
+                    || item.message.as_deref() != Some(CODE_MODE_DISABLED)
+                {
+                    return Err(error("CLI reported unsupported error item"));
+                }
+                startup_notice_id = Some(item.id);
+            }
             event => {
                 if !turn_started {
                     return Err(error("item outside a turn"));
@@ -144,6 +164,9 @@ pub fn decode<T: DeserializeOwned>(
                     "todo_list" => ItemKind::Todo,
                     _ => return Err(error("tool, error or unsupported item")),
                 };
+                if item.message.is_some() || startup_notice_id.as_ref() == Some(&item.id) {
+                    return Err(error("invalid item payload or reused notice ID"));
+                }
                 if !valid_id(&item.id) {
                     return Err(error("invalid item ID"));
                 }
@@ -195,7 +218,14 @@ pub fn decode<T: DeserializeOwned>(
     if !validate(&value) {
         return Err(DecodeError::RejectedResult);
     }
-    Ok(Decoded { value, usage })
+    Ok(Decoded {
+        value,
+        usage,
+        notices: startup_notice_id
+            .map(|_| Notice::CodeModeDisabled)
+            .into_iter()
+            .collect(),
+    })
 }
 
 fn valid_id(id: &str) -> bool {

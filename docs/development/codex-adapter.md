@@ -6,7 +6,8 @@
 
 **Это ещё не работающий облачный adapter.** Модуль не запускает Codex,
 не читает его профиль/авторизацию и не подключён к UI Run. Реализованы
-подготовка запроса и decoder, проверенные на отдельном synthetic executable.
+подготовка запроса и decoder, проверенные на synthetic executable и установленном
+Codex с локальным сервером готовых ответов без авторизации и внешней сети.
 Публичный bundle по-прежнему имеет `destination: export_only`.
 
 ## Запрос
@@ -34,12 +35,18 @@
 - Аргументы фиксированы: root `--ask-for-approval never`, затем `exec`,
   `--ignore-user-config`, `--ignore-rules`, `--ephemeral`,
   `--skip-git-repo-check`, `--strict-config`, read-only, JSONL, model, schema,
-  отключение web search и перечисленных в коде features. Последний аргумент `-`.
+  отключение web search и перечисленных в коде features. Отдельно выключены
+  `tools.experimental_request_user_input.enabled`, `tools.update_plan.enabled`,
+  analytics, feedback и три OTel exporters; `otel.log_user_prompt=false`.
+  Последний аргумент `-`.
   Дополнительные argv, shell command, config path и env caller не передаёт.
 
 Имена features взяты из локального inventory 0.155.1; removed flags не используются.
-Это ещё не доказательство отсутствия всех tools, MCP, hooks или config inheritance
-в реальном CLI. Native read-only также не изолирует весь harness.
+В offline qualification установленного CLI исходящий Responses request имеет
+пустой tool catalog. Доказательство относится к проверенной версии, bundled
+model metadata и fixture provider. Другие auth/model modes и попытки вызвать
+незаявленные tools требуют отдельной проверки. Native read-only не изолирует
+весь harness; host config/MCP/hooks/skills отсутствуют в filesystem namespace.
 
 ## Результат
 
@@ -53,6 +60,12 @@ reasoning и todo items, последний завершённый `agent_messag
 отклоняются. Todo содержит только проверяемые текст/boolean данные; план не
 исполняется. Command execution, file change, MCP, web search и collab не принимаются.
 JSONL допускает LF/CRLF и отсутствие последнего newline; пустые records запрещены.
+
+Единственное исключение для error item — точное известное предупреждение 0.155.1
+о выключенном Code Mode host: один `item.completed` между `thread.started`
+и `turn.started`, без лишних полей и повторного ID. Оно возвращается как
+`Notice::CodeModeDisabled`, не скрывается и не включает tools. Изменённый текст,
+другое положение, повтор или любой другой error item отклоняются.
 
 Финальный JSON десериализуется в тип `T`. Для recipe нужен строгий тип с
 `deny_unknown_fields`. Обязательный callback `validate` проверяет ограничения
@@ -87,23 +100,45 @@ Decoder не сохраняет результат, не меняет baseline �
 
 ```sh
 bash scripts/check.sh
-cargo test -p tgsum-runner --all-features --locked --test codex -- --ignored --nocapture
+cargo test -p tgsum-runner --all-features --locked --test codex fake_cli -- --ignored --nocapture
 ```
 
 Обычные тесты проверяют request scope/redaction, literal metacharacters,
 cancel/stale revision, UTF-8, JSON/type/evidence, lifecycle и пределы вывода.
-Два `ignored` теста требуют того же Linux x86_64/bubblewrap 0.12.0 profile,
+Два `fake_cli` ignored-теста требуют того же Linux x86_64/bubblewrap 0.12.0 profile,
 что и generic runner. Они запускают **tgsum-codex-fixture**, а не Codex:
 проверяют argv/stdin/read-only schema, evidence resolution, malformed/truncated
 output, tool event, nonzero exit, timeout и cancel после уже выданного ответа.
 Пропуск этих тестов не считается проверкой backend.
 
+Третий ignored-тест запускает установленный **static Linux x86_64 Codex 0.155.1**.
+Путь передаётся явно; профили и credentials не используются:
+
+```sh
+TGSUM_CODEX_TEST_BINARY=/absolute/path/to/codex \
+  cargo test -p tgsum-runner --all-features --locked --test codex installed_cli -- --ignored --nocapture
+```
+
+Test-only launcher и локальный HTTP/SSE сервер работают вместе с Codex внутри
+`linux-x86_64-bwrap-offline-proc-v1`. Сервер принимает только `/v1/responses`,
+отклоняет Authorization и отдаёт готовую JSON-фикстуру. Model `gpt-6-astra`
+выбирает bundled metadata; модель не вызывается и default продукта не меняется.
+Проверяются один request, пустой tool catalog, schema и evidence по исходному
+private bundle. HOME пуст, внешняя сеть недоступна, baseline не меняется.
+Fixture provider overrides отсутствуют в публичном API запроса.
+
+Результат 2026-09-27 MSK: полный gate — **129 passed, 10 ignored**;
+отдельно isolation **7/7**, Codex process tests **3/3**, включая установленный CLI.
+Идентификация executable и источники настроек — в
+[дополнении исследования](../research/codex-adapter-2026-09-26.md#квалификация-установленного-cli-без-аккаунта).
+
 ## Что остаётся до первого cloud Run
 
 1. Реализовать auth/inference transport с выбранной границей всего процесса,
    без копирования auth tokens или всего профиля Codex.
-2. Проверить effective tools/config/hooks/MCP, filesystem/network/IPC и auth
-   refresh на конкретной версии. Fake CLI этого не доказывает.
+2. Проверить effective tools/config/hooks/MCP и filesystem/network/IPC уже
+   с выбранным auth transport, refresh и provider. Offline qualification
+   доказывает только описанный выше профиль с готовыми ответами.
 3. Связать reviewed bundle, фактического получателя/model, recipe validator и
    durable result/baseline lifecycle; подключить adapter к Review/Run UI.
 4. Провести контролируемую пользователем квалификацию `tgsum-t8t.19`.

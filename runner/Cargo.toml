@@ -32,3 +32,8 @@ required-features = ["test-fixtures"]
 name = "tgsum-codex-fixture"
 path = "tests/support/fake_codex.rs"
 required-features = ["test-fixtures"]
+
+[[bin]]
+name = "tgsum-codex-server-fixture"
+path = "tests/support/codex_server.rs"
+required-features = ["test-fixtures"]

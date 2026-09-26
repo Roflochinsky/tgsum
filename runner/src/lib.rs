@@ -20,6 +20,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub const LINUX_OFFLINE_PROFILE: &str = "linux-x86_64-bwrap-offline-v1";
+/// Separate opt-in profile for runtimes that need their own /proc/self/exe.
+/// A fresh procfs belongs to the private PID/network namespaces, read-only.
+pub const LINUX_OFFLINE_PROC_PROFILE: &str = "linux-x86_64-bwrap-offline-proc-v1";
 
 #[derive(Clone, Default)]
 pub struct Cancellation(Arc<AtomicBool>);
@@ -201,9 +204,11 @@ impl OfflineRunner {
         if cancellation.is_cancelled() {
             return Err(RunnerError::Cancelled);
         }
-        if contract.isolation_profile != LINUX_OFFLINE_PROFILE {
-            return Err(RunnerError::ExportOnly("unknown isolation profile"));
-        }
+        let isolation_profile = match contract.isolation_profile.as_str() {
+            LINUX_OFFLINE_PROFILE => LINUX_OFFLINE_PROFILE,
+            LINUX_OFFLINE_PROC_PROFILE => LINUX_OFFLINE_PROC_PROFILE,
+            _ => return Err(RunnerError::ExportOnly("unknown isolation profile")),
+        };
         if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
             return Err(RunnerError::ExportOnly(
                 "no verified backend for this OS/architecture",
@@ -225,7 +230,7 @@ impl OfflineRunner {
                     id: contract.id,
                     version_output: String::from_utf8(contract.expected_version_output)
                         .expect("version validated above"),
-                    isolation_profile: LINUX_OFFLINE_PROFILE,
+                    isolation_profile,
                     authentication: AuthAvailability::NotRequired,
                 },
                 backend,
@@ -233,7 +238,7 @@ impl OfflineRunner {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = runtime;
+            let _ = (runtime, isolation_profile);
             Err(RunnerError::ExportOnly("no verified backend for this OS"))
         }
     }

@@ -135,6 +135,22 @@ impl<'a> CodexRequest<'a> {
             SCHEMA_PATH,
             "--config",
             "web_search=\"disabled\"",
+            "--config",
+            "tools.experimental_request_user_input.enabled=false",
+            "--config",
+            "tools.update_plan.enabled=false",
+            "--config",
+            "analytics.enabled=false",
+            "--config",
+            "feedback.enabled=false",
+            "--config",
+            "otel.exporter=\"none\"",
+            "--config",
+            "otel.trace_exporter=\"none\"",
+            "--config",
+            "otel.metrics_exporter=\"none\"",
+            "--config",
+            "otel.log_user_prompt=false",
         ]
         .into_iter()
         .map(Into::into)

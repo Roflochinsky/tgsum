@@ -54,12 +54,21 @@ pub struct Usage {
 pub struct Decoded<T> {
     pub value: T,
     pub usage: Usage,
+    pub notices: Vec<Notice>,
+}
+
+/// Known nonfatal startup notice emitted by the pinned CLI with Code Mode
+/// deliberately unavailable. Arbitrary error messages never map to this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Notice {
+    CodeModeDisabled,
 }
 
 impl<T> fmt::Debug for Decoded<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Decoded")
             .field("usage", &self.usage)
+            .field("notices", &self.notices)
             .finish_non_exhaustive()
     }
 }

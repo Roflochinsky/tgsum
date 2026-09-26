@@ -15,11 +15,12 @@ fn main() {
     assert_eq!(args.last().unwrap(), "-");
     let mut flags = HashSet::new();
     let mut disabled = HashSet::new();
+    let mut settings = HashSet::new();
     let mut schema = None;
     let mut cursor = 3;
     while cursor < args.len() - 1 {
         let arg = args[cursor].as_str();
-        assert!(flags.insert(arg) || arg == "--disable");
+        assert!(flags.insert(arg) || arg == "--disable" || arg == "--config");
         cursor += 1;
         match arg {
             "--ignore-user-config"
@@ -37,7 +38,21 @@ fn main() {
                     "--sandbox" => assert_eq!(value, "read-only"),
                     "--cd" => assert_eq!(value, "/context"),
                     "--color" => assert_eq!(value, "never"),
-                    "--config" => assert_eq!(value, "web_search=\"disabled\""),
+                    "--config" => {
+                        assert!([
+                            "web_search=\"disabled\"",
+                            "tools.experimental_request_user_input.enabled=false",
+                            "tools.update_plan.enabled=false",
+                            "analytics.enabled=false",
+                            "feedback.enabled=false",
+                            "otel.exporter=\"none\"",
+                            "otel.trace_exporter=\"none\"",
+                            "otel.metrics_exporter=\"none\"",
+                            "otel.log_user_prompt=false",
+                        ]
+                        .contains(&value.as_str()));
+                        assert!(settings.insert(value.as_str()));
+                    }
                     "--output-schema" => {
                         assert_eq!(value, "/runtime/tgsum-codex-result.schema.json");
                         schema = Some(
@@ -90,6 +105,7 @@ fn main() {
         assert!(disabled.contains(required));
     }
     assert_eq!(schema.unwrap()["additionalProperties"], false);
+    assert_eq!(settings.len(), 9);
     assert_eq!(
         std::env::current_dir().unwrap(),
         std::path::Path::new("/context")

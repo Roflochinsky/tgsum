@@ -2,9 +2,10 @@
 
 `tgsum-runner` — отдельный workspace crate вне offline core. Он реализует
 границу процесса для будущих adapters. Приложение пока не подключает его к Run;
-Сеть, авторизация и запуск Codex/Claude ещё не реализованы. Для Codex добавлены
-[подготовка запроса и проверка structured result](codex-adapter.md), проверенные
-через fake CLI. Реальные анализы и аккаунты для этой реализации не запускались.
+Облачная сеть и авторизация ещё не реализованы. Для Codex добавлены
+[подготовка запроса и проверка structured result](codex-adapter.md): fake CLI
+и установленный 0.155.1 проверены с локальным сервером готовых ответов внутри
+offline namespace. Реальные анализы и аккаунты не запускались.
 
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).
@@ -44,7 +45,7 @@ Revision проверяется непосредственно перед под
 настроек. Caller вызывает синхронный runner на выделенном worker и держит этот
 поток живым до возврата: Linux parent-death signal относится к создавшему thread.
 
-## Реализованный профиль
+## Реализованные профили
 
 `linux-x86_64-bwrap-offline-v1` использует root-owned, несетuid `/usr/bin/bwrap`
 **0.12.0** без group/other write. Версия проверяется перед каждым запуском.
@@ -53,6 +54,13 @@ Revision проверяется непосредственно перед под
 даёт ошибку; прямого или ослабленного повторного запуска нет. Неизвестный
 profile, другая ОС/архитектура или неподходящая версия дают `ExportOnly`.
 
+`linux-x86_64-bwrap-offline-proc-v1` — отдельный явный профиль для runtime,
+которому нужен `/proc/self/exe`, в частности установленного Codex 0.155.1.
+Он добавляет новый read-only procfs в собственном PID/network namespace.
+Host procfs не монтируется. Первый профиль по-прежнему не имеет `/proc`;
+автоматического перехода между профилями нет. Procfs открывает некоторые
+метаданные ядра; этот профиль не обещает скрыть всю информацию о host.
+
 | Объект | Доступ процесса |
 | --- | --- |
 | `/context` | Только read-only публичная staging-копия bundle |
@@ -60,6 +68,7 @@ profile, другая ОС/архитектура или неподходяща�
 | `/home/agent`, `/tmp` | Пустые отдельные tmpfs для каждого запуска, по 64 MiB |
 | Host HOME, Project store, исходные exports, connector secrets | Не монтируются |
 | Host `/proc`, `/sys`, `/run`, `/dev`, sockets | Не монтируются |
+| Собственный `/proc` | Только явный `offline-proc-v1`, read-only, процессы private PID namespace |
 | Сеть | Отдельный namespace, доступа к host loopback/сокетам нет |
 | Окружение | Только HOME, TMPDIR, PATH, LANG и PWD; env_clear применяется и к helper |
 | Дополнительные FD | CLOEXEC на всех FD > 2 перед exec helper |
@@ -73,7 +82,9 @@ runtime staging доступен лишь host-пользователю; кат�
 
 ## Лимиты и завершение
 
-- Runtime: максимум 128 дополнительных файлов; 128 MiB на файл и 512 MiB всего.
+- Runtime: максимум 128 дополнительных файлов; 320 MiB на файл и 512 MiB всего.
+  Установленный Codex 0.155.1 занимает 269 273 536 bytes; превышение файлового
+  лимита отклоняется до копирования.
 - По умолчанию: stdin 64 KiB, stdout 4 MiB, stderr 256 KiB, timeout 300 s.
 - Caller может выбрать пределы до stdin 1 MiB, stdout 16 MiB, stderr 1 MiB
   и timeout 30 min. Argv: до 128 аргументов и 64 KiB суммарно.
@@ -92,7 +103,7 @@ runtime staging доступен лишь host-пользователю; кат�
 
 ## Доказательства и запуск проверок
 
-Проверено 2026-09-26 на **Omarchy 4.0.4, Linux 7.2.5-3-omarchy x86_64,
+Проверено 2026-09-27 (MSK) на **Omarchy 4.0.4, Linux 7.2.5-3-omarchy x86_64,
 bubblewrap 0.12.0**, Rust fixture вместо AI-агента.
 
 ```sh
@@ -100,10 +111,10 @@ bash scripts/check.sh
 cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored --nocapture
 ```
 
-Вторая команда обязана запускаться отдельно: шесть isolation tests помечены
+Вторая команда обязана запускаться отдельно: семь isolation tests помечены
 `ignored`, поскольку обычная CI-матрица не устанавливает этот backend и не
 гарантирует доступность namespace. Пропуск не считается успешной квалификацией.
-На Linux x86_64 с нужным backend suite должен реально выполнить шесть тестов;
+На Linux x86_64 с нужным backend suite должен реально выполнить семь тестов;
 на другой архитектуре он не является проверкой поддержки.
 
 Покрыты:
@@ -113,6 +124,8 @@ cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored
 - отдельные HOME/tmp, параллельные запуски одного runtime; отсутствие inherited
   env, включая LD_PRELOAD и SSH_AUTH_SOCK; намеренно non-CLOEXEC sentinel FD;
 - отсутствие host TCP loopback и Unix socket; никакой внешний сервер не нужен;
+- отдельный procfs: свой executable виден, host PID и synthetic host files
+  через `/proc/1/root` и `/proc/self/root` недоступны, запись в procfs запрещена;
 - точные argv с shell-метасимволами, stdin/stdout с invalid UTF-8, stderr и exit 17;
 - замена установленного executable после qualification, другая версия,
   неполный runtime и изменение Project после Review;

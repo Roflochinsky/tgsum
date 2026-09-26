@@ -113,7 +113,8 @@ JSON Schema subset. Перечисленных на странице event names
 форму текстовых/reasoning/todo items и имена ошибок/tool events. Decoder
 реализует строгое подмножество этого wire format. Таблица типов не доказывает
 runtime ordering, фактический tool inventory или соответствие всех failure
-состояний CLI этим событиям; реальная квалификация по-прежнему не проведена.
+состояний CLI этим событиям. Ниже добавлена offline qualification установленного
+CLI; авторизованный provider flow по-прежнему не проверен.
 
 Нужны synthetic transcript fixtures для success, malformed/truncated stream,
 nonzero exit, schema mismatch, timeout, cancel и failure после частичного ответа.
@@ -320,9 +321,10 @@ harness без HOME/raw exports/connector secrets. Это ограничение
    на synthetic fixtures: [контракт и границы](../development/codex-adapter.md).
    Финальный typed result требует обязательного recipe/evidence validator;
    это не универсальная реализация JSON Schema. Конкретные recipes ещё нужны.
-2. На основании собранного inventory **0.155.1** проверить неизвестные config
-   keys и эффективный tool catalog в изолированной среде без реальных аккаунтов.
-   Проверить, что hooks/MCP/skills не стартуют и не читаются при запуске.
+2. Offline qualification установленного **0.155.1** выполнена в дополнении ниже:
+   strict config и пустой tool catalog проверены с fixture provider, а host
+   hooks/MCP/skills отсутствуют в namespace. Повторить qualification для
+   выбранного auth transport/provider и проверить попытки незаявленных tools.
 3. Реализовать выбранный auth/inference transport и OS profile всего процесса;
    доказать allowlist filesystem/network/IPC, auth ownership, refresh и cleanup.
    Отдельно проверить обходы через встроенные tools, symlinks и inherited state.
@@ -333,6 +335,54 @@ harness без HOME/raw exports/connector secrets. Это ограничение
    получателем и полномочиями. Одни metadata, help checks или mocks поддержку
    cloud analysis не доказывают.
 
-Этапы 1–3 — остающаяся инженерная работа, которую нельзя заменить переносом
-одной проверки аккаунта в backlog. Исследование не даёт основания закрывать
-эпик runner/adapters целиком.
+Оставшаяся часть этапов 2–3 — инженерная работа, которую нельзя заменить переносом
+проверки аккаунта в backlog. Исследование не закрывает эпик runner/adapters.
+
+## Квалификация установленного CLI без аккаунта
+
+**2026-09-27 MSK (2026-09-26 21:25 UTC)**. Проверен установленный 0.155.1:
+static PIE ELF x86_64, 269 273 536 bytes, SHA-256
+`0753dfe1d8b87a52436deb13eb1c549661ef4c84fee2c5aa688385eebeccb761`.
+
+Codex и test-only Responses server запущены внутри одного offline bwrap namespace
+с новым HOME. Сервер отдаёт canned SSE/JSON, не имеет credentials/model backend
+и отклоняет Authorization. Model slug `gpt-6-astra` выбирает bundled metadata;
+это не вызов модели и не решение о default TGSUM. Внешняя сеть и настоящие
+профили недоступны. Реальная авторизация остаётся `tgsum-t8t.19`.
+
+Обнаружены и исправлены конкретные несовместимости:
+
+- executable больше прежнего лимита 128 MiB: предел файла поднят до 320 MiB
+  при неизменном суммарном 512 MiB, превышение отклоняется до копирования;
+- CLI нужен `/proc/self/exe`: добавлен отдельный opt-in read-only procfs profile
+  в private PID namespace. Предыдущий профиль сохраняет отсутствие `/proc`;
+- выключения feature flags оказалось недостаточно: request содержал
+  `request_user_input`. `tools.experimental_request_user_input.enabled=false`
+  убрал его; `tools.update_plan.enabled=false` задан явно. Проверенный request
+  имеет пустой каталог tools. Это наблюдение конкретной версии/metadata/provider;
+- analytics, feedback, exporters OTel и prompt logging выключены явно;
+  запрет внешней сети обеспечивает ОС, не эти флаги;
+- metadata Code Mode создаёт nonfatal startup error item при выключенном host.
+  Decoder принимает только точное известное сообщение до `turn.started`,
+  возвращает `Notice::CodeModeDisabled` и отклоняет остальные ошибки.
+
+Параметры tools и OTel взяты из официальной
+[config schema](https://learn.chatgpt.com/docs/config-schema.json); custom provider,
+Responses transport, analytics и feedback описаны в
+[advanced configuration](https://learn.chatgpt.com/docs/config-file/config-advanced).
+Текущая schema сама по себе не гарантирует совместимость 0.155.1: выбранные
+ключи дополнительно прошли его `--strict-config` и наблюдение исходящего request.
+Fixture использует события
+[Responses streaming](https://developers.openai.com/api/docs/guides/streaming-responses).
+Tagged `exec_events.rs`, приведённый выше, определяет error item как nonfatal;
+его точное положение и текст установлены этой проверкой.
+
+Проверены один request, structured schema, canned final result и разрешение
+evidence по исходному bundle без изменения baseline. Полный gate: 129 passed,
+10 ignored; отдельно 7/7 isolation и 3/3 Codex process tests. Команды, пределы
+и обязательный явный путь executable описаны в
+[контракте adapter](../development/codex-adapter.md#проверки).
+
+Это доказательство запуска официального executable в offline среде с фикстурой.
+Облачный transport, auth ownership/refresh, Review/Run и реальная квалификация
+ещё нужны; `destination: export_only` и support status остаются прежними.

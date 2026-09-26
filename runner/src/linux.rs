@@ -12,17 +12,20 @@ use tempfile::TempDir;
 
 use crate::{
     AdapterContract, Cancellation, Invocation, RunLimits, RunOutput, RunnerError, RuntimeSpec,
-    Termination,
+    Termination, LINUX_OFFLINE_PROC_PROFILE,
 };
 
 const BWRAP: &str = "/usr/bin/bwrap";
 const BWRAP_VERSION: &[u8] = b"bubblewrap 0.12.0\n";
-const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
+// Codex 0.155.1 static PIE is 269,273,536 bytes. Keep staging bounded while
+// admitting the reviewed executable; the aggregate cap still applies.
+const MAX_FILE_BYTES: u64 = 320 * 1024 * 1024;
 const MAX_RUNTIME_BYTES: u64 = 512 * 1024 * 1024;
 
 pub(crate) struct Backend {
     _staging: TempDir,
     mounts: Vec<(PathBuf, PathBuf)>,
+    private_proc: bool,
 }
 
 impl Backend {
@@ -32,7 +35,8 @@ impl Backend {
         cancellation: &Cancellation,
     ) -> Result<Self, RunnerError> {
         check_helper(cancellation)?;
-        let backend = Self::stage(runtime, cancellation)?;
+        let mut backend = Self::stage(runtime, cancellation)?;
+        backend.private_proc = contract.isolation_profile == LINUX_OFFLINE_PROC_PROFILE;
         let empty = tempfile::tempdir()?;
         let output = backend.run(
             empty.path(),
@@ -128,6 +132,7 @@ impl Backend {
         Ok(Self {
             _staging: staging,
             mounts,
+            private_proc: false,
         })
     }
 
@@ -182,6 +187,9 @@ impl Backend {
         ]);
         for (source, guest) in &self.mounts {
             command.arg("--ro-bind").arg(source).arg(guest);
+        }
+        if self.private_proc {
+            command.args(["--proc", "/proc", "--remount-ro", "/proc"]);
         }
         command.arg("--ro-bind").arg(context).arg("/context");
         command.args([
@@ -304,5 +312,27 @@ mod tests {
         ] {
             validate_guest(Path::new(valid)).unwrap();
         }
+    }
+
+    #[test]
+    fn oversized_runtime_file_is_rejected_before_copying() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("oversized");
+        let file = File::create(&path).unwrap();
+        file.set_len(MAX_FILE_BYTES + 1).unwrap();
+        file.set_permissions(fs::Permissions::from_mode(0o700))
+            .unwrap();
+        assert!(matches!(
+            Backend::stage(
+                RuntimeSpec {
+                    executable: path,
+                    files: vec![],
+                },
+                &Cancellation::default()
+            ),
+            Err(RunnerError::InvalidRequest(
+                "runtime needs bounded regular files"
+            ))
+        ));
     }
 }

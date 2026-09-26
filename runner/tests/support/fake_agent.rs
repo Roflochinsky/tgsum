@@ -57,7 +57,7 @@ fn main() {
             std::fs::write("/tmp/descendant-ready", "ready").unwrap();
             hold();
         }
-        Some("inspect") => {
+        Some("inspect") | Some("inspect-proc") => {
             let cwd = std::env::current_dir().unwrap();
             assert_eq!(cwd, std::path::Path::new("/context"));
             let manifest = std::fs::read_to_string("manifest.json").unwrap();
@@ -82,9 +82,38 @@ fn main() {
                     "host path visible: {path}"
                 );
                 assert!(std::fs::read(path).is_err(), "host path accessible: {path}");
+                if args[0] == "inspect-proc" {
+                    // PID 1 and self remain rooted in the same isolated mount
+                    // namespace. Procfs must not expose the host root or PIDs.
+                    for prefix in ["/proc/1/root", "/proc/self/root"] {
+                        assert!(std::fs::read(format!("{prefix}{path}")).is_err());
+                    }
+                }
             }
             for path in ["/proc", "/sys", "/run", "/dev", "/etc"] {
-                assert!(!std::path::Path::new(path).exists());
+                if path == "/proc" && args[0] == "inspect-proc" {
+                    assert_eq!(
+                        std::fs::read_link("/proc/self/exe").unwrap(),
+                        std::path::Path::new("/runtime/agent")
+                    );
+                    assert!(std::fs::OpenOptions::new()
+                        .write(true)
+                        .open("/proc/sys/kernel/hostname")
+                        .is_err());
+                    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+                    assert!(status.contains("PPid:\t1\n"));
+                    for entry in std::fs::read_dir("/proc").unwrap() {
+                        if let Ok(pid) = entry.unwrap().file_name().to_string_lossy().parse::<u32>()
+                        {
+                            assert!(
+                                [1, std::process::id()].contains(&pid),
+                                "foreign PID visible"
+                            );
+                        }
+                    }
+                } else {
+                    assert!(!std::path::Path::new(path).exists());
+                }
             }
             assert_eq!(std::env::var("HOME").unwrap(), "/home/agent");
             for (key, _) in std::env::vars() {
