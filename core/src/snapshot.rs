@@ -19,6 +19,9 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
+use crate::connector::{
+    ArchiveImporter, ConnectorDescriptor, ConversationObservation, TelegramJson,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{stream_chats, RawChat};
@@ -91,6 +94,18 @@ pub struct Coverage {
     pub known_gaps: Vec<CoverageGap>,
 }
 
+impl Coverage {
+    pub fn unknown(reason: impl Into<String>) -> Self {
+        Self {
+            level: CoverageLevel::Unknown,
+            reason: reason.into(),
+            range: None,
+            evidence: Vec::new(),
+            known_gaps: Vec::new(),
+        }
+    }
+}
+
 /// Relative paths are references only; existence and safety for copying have
 /// not been established. The future bundle packager must validate them anew.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +151,30 @@ pub struct CanonicalMessage {
     pub attachments: Vec<Attachment>,
     #[serde(default)]
     pub metadata: Option<MessageMetadata>,
+}
+
+impl CanonicalMessage {
+    /// Construct an observed record; normalization fills optional source fields.
+    /// Store publication computes metadata and verifies its scope/identity.
+    pub fn new(key: MessageKey, text: impl Into<String>) -> Self {
+        Self {
+            key,
+            text: text.into(),
+            timestamp: None,
+            timestamp_unix: None,
+            sender_id: None,
+            sender_name: None,
+            reply_to: None,
+            thread_id: None,
+            edited_at: None,
+            edited_unix: None,
+            is_service: false,
+            service_action: None,
+            service_title: None,
+            attachments: Vec::new(),
+            metadata: None,
+        }
+    }
 }
 
 /// Immutable observation, not an assertion that all historical messages exist.
@@ -184,18 +223,36 @@ impl Snapshot {
         if self.source != previous.source {
             return Err(invalid("cannot diff different source namespaces"));
         }
+        if self.snapshot_id != previous.snapshot_id
+            && self.messages.iter().chain(&previous.messages).any(|m| {
+                m.metadata
+                    .as_ref()
+                    .is_some_and(|meta| meta.identity_quality == IdentityQuality::SnapshotLocal)
+            })
+        {
+            return Err(invalid(
+                "snapshot-local identities require an explicit cross-snapshot matching strategy",
+            ));
+        }
         let old: BTreeMap<_, _> = previous.messages.iter().map(|m| (&m.key, m)).collect();
         let new: BTreeMap<_, _> = self.messages.iter().map(|m| (&m.key, m)).collect();
         let mut diff = SnapshotDiff::default();
         for (key, message) in &new {
             match old.get(key) {
-                None => diff.created.push((*key).clone()),
                 Some(before)
                     if before.metadata.as_ref().map(|m| &m.revision_id)
                         == message.metadata.as_ref().map(|m| &m.revision_id) =>
                 {
                     diff.unchanged += 1
                 }
+                _ if message
+                    .metadata
+                    .as_ref()
+                    .is_some_and(|meta| meta.deletion_state == DeletionState::Deleted) =>
+                {
+                    diff.deleted.push((*key).clone())
+                }
+                None => diff.created.push((*key).clone()),
                 Some(_) => diff.edited.push((*key).clone()),
             }
         }
@@ -212,6 +269,9 @@ impl Snapshot {
 pub struct SnapshotDiff {
     pub created: Vec<MessageKey>,
     pub edited: Vec<MessageKey>,
+    /// Only explicit source tombstones, never inferred from archive absence.
+    #[serde(default)]
+    pub deleted: Vec<MessageKey>,
     pub missing: Vec<MessageKey>,
     pub unchanged: usize,
 }
@@ -242,7 +302,7 @@ impl SnapshotStore {
             if snapshot.source.platform != "telegram" {
                 return Err(invalid("unsupported legacy snapshot platform"));
             }
-            snapshot.add_metadata(true)?;
+            snapshot.add_metadata(TelegramJson.descriptor(), true, &[])?;
         }
         snapshot.validate()?;
         if snapshot.snapshot_id != snapshot_id {
@@ -259,34 +319,108 @@ impl SnapshotStore {
         &self,
         snapshot_id: &str,
         source: &SourceScope,
-        reader: R,
+        mut reader: R,
+    ) -> io::Result<Snapshot> {
+        self.import(&TelegramJson, snapshot_id, source, &mut reader)
+    }
+
+    /// Import a selected conversation through any installed file/local adapter.
+    /// The adapter emits source facts; the store owns validation and publication.
+    pub fn import(
+        &self,
+        importer: &dyn ArchiveImporter,
+        snapshot_id: &str,
+        source: &SourceScope,
+        reader: &mut dyn Read,
+    ) -> io::Result<Snapshot> {
+        self.publish_with(importer.descriptor(), snapshot_id, source, |emit| {
+            importer.normalize(reader, source, emit)?;
+            let mut trailing = [0];
+            if reader.read(&mut trailing)? != 0 {
+                return Err(invalid("importer returned before consuming the source"));
+            }
+            Ok(())
+        })
+    }
+
+    /// Publish one already acquired observation (for API/bot adapters). This
+    /// method performs no network call and does not advance any API cursor.
+    pub fn publish_observation(
+        &self,
+        descriptor: ConnectorDescriptor,
+        snapshot_id: &str,
+        source: &SourceScope,
+        observation: ConversationObservation,
+    ) -> io::Result<Snapshot> {
+        self.publish_with(descriptor, snapshot_id, source, |emit| emit(observation))
+    }
+
+    fn publish_with(
+        &self,
+        descriptor: ConnectorDescriptor,
+        snapshot_id: &str,
+        source: &SourceScope,
+        normalize: impl FnOnce(
+            &mut dyn FnMut(ConversationObservation) -> io::Result<()>,
+        ) -> io::Result<()>,
     ) -> io::Result<Snapshot> {
         source.validate()?;
-        if source.platform != "telegram" {
-            return Err(invalid("Telegram importer requires a Telegram source"));
+        validate_snapshot_id(descriptor.id)?;
+        if descriptor.revision.is_empty() || descriptor.format_id.is_empty() {
+            return Err(invalid("connector revision and format must be explicit"));
+        }
+        if descriptor.platform != source.platform {
+            return Err(invalid("connector platform does not match selected source"));
         }
         let destination = self.path(snapshot_id)?;
         fs::create_dir_all(&self.root)?;
         let mut staged = tempfile::NamedTempFile::new_in(&self.root)?;
         let mut found = false;
-        let mut write_result = Ok(());
-        stream_chats(reader, |chat: RawChat<telegram::Record>| {
-            if chat.id == source.conversation_id && write_result.is_ok() {
+        let mut rejected = false;
+        normalize(&mut |observation| {
+            let result = (|| {
                 if found {
-                    write_result = Err(invalid("selected conversation appears more than once"));
-                } else {
-                    found = true;
-                    write_result =
-                        telegram::normalize(snapshot_id, source, chat).and_then(|snapshot| {
-                            let mut writer = BufWriter::new(staged.as_file_mut());
-                            serde_json::to_writer(&mut writer, &snapshot).map_err(invalid)?;
-                            writer.flush()
-                        });
+                    return Err(invalid("selected conversation appears more than once"));
                 }
+                found = true;
+                if &observation.source != source {
+                    return Err(invalid("observation is outside selected source"));
+                }
+                let mut messages = Vec::with_capacity(observation.messages.len());
+                let mut facts = Vec::with_capacity(observation.messages.len());
+                for observed in observation.messages {
+                    if !descriptor.capabilities.stable_message_ids
+                        && observed.identity_quality == IdentityQuality::Native
+                    {
+                        return Err(invalid("connector cannot claim native message identity"));
+                    }
+                    facts.push((observed.identity_quality, observed.deletion_state));
+                    messages.push(observed.message);
+                }
+                let mut snapshot = Snapshot {
+                    schema_version: SCHEMA_VERSION,
+                    snapshot_id: snapshot_id.into(),
+                    source: observation.source,
+                    conversation_title: observation.title,
+                    conversation_kind: observation.kind,
+                    coverage: observation.coverage,
+                    messages,
+                    metadata: None,
+                };
+                snapshot.add_metadata(descriptor, false, &facts)?;
+                snapshot.validate()?;
+                let mut writer = BufWriter::new(staged.as_file_mut());
+                serde_json::to_writer(&mut writer, &snapshot).map_err(invalid)?;
+                writer.flush()
+            })();
+            if result.is_err() {
+                rejected = true;
             }
-            ControlFlow::Continue(())
+            result
         })?;
-        write_result?;
+        if rejected {
+            return Err(invalid("importer ignored a rejected observation"));
+        }
         if !found {
             return Err(invalid("selected conversation not present in export"));
         }
@@ -308,6 +442,24 @@ impl SnapshotStore {
     pub fn directory(&self) -> &Path {
         &self.root
     }
+}
+
+pub(crate) fn normalize_telegram(
+    reader: &mut dyn Read,
+    source: &SourceScope,
+    emit: &mut dyn FnMut(ConversationObservation) -> io::Result<()>,
+) -> io::Result<()> {
+    if source.platform != "telegram" {
+        return Err(invalid("Telegram importer requires a Telegram source"));
+    }
+    let mut result = Ok(());
+    stream_chats(reader, |chat: RawChat<telegram::Record>| {
+        if chat.id == source.conversation_id && result.is_ok() {
+            result = telegram::normalize(source, chat).and_then(&mut *emit);
+        }
+        ControlFlow::Continue(())
+    })?;
+    result
 }
 
 pub(crate) fn validate_snapshot_id(id: &str) -> io::Result<()> {

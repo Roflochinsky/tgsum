@@ -11,11 +11,15 @@ Bridge. Дата проверки: 2026-09-26. Это документация �
 | `index_reader` / `extract_reader` | Полный `chats.list[]` и одиночный корневой чат с `id`/`messages`; прежний Markdown |
 | `SnapshotStore::import_telegram` | Сохраняет один явно выбранный чат после проверки всего JSON |
 | `SnapshotStore::load` | Читает сохранённый snapshot с проверкой schema, имени, уникальности и scope ключей |
-| `Snapshot::diff` | `created`, `edited`, `missing`, счётчик `unchanged` |
+| `Snapshot::diff` | `created`, `edited`, explicit `deleted`, `missing`, счётчик `unchanged` |
 | `ExportJob::apply` | Проверяет событие клиента и публикует snapshot только после `Completed` активного запроса |
 
 Исходники: [parser](../../core/src/stream.rs),
 [snapshots](../../core/src/snapshot.rs), [Bridge](../../core/src/bridge.rs).
+
+Срез `tgsum-hzm.4` добавил общий [connector contract](connectors.md): Telegram
+использует тот же store, что и synthetic второй адаптер; network/OS driver
+в этом срезе не подключён.
 
 ### Parser
 

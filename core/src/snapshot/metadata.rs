@@ -2,6 +2,7 @@
 
 use std::io::{self, Write};
 
+use crate::connector::{ConnectorDescriptor, ConnectorKind};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -234,10 +235,19 @@ impl CanonicalMessage {
 }
 
 impl Snapshot {
-    pub(super) fn add_metadata(&mut self, migrated: bool) -> io::Result<()> {
+    pub(super) fn add_metadata(
+        &mut self,
+        descriptor: ConnectorDescriptor,
+        migrated: bool,
+        facts: &[(IdentityQuality, DeletionState)],
+    ) -> io::Result<()> {
         for (index, message) in self.messages.iter_mut().enumerate() {
+            let (identity_quality, deletion_state) = facts
+                .get(index)
+                .cloned()
+                .unwrap_or((IdentityQuality::Native, DeletionState::Present));
             message.metadata = Some(MessageMetadata {
-                identity_quality: IdentityQuality::Native,
+                identity_quality,
                 timestamp: TimestampInfo::from_export(
                     message.timestamp.as_deref(),
                     message.timestamp_unix.as_deref(),
@@ -246,8 +256,8 @@ impl Snapshot {
                     message.edited_at.as_deref(),
                     message.edited_unix.as_deref(),
                 ),
-                deletion_state: DeletionState::Present,
-                revision_id: message.revision(&DeletionState::Present)?,
+                revision_id: message.revision(&deletion_state)?,
+                deletion_state,
                 provenance: MessageProvenance {
                     snapshot_id: self.snapshot_id.clone(),
                     record_ordinal: index as u64,
@@ -277,16 +287,23 @@ impl Snapshot {
             connector_id: if migrated {
                 "legacy_telegram_json"
             } else {
-                "telegram_json"
+                descriptor.id
             }
             .into(),
             connector_revision: if migrated {
                 "schema-1".into()
             } else {
-                format!("{}:canonical-2", env!("CARGO_PKG_VERSION"))
+                descriptor.revision.into()
             },
-            acquisition_method: "archive".into(),
-            format_id: "telegram_desktop_json".into(),
+            acquisition_method: match descriptor.kind {
+                ConnectorKind::Archive => "archive",
+                ConnectorKind::LocalData => "local_data",
+                ConnectorKind::UserOAuth => "user_oauth",
+                ConnectorKind::Bot => "bot",
+                ConnectorKind::OfficialClient => "official_client",
+            }
+            .into(),
+            format_id: descriptor.format_id.into(),
             imported_at,
             migrated_from_schema: migrated.then_some(1),
             content_digest: self.content_digest()?,

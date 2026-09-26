@@ -22,8 +22,9 @@ local rewrite. They are private data, not anonymous public evidence IDs.
 `Snapshot::diff` compares content revisions. Observation changes alone do not
 count as edits. A missing record remains `missing`, even with claimed complete
 coverage. Telegram records are `present`; this importer has no evidence of
-deletion. The model can represent `deleted` and `unknown`, but no Telegram
-archive disappearance generates an explicit deletion event.
+deletion. Other adapters can supply explicit `deleted` tombstones through the
+[common observation contract](connectors.md); diff reports those separately.
+No Telegram archive disappearance generates an explicit deletion event.
 
 Attachment metadata now has optional native identity and content digest. They
 remain absent for Telegram JSON references: file bytes have not been read.

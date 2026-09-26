@@ -6,9 +6,10 @@ use std::io;
 use serde::Deserialize;
 
 use super::{
-    invalid, Attachment, AttachmentAvailability, CanonicalMessage, Coverage, CoverageLevel,
-    MessageKey, Snapshot, SourceScope, SCHEMA_VERSION,
+    invalid, Attachment, AttachmentAvailability, CanonicalMessage, Coverage, MessageKey,
+    SourceScope,
 };
+use crate::connector::{ConversationObservation, MessageObservation};
 use crate::{de, flatten_text, group_by_topic, is_forum, Message, RawChat, RawMessage};
 
 /// Metadata that the legacy Markdown projection deliberately discards.
@@ -62,10 +63,9 @@ impl Message for Record {
 }
 
 pub(super) fn normalize(
-    snapshot_id: &str,
     source: &SourceScope,
     chat: RawChat<Record>,
-) -> io::Result<Snapshot> {
+) -> io::Result<ConversationObservation> {
     let mut topics = BTreeMap::new();
     if is_forum(&chat.messages) {
         for group in group_by_topic(&chat.messages) {
@@ -111,7 +111,7 @@ pub(super) fn normalize(
                 });
             }
         }
-        messages.push(CanonicalMessage {
+        messages.push(MessageObservation::native_present(CanonicalMessage {
             thread_id: topics.remove(&record.id),
             key: MessageKey {
                 source: source.clone(),
@@ -130,27 +130,15 @@ pub(super) fn normalize(
             service_title: record.legacy.title,
             attachments,
             metadata: None,
-        });
+        }));
     }
-    let mut snapshot = Snapshot {
-        schema_version: SCHEMA_VERSION,
-        snapshot_id: snapshot_id.into(),
+    Ok(ConversationObservation {
         source: source.clone(),
-        conversation_title: chat.name,
-        conversation_kind: chat.kind,
-        coverage: Coverage {
-            level: CoverageLevel::Unknown,
-            reason: "Telegram JSON identifies the chat but does not prove account ownership or completeness of exported history".into(),
-            range: None,
-            evidence: Vec::new(),
-            known_gaps: Vec::new(),
-        },
+        title: chat.name,
+        kind: chat.kind,
+        coverage: Coverage::unknown("Telegram JSON identifies the chat but does not prove account ownership or completeness of exported history"),
         messages,
-        metadata: None,
-    };
-    snapshot.add_metadata(false)?;
-    snapshot.validate()?;
-    Ok(snapshot)
+    })
 }
 
 fn safe_relative_path(path: &str) -> bool {

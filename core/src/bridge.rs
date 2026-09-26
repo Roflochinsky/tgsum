@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
+use crate::connector::{ArchiveImporter, ConnectorDescriptor, TelegramJson};
 use crate::snapshot::{validate_snapshot_id, Snapshot, SnapshotStore, SourceScope};
 
 /// Every attempt needs a fresh run ID and an explicitly chosen archive path.
@@ -52,20 +53,30 @@ pub struct ClientUpdate {
 pub struct ExportJob {
     request: ExportRequest,
     state: ExportState,
+    importer: ConnectorDescriptor,
 }
 
 impl ExportJob {
     pub fn new(request: ExportRequest) -> io::Result<Self> {
+        Self::for_importer(request, &TelegramJson)
+    }
+
+    pub fn for_importer(
+        request: ExportRequest,
+        importer: &dyn ArchiveImporter,
+    ) -> io::Result<Self> {
         request.source.validate()?;
         validate_snapshot_id(&request.run_id)?;
-        if request.source.platform != "telegram" || !request.archive_path.is_absolute() {
+        let importer = importer.descriptor();
+        if request.source.platform != importer.platform || !request.archive_path.is_absolute() {
             return Err(invalid(
-                "export job requires a Telegram source and an explicit absolute archive path",
+                "export job requires a matching importer and an explicit absolute archive path",
             ));
         }
         Ok(Self {
             request,
             state: ExportState::WaitingForClient,
+            importer,
         })
     }
 
@@ -86,6 +97,18 @@ impl ExportJob {
         update: ClientUpdate,
         store: &SnapshotStore,
     ) -> io::Result<Option<Snapshot>> {
+        self.apply_with_importer(update, store, &TelegramJson)
+    }
+
+    pub fn apply_with_importer(
+        &mut self,
+        update: ClientUpdate,
+        store: &SnapshotStore,
+        importer: &dyn ArchiveImporter,
+    ) -> io::Result<Option<Snapshot>> {
+        if importer.descriptor() != self.importer {
+            return Err(invalid("export callback importer does not match this job"));
+        }
         if update.request != self.request {
             return Err(invalid("export callback does not match this request"));
         }
@@ -108,8 +131,13 @@ impl ExportJob {
                 if self.state != ExportState::Exporting {
                     return Err(invalid("completion requires an active export"));
                 }
-                let result = File::open(&self.request.archive_path).and_then(|file| {
-                    store.import_telegram(&self.request.run_id, &self.request.source, file)
+                let result = File::open(&self.request.archive_path).and_then(|mut file| {
+                    store.import(
+                        importer,
+                        &self.request.run_id,
+                        &self.request.source,
+                        &mut file,
+                    )
                 });
                 match result {
                     Ok(snapshot) => {
