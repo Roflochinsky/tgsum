@@ -40,7 +40,9 @@ single-chat JSON не позволяет доказать, какой аккау
 canonical сообщения: timestamps без выдуманной UTC-конверсии, author, text,
 reply/topic, edit metadata, service flag/action/title, attachment references.
 Native key вместе с `snapshot_id` указывает на сохранённую версию записи.
-Opaque evidence IDs, hashes/revision mapping и bundle реализуются отдельно.
+Schema 2 добавляет content revisions, provenance и timestamp/coverage metadata:
+[контракт и миграция](canonical-schema.md). Непрозрачные evidence IDs и bundle
+реализуются отдельно.
 
 Пути вложений не открываются и не копируются. Они получают
 `unverified_reference`, а placeholders/неподходящие пути — `unavailable`.
@@ -123,6 +125,7 @@ workspace, один запуск на вариант. Peak RSS приведён 
 Это подтверждает зависимость индекса от размера чата при одинаковом общем
 числе сообщений. Snapshot содержит полный текст и ожидаемо требует значительно
 больше памяти. Небольшой индекс не означает небольшой RAM budget для snapshot.
+Это замеры schema 1 до добавления revision hashes/metadata в schema 2.
 
 Память parser ограничена размером одного чата. Индекс не держит message text;
 snapshot importer держит записи одного чата при нормализации, затем освобождает

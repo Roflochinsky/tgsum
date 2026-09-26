@@ -45,6 +45,21 @@ Bridge на синтетических файлах. [Пример и облас
 Это не проверка реального клиента: native OS drivers и account PoC остаются
 отдельной работой под контролем пользователя (`tgsum-yu3`).
 
+## Дополнение к canonical schema, 2026-09-26
+
+Повторно проверен JSON writer того же закреплённого commit: `SerializeDate`
+использует `QDateTime::fromSecsSinceEpoch(...).toString(Qt::ISODate)`, а
+`SerializeDateRaw` пишет epoch seconds строкой. Сообщения содержат `date` и
+`date_unixtime`; изменения — `edited` и `edited_unixtime`.
+[Первичный источник](https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/export/output/export_output_json.cpp).
+
+Решение TGSUM: сохранить исходные значения, получать UTC только из явного epoch
+или offset, отсутствие timezone не восполнять настройками компьютера. Это
+расширение offline-проекции и миграция локального snapshot, без изменения
+acquisition/auth. Проверка — synthetic fixtures; соответствие реальным export
+версий клиента остаётся пользовательским backlog. Реализация и ограничения:
+[canonical schema](../development/canonical-schema.md).
+
 ## Доступ и условия использования
 
 Telegram требует собственный `api_id` для распространяемого приложения;

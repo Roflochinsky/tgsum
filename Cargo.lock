@@ -3733,8 +3733,10 @@ dependencies = [
 name = "tgsum-core"
 version = "0.2.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 

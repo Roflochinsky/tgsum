@@ -34,10 +34,11 @@
       "evidence": "../research/telegram-export-automation.md",
       "sources": [
         "https://telegram.org/blog/export-and-more",
-        "https://telegram.org/tos/content-licensing"
+        "https://telegram.org/tos/content-licensing",
+        "https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/export/output/export_output_json.cpp"
       ],
       "open_questions": [
-        "Current source tree supports both JSON shapes and offline snapshot/diff with synthetic fixtures; Project UI and OS automation are separate.",
+        "Current source supports both JSON shapes, private Project backend, canonical schema 2 and in-memory schema 1 upgrade with synthetic fixtures; Project UI and OS automation are separate.",
         "Archive media may exist locally; snapshots keep references only. Safe attachment packaging is not implemented.",
         "Real-client export validation remains a user-controlled backlog PoC; history completeness is unknown.",
         "AI runner integration is outside this importer and requires separate integration review."
@@ -75,10 +76,11 @@
       "evidence": "../research/telegram-export-automation.md",
       "sources": [
         "https://telegram.org/blog/export-and-more",
-        "https://telegram.org/tos/content-licensing"
+        "https://telegram.org/tos/content-licensing",
+        "https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/export/output/export_output_json.cpp"
       ],
       "open_questions": [
-        "Current source tree supports both JSON shapes and offline snapshot/diff with synthetic fixtures; Project UI and OS automation are separate.",
+        "Current source supports both JSON shapes, private Project backend, canonical schema 2 and in-memory schema 1 upgrade with synthetic fixtures; Project UI and OS automation are separate.",
         "Archive media may exist locally; snapshots keep references only. Safe attachment packaging is not implemented.",
         "Real-client export validation remains a user-controlled backlog PoC; history completeness is unknown.",
         "AI runner integration is outside this importer and requires separate integration review."

@@ -106,6 +106,8 @@ pub(super) fn normalize(
                     size,
                     media_type: kind.into(),
                     availability,
+                    source_attachment_id: None,
+                    content_digest: None,
                 });
             }
         }
@@ -127,9 +129,10 @@ pub(super) fn normalize(
             service_action: record.legacy.action,
             service_title: record.legacy.title,
             attachments,
+            metadata: None,
         });
     }
-    let snapshot = Snapshot {
+    let mut snapshot = Snapshot {
         schema_version: SCHEMA_VERSION,
         snapshot_id: snapshot_id.into(),
         source: source.clone(),
@@ -138,9 +141,14 @@ pub(super) fn normalize(
         coverage: Coverage {
             level: CoverageLevel::Unknown,
             reason: "Telegram JSON identifies the chat but does not prove account ownership or completeness of exported history".into(),
+            range: None,
+            evidence: Vec::new(),
+            known_gaps: Vec::new(),
         },
         messages,
+        metadata: None,
     };
+    snapshot.add_metadata(false)?;
     snapshot.validate()?;
     Ok(snapshot)
 }

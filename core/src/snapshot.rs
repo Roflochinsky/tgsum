@@ -5,7 +5,13 @@
 //! No attachment bytes, account credentials, or client session files are read.
 //! Snapshots contain private, unsanitized data; they are not agent workspaces.
 
+mod metadata;
 mod telegram;
+
+pub use metadata::{
+    CoverageGap, DeletionState, IdentityQuality, MessageMetadata, MessageProvenance,
+    RecordLocatorKind, SnapshotMetadata, TimeRange, TimestampInfo, TimezoneStatus, UtcInstant,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -17,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{stream_chats, RawChat};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 /// Local namespace supplied by the user/project, not inferred from chat names.
 /// A per-chat Telegram archive does not prove which account exported it.
@@ -77,6 +83,12 @@ pub enum CoverageLevel {
 pub struct Coverage {
     pub level: CoverageLevel,
     pub reason: String,
+    #[serde(default)]
+    pub range: Option<TimeRange>,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+    #[serde(default)]
+    pub known_gaps: Vec<CoverageGap>,
 }
 
 /// Relative paths are references only; existence and safety for copying have
@@ -89,6 +101,12 @@ pub struct Attachment {
     pub size: Option<u64>,
     pub media_type: String,
     pub availability: AttachmentAvailability,
+    /// Native attachment identity, if the format exposes it.
+    #[serde(default)]
+    pub source_attachment_id: Option<String>,
+    /// Only populated after hashing attachment bytes, never from its filename.
+    #[serde(default)]
+    pub content_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +134,8 @@ pub struct CanonicalMessage {
     pub service_action: Option<String>,
     pub service_title: Option<String>,
     pub attachments: Vec<Attachment>,
+    #[serde(default)]
+    pub metadata: Option<MessageMetadata>,
 }
 
 /// Immutable observation, not an assertion that all historical messages exist.
@@ -129,6 +149,8 @@ pub struct Snapshot {
     pub conversation_kind: String,
     pub coverage: Coverage,
     pub messages: Vec<CanonicalMessage>,
+    #[serde(default)]
+    pub metadata: Option<SnapshotMetadata>,
 }
 
 impl Snapshot {
@@ -142,6 +164,7 @@ impl Snapshot {
         for message in &self.messages {
             if message.key.source != self.source
                 || message.key.message_id.trim().is_empty()
+                || message.key.message_id.chars().any(char::is_control)
                 || !ids.insert(&message.key.message_id)
             {
                 return Err(invalid(
@@ -149,7 +172,7 @@ impl Snapshot {
                 ));
             }
         }
-        Ok(())
+        self.validate_metadata()
     }
 
     /// Compare observations of the same source. Missing records are never
@@ -167,7 +190,12 @@ impl Snapshot {
         for (key, message) in &new {
             match old.get(key) {
                 None => diff.created.push((*key).clone()),
-                Some(before) if before == message => diff.unchanged += 1,
+                Some(before)
+                    if before.metadata.as_ref().map(|m| &m.revision_id)
+                        == message.metadata.as_ref().map(|m| &m.revision_id) =>
+                {
+                    diff.unchanged += 1
+                }
                 Some(_) => diff.edited.push((*key).clone()),
             }
         }
@@ -205,9 +233,17 @@ impl SnapshotStore {
     }
 
     pub fn load(&self, snapshot_id: &str) -> io::Result<Snapshot> {
-        let snapshot: Snapshot =
+        let mut snapshot: Snapshot =
             serde_json::from_reader(BufReader::new(File::open(self.path(snapshot_id)?)?))
                 .map_err(invalid)?;
+        if snapshot.schema_version == 1 {
+            // Pure in-memory upgrade. Legacy observations cannot acquire an
+            // invented import time or a claim to raw source bytes.
+            if snapshot.source.platform != "telegram" {
+                return Err(invalid("unsupported legacy snapshot platform"));
+            }
+            snapshot.add_metadata(true)?;
+        }
         snapshot.validate()?;
         if snapshot.snapshot_id != snapshot_id {
             return Err(invalid("snapshot filename/identity mismatch"));
