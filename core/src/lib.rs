@@ -13,6 +13,7 @@ pub mod index;
 pub mod model;
 pub mod output;
 pub mod progress;
+pub mod project;
 pub mod snapshot;
 pub mod stream;
 pub mod text;

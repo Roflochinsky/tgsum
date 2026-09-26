@@ -160,3 +160,67 @@ fn cancel_job_is_harmless_when_idle() {
     let w = window();
     assert_eq!(invoke(&w, "cancel_job", json!({})).unwrap(), Value::Null);
 }
+
+#[test]
+fn project_commands_persist_and_report_conflicts_and_missing_sources() {
+    use tgsum_core::project::ProjectStore;
+    let dir = tempfile::tempdir().unwrap();
+    let make_window = || {
+        let app = tgsum_app::app(mock_builder().manage(ProjectStore::new(dir.path())))
+            .build(mock_context(noop_assets()))
+            .unwrap();
+        WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap()
+    };
+    let w = make_window();
+    assert_eq!(invoke(&w, "list_projects", json!({})).unwrap(), json!([]));
+    let project = invoke(&w, "create_project", json!({ "name": "Synthetic pilot" })).unwrap();
+    let id = &project["project_id"];
+    let updated = invoke(&w, "update_project", json!({
+        "projectId": id, "expectedRevision": 0,
+        "change": {"kind": "source", "value": {
+            "source_id": "client", "connector_id": "telegram_export",
+            "scope": {"platform": "telegram", "account_local_id": "synthetic", "conversation_id": "111"},
+            "archive_path": dir.path().join("moved.json"), "latest_snapshot_id": null
+        }}
+    })).unwrap();
+    assert_eq!(updated["revision"], 1);
+    let conflict = invoke(
+        &w,
+        "update_project",
+        json!({
+            "projectId": id, "expectedRevision": 0,
+            "change": {"kind": "rename", "value": "stale edit"}
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(conflict["kind"], "conflict");
+    assert_eq!(
+        invoke(
+            &w,
+            "project_source_status",
+            json!({
+                "projectId": id, "sourceId": "client"
+            })
+        )
+        .unwrap(),
+        json!({"state": "file_missing"})
+    );
+    // A fresh application instance resolves the same saved Project.
+    let reopened = make_window();
+    assert_eq!(
+        invoke(&reopened, "open_project", json!({"projectId": id})).unwrap(),
+        updated
+    );
+    let list = invoke(&reopened, "list_projects", json!({})).unwrap();
+    assert_eq!(list[0]["state"], "ready");
+    assert_eq!(list[0]["project"], updated);
+    let error = invoke(
+        &reopened,
+        "open_project",
+        json!({"projectId": "../outside"}),
+    )
+    .unwrap_err();
+    assert_eq!(error["kind"], "failed");
+}

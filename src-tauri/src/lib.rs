@@ -16,9 +16,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Builder, Emitter, Runtime, State, WebviewWindowBuilder};
+use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, State, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
+use tgsum_core::project::{Project, ProjectChange, ProjectEntry, ProjectStore, SourceAvailability};
 use tgsum_core::{
     cancelled, extract_reader, index_reader, is_cancelled, resolve_export_path, write_units,
     ChatIndex, ProgressReader, Selection, DEFAULT_MAX_TOKENS,
@@ -30,12 +31,12 @@ const OUT_DIR_NAME: &str = "tgsum-output";
 /// Minimum gap between two `progress` events.
 const PROGRESS_EVERY: Duration = Duration::from_millis(80);
 
-/// Error returned to the UI: `{ kind: "cancelled" }` or
-/// `{ kind: "failed", message }`.
+/// Error returned to the UI: cancelled, failed, or a Project revision conflict.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", content = "message", rename_all = "camelCase")]
 enum CmdError {
     Cancelled,
+    Conflict(String),
     Failed(String),
 }
 
@@ -43,6 +44,8 @@ impl From<io::Error> for CmdError {
     fn from(e: io::Error) -> Self {
         if is_cancelled(&e) {
             CmdError::Cancelled
+        } else if e.kind() == io::ErrorKind::WouldBlock {
+            CmdError::Conflict(e.to_string())
         } else {
             CmdError::Failed(e.to_string())
         }
@@ -110,6 +113,57 @@ async fn run_blocking<T: Send + 'static>(
 
 fn path_string(p: &Path) -> String {
     p.display().to_string()
+}
+
+#[tauri::command]
+async fn create_project(store: State<'_, ProjectStore>, name: String) -> Result<Project, CmdError> {
+    let store = store.inner().clone();
+    run_blocking(move || Ok(store.create(&name)?)).await
+}
+
+#[tauri::command]
+async fn list_projects(store: State<'_, ProjectStore>) -> Result<Vec<ProjectEntry>, CmdError> {
+    let store = store.inner().clone();
+    run_blocking(move || Ok(store.list()?)).await
+}
+
+#[tauri::command]
+async fn open_project(
+    store: State<'_, ProjectStore>,
+    project_id: String,
+) -> Result<Project, CmdError> {
+    let store = store.inner().clone();
+    run_blocking(move || Ok(store.open(&project_id)?)).await
+}
+
+#[tauri::command]
+async fn update_project(
+    store: State<'_, ProjectStore>,
+    project_id: String,
+    expected_revision: u64,
+    change: ProjectChange,
+) -> Result<Project, CmdError> {
+    let store = store.inner().clone();
+    run_blocking(move || Ok(store.update(&project_id, expected_revision, change)?)).await
+}
+
+#[tauri::command]
+async fn project_source_status(
+    store: State<'_, ProjectStore>,
+    project_id: String,
+    source_id: String,
+) -> Result<SourceAvailability, CmdError> {
+    let store = store.inner().clone();
+    run_blocking(move || {
+        let project = store.open(&project_id)?;
+        let source = project
+            .sources
+            .iter()
+            .find(|s| s.source_id == source_id)
+            .ok_or_else(|| CmdError::Failed("source not connected to this project".into()))?;
+        Ok(source.availability())
+    })
+    .await
 }
 
 /// A path the app was launched with (`tgsum result.json`, "Open with").
@@ -300,7 +354,14 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Jobs::default())
-        .setup(|app| Ok(create_main_window(app.handle())?))
+        .setup(|app| {
+            if app.try_state::<ProjectStore>().is_none() {
+                app.manage(ProjectStore::new(
+                    app.path().app_local_data_dir()?.join("projects"),
+                ));
+            }
+            Ok(create_main_window(app.handle())?)
+        })
         .invoke_handler(tauri::generate_handler![
             initial_path,
             desktop_theme,
@@ -311,6 +372,11 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             cancel_job,
             open_folder,
             reveal_file,
+            create_project,
+            list_projects,
+            open_project,
+            update_project,
+            project_source_status,
         ])
 }
 
