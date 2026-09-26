@@ -1,6 +1,6 @@
 # TGSUM: полный состав для согласования
 
-Снимок Beads от 2026-09-26 12:45 UTC. Решение по этой сверке: `tgsum-9x6`.
+Снимок Beads от 2026-09-26 13:26 UTC (16:26 МСК). Решение по этой сверке: `tgsum-9x6`.
 
 Это представление существующих задач для согласования по запросу пользователя. Состояния ниже относятся только к моменту выгрузки. Задачи, критерии, зависимости и дальнейшие изменения ведутся в **Beads**; этот документ не редактируется как отдельный трекер. Предыдущие отметки approval не являются ответом пользователя на текущую сверку.
 
@@ -9,7 +9,7 @@
 ## Что согласовываем
 
 - 12 продуктовых и сквозных эпиков, 106 дочерних задач. Задача согласования не добавляет продуктовый эпик или функциональный срез.
-- Из 106 задач: 3 выполнены, 1 в работе, 102 открыты. Все 12 эпиков остаются незавершёнными.
+- Из 106 задач: 3 выполнены, 3 в работе, 100 открыты. Все 12 эпиков остаются незавершёнными.
 - 35 отдельных задач с меткой verification: 18 автономных проверок и 17 проверок/действий с участием пользователя. Это число задач, а не выполненных тестов.
 - Закрытая основа `tgsum-d9b` переиспользуется: Telegram full/single JSON, snapshots/diff и offline Bridge simulator. Работающий экспорт через настоящий Telegram Desktop этим не доказан.
 - Эпик закрывается только после выполнения всех задач согласованного состава. Перенос проверки в backlog не доказывает совместимость.
@@ -18,26 +18,34 @@
 - Telegram: официальный неизменённый Desktop → выбранный чат → штатный export → локальный snapshot/diff. Import и assisted fallback доступны независимо от квалификации автоматизации. `tdata`, session databases и cookies не читаются.
 - VM/изолированная графическая среда — отдельный исследовательский срез; работоспособность unattended GUI не предполагается.
 
+## Уже начатая реализация
+
+- В `tgsum-hzm` завершены `hzm.1` (Project store), `hzm.2` (canonical schema) и `hzm.4` (интерфейсы источников).
+- `hzm.3` (scope, период, delta) и `hzm.5` (минимальный sanitizer) частично реализованы; интеграционная приёмка ещё не завершена.
+- `tgsum-ax6` (evidence и Export only bundle) находится в работе. Изменения bundle/Review в рабочем дереве ещё не закоммичены и не приняты как законченный срез.
+- Остальные 100 задач открыты. Все 12 эпиков незавершены. Закрытый `tgsum-d9b` — предшествующая основа, отдельно от этих 106 задач.
+- Сверка сверяет и предъявляет существующий состав; новые задачи и дубликаты не добавлялись. Во время этой сверки продуктовый код не изменялся, проверки на реальных аккаунтах не проводились.
+
 ## Порядок поставки
 
 Context Engine → Privacy & Files → Telegram Bridge → Archive Pack → Live Business → RU → Discord → объединённый Workspace. Research/registry и проверки идут вместе с затронутыми срезами. OMP/local/custom — после общего runner. Later содержит исследования и решения go/no-go, а не обещание реализовать все исследуемые интеграции. Номера версий задают состав, не сроки.
 
 ## Эпики
 
-| Эпик | Результат | Срезов | Выполнено | Проверок | Требуют пользователя |
-| --- | --- | ---: | ---: | ---: | ---: |
-| [tgsum-hzm](#tgsum-hzm) | v0.3 — Context Engine, Projects и первые агенты | 13 | 3 | 2 | 0 |
-| [tgsum-af2](#tgsum-af2) | v0.4 — Privacy, псевдонимы и выбранные вложения | 9 | 0 | 2 | 0 |
-| [tgsum-i1w](#tgsum-i1w) | v0.5 — Telegram 2.0 и Official Client Bridge | 8 | 0 | 2 | 0 |
-| [tgsum-b5v](#tgsum-b5v) | v0.6 — Archive Pack: WhatsApp, Slack, Яндекс, Signal, LINE, Google Chat | 11 | 0 | 1 | 0 |
-| [tgsum-ycq](#tgsum-ycq) | v0.7 — Live Business: Teams, Google Chat, Slack, Яндекс Bot | 7 | 0 | 1 | 0 |
-| [tgsum-cs2](#tgsum-cs2) | v0.8 — RU Pack: VK и MAX Bot | 5 | 0 | 1 | 0 |
-| [tgsum-7hv](#tgsum-7hv) | v0.9 — Discord Server Connector | 3 | 0 | 1 | 0 |
-| [tgsum-6gf](#tgsum-6gf) | v1.0 — Multi-source Workspace и Update & Analyze | 7 | 0 | 1 | 0 |
-| [tgsum-brk](#tgsum-brk) | После первых adapters — OMP, локальные модели и recipes | 5 | 0 | 1 | 0 |
-| [tgsum-2ty](#tgsum-2ty) | Сквозной — Research и жизненный цикл поддержки коннекторов | 4 | 0 | 1 | 0 |
-| [tgsum-t8t](#tgsum-t8t) | Сквозной — Тестирование, квалификация интеграций и выпуск | 23 | 0 | 22 | 17 |
-| [tgsum-506](#tgsum-506) | Отложено — Исследования и расширения после основного roadmap | 11 | 0 | 0 | 0 |
+| Эпик | Результат | Состояние | Срезов | Выполнено | Проверок | Требуют пользователя |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| [tgsum-hzm](#tgsum-hzm) | v0.3 — Context Engine, Projects и первые агенты | В работе | 13 | 3 | 2 | 0 |
+| [tgsum-af2](#tgsum-af2) | v0.4 — Privacy, псевдонимы и выбранные вложения | Открыт | 9 | 0 | 2 | 0 |
+| [tgsum-i1w](#tgsum-i1w) | v0.5 — Telegram 2.0 и Official Client Bridge | Открыт | 8 | 0 | 2 | 0 |
+| [tgsum-b5v](#tgsum-b5v) | v0.6 — Archive Pack: WhatsApp, Slack, Яндекс, Signal, LINE, Google Chat | Открыт | 11 | 0 | 1 | 0 |
+| [tgsum-ycq](#tgsum-ycq) | v0.7 — Live Business: Teams, Google Chat, Slack, Яндекс Bot | Открыт | 7 | 0 | 1 | 0 |
+| [tgsum-cs2](#tgsum-cs2) | v0.8 — RU Pack: VK и MAX Bot | Открыт | 5 | 0 | 1 | 0 |
+| [tgsum-7hv](#tgsum-7hv) | v0.9 — Discord Server Connector | Открыт | 3 | 0 | 1 | 0 |
+| [tgsum-6gf](#tgsum-6gf) | v1.0 — Multi-source Workspace и Update & Analyze | Открыт | 7 | 0 | 1 | 0 |
+| [tgsum-brk](#tgsum-brk) | После первых adapters — OMP, локальные модели и recipes | Открыт | 5 | 0 | 1 | 0 |
+| [tgsum-2ty](#tgsum-2ty) | Сквозной — Research и жизненный цикл поддержки коннекторов | Открыт | 4 | 0 | 1 | 0 |
+| [tgsum-t8t](#tgsum-t8t) | Сквозной — Тестирование, квалификация интеграций и выпуск | Открыт | 23 | 0 | 22 | 17 |
+| [tgsum-506](#tgsum-506) | Отложено — Исследования и расширения после основного roadmap | Открыт | 11 | 0 | 0 | 0 |
 
 ## Все срезы
 
@@ -55,7 +63,7 @@ Context Engine → Privacy & Files → Telegram Bridge → Archive Pack → Live
 
 #### tgsum-ax6 — Evidence и приватный Export only context bundle
 
-**На момент сверки:** Открыта.
+**На момент сверки:** В работе.
 
 Разделить private store и bundle: стабильные opaque evidence IDs, revision mapping, canonical Markdown, manifest и provenance. Ссылки на выбранные вложения подготовить к safe packager из Privacy; raw paths/mappings агенту не выдавать.
 
@@ -115,7 +123,7 @@ Project scope UI и локальные фильтры по фактически 
 
 #### tgsum-hzm.5 — Минимальный secrets scanner и Review перед AI
 
-**На момент сверки:** Открыта.
+**На момент сверки:** В работе.
 
 Локальное скрытие high-confidence секретов, preview замен и явный получатель анализа до первого runner. Medium-confidence находки показываются для review.
 
