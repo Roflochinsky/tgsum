@@ -16,6 +16,8 @@ test-fixtures = []
 [dependencies]
 tgsum-core.workspace = true
 tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
@@ -24,4 +26,9 @@ rustix = { version = "1", features = ["fs", "process"] }
 [[bin]]
 name = "tgsum-runner-fixture"
 path = "tests/support/fake_agent.rs"
+required-features = ["test-fixtures"]
+
+[[bin]]
+name = "tgsum-codex-fixture"
+path = "tests/support/fake_codex.rs"
 required-features = ["test-fixtures"]

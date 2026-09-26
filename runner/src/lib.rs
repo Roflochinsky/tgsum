@@ -2,6 +2,7 @@
 //! reviewed runtime file list, exact version probe and argv/stdin contract.
 //! This crate never discovers credentials or falls back to an unsandboxed run.
 
+pub mod codex;
 mod context;
 mod discovery;
 #[cfg(target_os = "linux")]

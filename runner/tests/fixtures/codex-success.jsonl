@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"synthetic-thread"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"commentary","type":"agent_message","text":"Preparing analysis; this is not the result."}}
+{"type":"item.started","item":{"id":"r1","type":"reasoning","text":"Checking context."}}
+{"type":"item.updated","item":{"id":"r1","type":"reasoning","text":"Checking evidence."}}
+{"type":"item.completed","item":{"id":"r1","type":"reasoning","text":"Done."}}
+{"type":"item.started","item":{"id":"p1","type":"todo_list","items":[{"text":"Analyze","completed":false}]}}
+{"type":"item.completed","item":{"id":"p1","type":"todo_list","items":[{"text":"Analyze","completed":true}]}}
+{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"{\"summary\":\"Пилот: готово ✅\",\"evidence\":[\"m1@r1\"]}"}}
+{"type":"turn.completed","usage":{"input_tokens":110,"cached_input_tokens":20,"output_tokens":30,"reasoning_output_tokens":10}}

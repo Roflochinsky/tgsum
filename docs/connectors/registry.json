@@ -41,7 +41,7 @@
         "Current source supports both JSON shapes, Project scope UI, canonical schema 2 with in-memory schema 1 upgrade, and selected sanitized Export-only bundles with synthetic fixtures. OS automation is separate.",
         "Archive media may exist locally; snapshots keep references only. Safe attachment packaging is not implemented.",
         "Real-client export validation remains a user-controlled backlog PoC; history completeness is unknown.",
-        "Generic Linux offline runner is verified on synthetic executables only; see ../development/runner.md and ../research/runner-isolation-2026-09-26.md. No AI-provider or network handoff is enabled by this importer; concrete adapters require separate review and qualification."
+        "Generic Linux offline runner is verified on synthetic executables only; see ../development/runner.md and ../research/runner-isolation-2026-09-26.md. Codex 0.155.1 request/result protocol is tested with a synthetic CLI (../development/codex-adapter.md); auth/inference isolation and Review integration remain unimplemented. No AI-provider or network handoff is enabled by this importer; concrete adapters require separate review and qualification."
       ]
     },
     {
@@ -83,7 +83,7 @@
         "Current source supports both JSON shapes, Project scope UI, canonical schema 2 with in-memory schema 1 upgrade, and selected sanitized Export-only bundles with synthetic fixtures. OS automation is separate.",
         "Archive media may exist locally; snapshots keep references only. Safe attachment packaging is not implemented.",
         "Real-client export validation remains a user-controlled backlog PoC; history completeness is unknown.",
-        "Generic Linux offline runner is verified on synthetic executables only; see ../development/runner.md and ../research/runner-isolation-2026-09-26.md. No AI-provider or network handoff is enabled by this importer; concrete adapters require separate review and qualification."
+        "Generic Linux offline runner is verified on synthetic executables only; see ../development/runner.md and ../research/runner-isolation-2026-09-26.md. Codex 0.155.1 request/result protocol is tested with a synthetic CLI (../development/codex-adapter.md); auth/inference isolation and Review integration remain unimplemented. No AI-provider or network handoff is enabled by this importer; concrete adapters require separate review and qualification."
       ]
     },
     {

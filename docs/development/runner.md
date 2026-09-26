@@ -2,8 +2,9 @@
 
 `tgsum-runner` — отдельный workspace crate вне offline core. Он реализует
 границу процесса для будущих adapters. Приложение пока не подключает его к Run;
-Codex/Claude, сеть, авторизация и проверка structured result — следующие срезы.
-Реальные агенты и аккаунты для этой реализации не запускались.
+Сеть, авторизация и запуск Codex/Claude ещё не реализованы. Для Codex добавлены
+[подготовка запроса и проверка structured result](codex-adapter.md), проверенные
+через fake CLI. Реальные анализы и аккаунты для этой реализации не запускались.
 
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).

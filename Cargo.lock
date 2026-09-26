@@ -3766,6 +3766,8 @@ version = "0.2.0"
 dependencies = [
  "libc",
  "rustix",
+ "serde",
+ "serde_json",
  "tempfile",
  "tgsum-core",
 ]
