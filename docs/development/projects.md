@@ -3,7 +3,8 @@
 Implemented backend contract for `tgsum-hzm.1`, extended by the Project scope
 editor in `tgsum-hzm.3`, 2026-09-26. The Projects screen creates, opens, renames
 and connects selected Telegram archive conversations. See [scope and analysis
-baselines](scope.md) for its filters and refresh behavior. Full onboarding and
+baselines](scope.md) for its filters and refresh behavior, and [bundles](bundles.md)
+for local Privacy Review and Export only. Full onboarding and
 analysis/result screens remain separate slices.
 
 `ProjectStore` creates, lists, opens and updates project configuration. Tauri
@@ -73,6 +74,8 @@ a separately prepared, sanitized context bundle.
 | `project_source_status` | `projectId`, `sourceId` → availability |
 | `preview_project_source` | `projectId`, `sourceId` → selection counts, topics, coverage, baseline ID |
 | `refresh_project_source` | `projectId`, `sourceId`, `expectedRevision` → Project with new snapshot |
+| `prepare_project_bundle` | `projectId`, `expectedRevision`, `options` → local Review |
+| `export_project_bundle` | `projectId`, `bundleId`, `expectedRevision`, `outDir` → exported directory/files |
 
 Command arguments use Tauri camelCase. Project fields use the Rust snake_case
 schema. Changes use `{kind, value}`: `rename`, `source` (upsert), `remove_source`,

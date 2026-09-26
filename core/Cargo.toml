@@ -21,3 +21,5 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 sha2 = "0.10"
 regex = "1"
 base64 = "0.22"
+hmac = "0.12"
+getrandom = "0.3"

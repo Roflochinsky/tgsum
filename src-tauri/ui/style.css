@@ -225,6 +225,10 @@ main { flex: 1; min-height: 0; }
 .project-fields { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
 .project-topics { border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; }
 .project-screen[aria-busy="true"] button { pointer-events: none; opacity: .65; }
+.project-review { padding: 20px; margin-top: 20px; }
+.project-review label.project-check { flex-direction: row; align-items: center; gap: 8px; }
+.project-review pre { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--border); padding: 16px; border-radius: 8px; font: 13px/1.55 var(--mono); user-select: text; -webkit-user-select: text; }
+.project-review li, #project-export-result { overflow-wrap: anywhere; }
 @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* Panels over the painting: solid, no blur underneath. */
@@ -514,3 +518,5 @@ mark { background: color-mix(in srgb, var(--accent) 38%, transparent); color: in
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
 }
+.project-review-findings { overflow-wrap: anywhere; }
+.project-review-findings li { margin-block: .5rem; }

@@ -1,9 +1,8 @@
 # Project selection and successful-analysis baselines
 
 Implemented local selector and Project editor for `tgsum-hzm.3`, 2026-09-26.
-Context bundle integration belongs to `tgsum-ax6`; the selector by itself does
-not prove that an AI agent has received only the selected messages. No agent is
-launched from the Project editor in this slice.
+The [Export only bundle](bundles.md) consumes this selector and verifies that
+only selected messages are emitted. No agent is launched from the Project editor.
 
 ## Stored selection
 

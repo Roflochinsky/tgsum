@@ -4,9 +4,9 @@ Core preparation for `tgsum-hzm.5`, rules version `minimum-secrets/1`.
 [Dated primary-source research](../research/minimum-secrets-scanner-2026-09-26.md)
 records the formats and separates provider facts from TGSUM heuristics.
 
-This module is a library stage. It is not yet wired to a Project bundle or a
-Privacy Review screen. Existing one-shot Markdown export remains unchanged;
-neither that flow nor the Project editor currently claims sanitized output.
+The Project [bundle and local Review](bundles.md) apply this scanner to every
+emitted text field before export. Existing one-shot Markdown export remains
+unchanged and does not claim sanitized output.
 
 ## API and output
 
@@ -75,7 +75,7 @@ Unicode offsets, idempotence, URL boundaries, short auth values/CRLF, negative
 examples, and byte/finding-budget rejection. Reports are checked for absence of
 the synthetic secret values. No tests validate tokens against a service.
 
-Remaining `tgsum-hzm.5` acceptance: apply this to every output field selected by
-the bundle builder, provide a local Review with counts and destination, and
-verify that exported context contains no known fixture secrets. That requires
-`tgsum-ax6`; the existence of this module does not close either issue.
+Bundle tests additionally verify selected-only output, redaction of metadata
+and message text, refusal to export pending findings, and review excerpts for
+findings beyond the bounded preview. Local Review identifies its recipient as
+Export only; no agent integration is implied by these checks.

@@ -6,6 +6,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   let connecting = false
   let working = false
   let renderEpoch = 0
+  let review = null
+  let exportedDirectory = null
   const error = (e) => toast(e?.message || String(e), 'error')
 
   async function act(job) {
@@ -45,6 +47,11 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     const epoch = ++renderEpoch
     $('#project-detail').hidden = !current
     if (!current) return
+    review = null
+    exportedDirectory = null
+    $('#project-review').hidden = true
+    $('#project-unsaved').hidden = true
+    $('#btn-project-review').disabled = !current.sources.some((s) => s.selection.enabled)
     $('#project-name').value = current.name
     $('#project-empty').hidden = current.sources.length > 0
     $('#project-sources').replaceChildren()
@@ -96,6 +103,80 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       current = await invoke('refresh_project_source', { projectId: current.project_id, sourceId, expectedRevision: current.revision })
     } finally { endJob(); show('projects') }
   }
+
+  async function prepareReview() {
+    review = null
+    $('#btn-project-export').disabled = true
+    $('#project-export-result').hidden = true
+    $('#btn-project-open-export').hidden = true
+    exportedDirectory = null
+    startJob('bundle', 'Проверка и подготовка выбранного контекста')
+    try {
+      review = await invoke('prepare_project_bundle', { projectId: current.project_id, expectedRevision: current.revision,
+        options: { redact_candidates: $('#project-redact-candidates').checked } })
+    } finally { endJob(); show('projects') }
+    const m = review.manifest
+    $('#project-review-summary').textContent = `Источников: ${m.sources.length} · сообщений: ${m.messages} · вложений включено: ${m.included_attachments} · ссылок на невключённые вложения: ${m.attachment_references}`
+    const coverage = { complete: 'полнота подтверждена для архивного диапазона', partial: 'неполная история', own_messages_only: 'только собственные сообщения', future_only: 'только новые события', unknown: 'полнота не подтверждена' }
+    $('#project-review-sources').replaceChildren(...m.sources.map((source) => {
+      const li = document.createElement('li')
+      const dates = source.dates ? ` · ${source.dates.from || 'начало'} — ${source.dates.through || 'конец'} (${source.dates.basis === 'utc' ? 'UTC' : 'даты архива'})` : ''
+      const topics = source.selected_topics === null ? 'все темы' : `тем выбрано: ${source.selected_topics}`
+      const unknown = source.stats.included_unknown_dates ? ` · без определённой даты включено: ${source.stats.included_unknown_dates}` : ''
+      li.textContent = `${source.title}: ${source.stats.selected} сообщений · ${topics}${source.only_changes ? ' · новые и изменённые' : ''}${dates}${unknown} · ${coverage[source.coverage]}${source.known_gaps ? ` · пропусков: ${source.known_gaps}` : ''}`
+      return li
+    }))
+    $('#project-review-privacy').textContent = `Скрыто значений: ${m.privacy.redacted}. Требуют решения: ${m.privacy.needs_review}.${m.privacy.needs_review ? ' Включите скрытие подозрительных значений и обновите проверку.' : ''}`
+    const fields = { project_title: 'Название проекта', source_title: 'Название источника', platform: 'Платформа', sender: 'Отправитель', timestamp: 'Дата', edited_at: 'Дата изменения', service_action: 'Событие', service_title: 'Название события', text: 'Сообщение' }
+    $('#project-review-findings').replaceChildren(...review.findings.map((finding) => {
+      const li = document.createElement('li')
+      const label = document.createElement('strong')
+      label.textContent = `${fields[finding.field] || finding.field} · ${finding.rule === 'jwt_candidate' ? 'похожее на JWT значение' : 'возможный ключ'}: `
+      const excerpt = document.createElement('code')
+      excerpt.textContent = finding.excerpt
+      li.append(label, excerpt)
+      return li
+    }))
+    $('#project-review-omitted').hidden = review.omitted_findings === 0
+    $('#project-review-omitted').textContent = `Ещё находок: ${review.omitted_findings}. Скрытие подозрительных значений применяется ко всему выбранному контексту.`
+    $('#project-review-preview').textContent = review.preview
+    $('#project-review-truncated').hidden = !review.preview_truncated
+    $('#project-review').hidden = false
+    $('#btn-project-export').disabled = m.privacy.needs_review > 0
+    $('#project-review').scrollIntoView({ block: 'start' })
+  }
+
+  $('#btn-project-review').addEventListener('click', () => act(prepareReview))
+  $('#btn-project-review-again').addEventListener('click', () => act(prepareReview))
+  $('#project-redact-candidates').addEventListener('change', () => {
+    review = null
+    $('#btn-project-export').disabled = true
+    $('#project-review-privacy').textContent = 'Настройка изменена. Обновите проверку перед сохранением.'
+  })
+  $('#project-sources').addEventListener('input', () => {
+    review = null
+    $('#project-review').hidden = true
+    $('#btn-project-review').disabled = true
+    $('#project-unsaved').hidden = false
+  })
+  $('#btn-project-export').addEventListener('click', () => act(async () => {
+    if (!review) return
+    const sourcePath = current.sources.find((s) => s.selection.enabled && s.archive_path)?.archive_path
+    const destination = await invoke('pick_out_dir', { current: exportedDirectory || sourcePath || index()?.outDir || null })
+    if (!destination) return
+    startJob('bundle', 'Сохранение подготовленного контекста')
+    try {
+      const result = await invoke('export_project_bundle', { projectId: current.project_id, bundleId: review.bundle_id,
+        expectedRevision: review.project_revision, outDir: destination })
+      exportedDirectory = result.directory
+      $('#project-export-result').textContent = `Контекст сохранён: ${result.directory}`
+      $('#project-export-result').hidden = false
+      $('#btn-project-open-export').hidden = false
+    } finally { endJob(); show('projects') }
+  }))
+  $('#btn-project-open-export').addEventListener('click', () => {
+    if (exportedDirectory) invoke('open_folder', { path: exportedDirectory }).catch(error)
+  })
 
   $('#btn-projects').addEventListener('click', () => act(open))
   $('#btn-projects-back').addEventListener('click', () => {

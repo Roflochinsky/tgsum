@@ -46,6 +46,25 @@
           <button id="btn-project-add-source" type="button" class="btn btn-primary">Подключить чаты из архива…</button>
           <p id="project-empty" class="hint">Выберите локальный JSON, затем отметьте чаты или темы проекта.</p>
           <div id="project-sources"></div>
+          <p id="project-unsaved" class="hint" hidden>Сохраните изменения выбора перед подготовкой контекста.</p>
+          <button id="btn-project-review" type="button" class="btn btn-primary">Проверить и подготовить контекст</button>
+          <section id="project-review" class="card project-review" hidden aria-labelledby="project-review-title">
+            <h3 id="project-review-title">Проверка перед сохранением</h3>
+            <p><strong>Получатель: локальная папка (Export only)</strong></p>
+            <p id="project-review-summary" role="status"></p>
+            <ul id="project-review-sources"></ul>
+            <p id="project-review-privacy"></p>
+            <ul id="project-review-findings" class="project-review-findings"></ul>
+            <p id="project-review-omitted" class="hint" hidden></p>
+            <label class="project-check"><input id="project-redact-candidates" type="checkbox"> Скрыть также подозрительные значения</label>
+            <p class="hint">Проверяются известные форматы секретов. Имена и другие чувствительные сведения могут остаться в тексте.</p>
+            <button id="btn-project-review-again" type="button" class="btn btn-ghost">Обновить проверку</button>
+            <p id="project-review-truncated" class="hint" hidden>Показано начало контекста. Проверка секретов выполнена для всех выбранных сообщений.</p>
+            <pre id="project-review-preview" tabindex="0" aria-label="Подготовленный контекст"></pre>
+            <button id="btn-project-export" type="button" class="btn btn-primary">Сохранить контекст…</button>
+            <p id="project-export-result" role="status" hidden></p>
+            <button id="btn-project-open-export" type="button" class="btn btn-ghost" hidden>Открыть папку контекста</button>
+          </section>
         </div>
       </div>
     </section>

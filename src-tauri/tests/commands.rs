@@ -296,3 +296,77 @@ fn project_import_scope_and_failed_analysis_use_real_backend_commands() {
     .unwrap_err();
     assert_eq!(conflict["kind"], "conflict");
 }
+
+#[test]
+fn project_review_and_export_commands_enforce_privacy_scope_and_revision() {
+    use tgsum_core::project::ProjectStore;
+    let root = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().unwrap();
+    let archive = root.path().join("PRIVATE_INPUT.json");
+    std::fs::write(&archive, serde_json::to_vec(&json!({"chats":{"list":[
+        {"id":111,"name":"Selected","messages":[{"id":1,"text":"token=SYNTHETIC_SECRET key=REVIEW_VALUE"}]},
+        {"id":222,"name":"Excluded","messages":[{"id":2,"text":"EXCLUDED_TEXT"}]}
+    ]}})).unwrap()).unwrap();
+    let app =
+        tgsum_app::app(mock_builder().manage(ProjectStore::new(root.path().join("projects"))))
+            .build(mock_context(noop_assets()))
+            .unwrap();
+    let w = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let mut project = invoke(&w, "create_project", json!({"name":"Synthetic review"})).unwrap();
+    let id = project["project_id"].clone();
+    project = invoke(
+        &w,
+        "update_project",
+        json!({"projectId":id,"expectedRevision":project["revision"],
+        "change":{"kind":"source","value":{
+            "source_id":"selected","connector_id":"telegram_json",
+            "scope":{"platform":"telegram","account_local_id":"synthetic","conversation_id":"111"},
+            "archive_path":archive,"latest_snapshot_id":null
+        }}}),
+    )
+    .unwrap();
+    project = invoke(
+        &w,
+        "refresh_project_source",
+        json!({"projectId":id,"sourceId":"selected","expectedRevision":project["revision"]}),
+    )
+    .unwrap();
+    let prepare = |redact| {
+        invoke(&w,"prepare_project_bundle",json!({"projectId":id,"expectedRevision":project["revision"],"options":{"redact_candidates":redact}})).unwrap()
+    };
+    let pending = prepare(false);
+    assert_eq!(pending["manifest"]["messages"], 1);
+    assert_eq!(pending["manifest"]["destination"], "export_only");
+    assert_eq!(pending["manifest"]["privacy"]["redacted"], 1);
+    assert_eq!(pending["manifest"]["privacy"]["needs_review"], 1);
+    assert_eq!(pending["findings"][0]["field"], "text");
+    assert!(!pending.to_string().contains("SYNTHETIC_SECRET"));
+    assert!(invoke(&w,"export_project_bundle",json!({"projectId":id,"bundleId":pending["bundle_id"],"expectedRevision":project["revision"],"outDir":output.path()})).is_err());
+    let ready = prepare(true);
+    assert_eq!(ready["manifest"]["privacy"]["needs_review"], 0);
+    let args = json!({"projectId":id,"bundleId":ready["bundle_id"],"expectedRevision":project["revision"],"outDir":output.path()});
+    let exported = invoke(&w, "export_project_bundle", args.clone()).unwrap();
+    let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+        for forbidden in [
+            "SYNTHETIC_SECRET",
+            "REVIEW_VALUE",
+            "EXCLUDED_TEXT",
+            "PRIVATE_INPUT",
+            "evidence.jsonl",
+        ] {
+            assert!(!text.contains(forbidden), "export contained {forbidden}");
+        }
+    }
+    let saved = invoke(&w, "open_project", json!({"projectId":id})).unwrap();
+    assert_eq!(saved["baselines"], json!([]));
+    assert_eq!(saved["revision"], project["revision"]);
+    invoke(&w,"update_project",json!({"projectId":id,"expectedRevision":project["revision"],"change":{"kind":"rename","value":"Changed after review"}})).unwrap();
+    assert_eq!(
+        invoke(&w, "export_project_bundle", args).unwrap_err()["kind"],
+        "conflict"
+    );
+}

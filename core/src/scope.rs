@@ -54,7 +54,7 @@ impl Default for SourceSelection {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScopeStats {
     pub selected: usize,
     pub created: usize,

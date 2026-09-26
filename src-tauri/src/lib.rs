@@ -19,6 +19,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, State, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
+use tgsum_core::bundle::{BundleExport, BundleOptions, BundleReview};
 use tgsum_core::project::{Project, ProjectChange, ProjectEntry, ProjectStore, SourceAvailability};
 use tgsum_core::scope::{select_messages, ScopeStats};
 use tgsum_core::snapshot::Coverage;
@@ -164,6 +165,49 @@ async fn project_source_status(
             .find(|s| s.source_id == source_id)
             .ok_or_else(|| CmdError::Failed("source not connected to this project".into()))?;
         Ok(source.availability())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn prepare_project_bundle(
+    jobs: State<'_, Jobs>,
+    store: State<'_, ProjectStore>,
+    project_id: String,
+    expected_revision: u64,
+    options: BundleOptions,
+) -> Result<BundleReview, CmdError> {
+    let store = store.inner().clone();
+    let cancel = jobs.start();
+    run_blocking(move || {
+        Ok(
+            store.prepare_bundle(&project_id, expected_revision, options, || {
+                cancel.load(Ordering::Relaxed)
+            })?,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn export_project_bundle(
+    jobs: State<'_, Jobs>,
+    store: State<'_, ProjectStore>,
+    project_id: String,
+    bundle_id: String,
+    expected_revision: u64,
+    out_dir: String,
+) -> Result<BundleExport, CmdError> {
+    let store = store.inner().clone();
+    let cancel = jobs.start();
+    run_blocking(move || {
+        Ok(store.export_bundle(
+            &project_id,
+            &bundle_id,
+            expected_revision,
+            Path::new(&out_dir),
+            || cancel.load(Ordering::Relaxed),
+        )?)
     })
     .await
 }
@@ -529,6 +573,8 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             project_source_status,
             preview_project_source,
             refresh_project_source,
+            prepare_project_bundle,
+            export_project_bundle,
         ])
 }
 

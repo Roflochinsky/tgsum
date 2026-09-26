@@ -471,7 +471,7 @@ impl ProjectStore {
         Ok(SnapshotStore::new(directory))
     }
 
-    fn directory(&self, project_id: &str) -> io::Result<PathBuf> {
+    pub(crate) fn directory(&self, project_id: &str) -> io::Result<PathBuf> {
         validate_snapshot_id(project_id)?;
         if !project_id.starts_with("project-") {
             return Err(invalid("invalid project ID"));
