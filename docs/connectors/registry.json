@@ -15,7 +15,8 @@
       "capabilities": {
         "history": "available",
         "delta": "none",
-        "attachments": "local_files"
+        "attachments": "local_files",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -53,7 +54,8 @@
       "capabilities": {
         "history": "available",
         "delta": "none",
-        "attachments": "local_files"
+        "attachments": "local_files",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -82,14 +84,15 @@
       "connector_type": "ArchiveImporter",
       "access_method": "official_client_ui",
       "support_status": "research",
-      "priority": "P2",
-      "credential_type": "user_session_inside_isolated_client",
+      "priority": "P0",
+      "credential_type": "session_managed_by_installed_official_client",
       "authorization_scope": "Telegram session can access the account",
       "selected_scope": "helper requests only selected chat; app-enforced",
       "capabilities": {
         "history": "available",
         "delta": "reimport",
-        "attachments": "local_files"
+        "attachments": "local_files",
+        "coverage": "unknown"
       },
       "ban_risk": "unknown",
       "ai_policy": {
@@ -109,9 +112,9 @@
         "https://telegram.org/tos/content-licensing"
       ],
       "open_questions": [
-        "No supported export CLI found in inspected source.",
-        "Prototype UI accessibility, exact account/chat matching and completion on one OS.",
-        "Resolve acquisition and downstream-use policy for the actual scenario."
+        "Controlled PoC on the installed unmodified official client; no session storage or process-memory access.",
+        "Real-account testing requires user control and stays in backlog; implement parser/diff/bridge contract with synthetic fixtures.",
+        "Validate selectors, exact chat identity, delays, completion and active-session behavior."
       ]
     },
     {
@@ -127,7 +130,8 @@
       "capabilities": {
         "history": "available",
         "delta": "reimport",
-        "attachments": "local_files"
+        "attachments": "local_files",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -164,7 +168,8 @@
       "capabilities": {
         "history": "available",
         "delta": "unknown",
-        "attachments": "mixed"
+        "attachments": "mixed",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -201,7 +206,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "unknown",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -228,14 +234,15 @@
       "connector_type": "ApiConnector",
       "access_method": "bot_api",
       "support_status": "research",
-      "priority": "P1",
+      "priority": "P2",
       "credential_type": "bot_token",
       "authorization_scope": "admin permissions in joined chats/channels; not read-only",
       "selected_scope": "selected bot chats",
       "capabilities": {
         "history": "available",
         "delta": "unknown",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -273,7 +280,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "none",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -307,7 +315,8 @@
       "capabilities": {
         "history": "none",
         "delta": "events",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "future_only"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -343,7 +352,8 @@
       "capabilities": {
         "history": "available",
         "delta": "unknown",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "unknown",
       "ai_policy": {
@@ -378,7 +388,8 @@
       "capabilities": {
         "history": "available",
         "delta": "events",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -414,7 +425,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "events",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -450,7 +462,8 @@
       "capabilities": {
         "history": "available",
         "delta": "unknown",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -485,7 +498,8 @@
       "capabilities": {
         "history": "limited",
         "delta": "none",
-        "attachments": "mixed"
+        "attachments": "mixed",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -520,7 +534,8 @@
       "capabilities": {
         "history": "available",
         "delta": "events",
-        "attachments": "mixed"
+        "attachments": "mixed",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -558,7 +573,8 @@
       "capabilities": {
         "history": "limited",
         "delta": "none",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -594,7 +610,8 @@
       "capabilities": {
         "history": "available",
         "delta": "events",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -631,7 +648,8 @@
       "capabilities": {
         "history": "available",
         "delta": "events",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -669,7 +687,8 @@
       "capabilities": {
         "history": "limited",
         "delta": "none",
-        "attachments": "mixed"
+        "attachments": "mixed",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -704,7 +723,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "unknown",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "unknown",
       "ai_policy": {
@@ -739,7 +759,8 @@
       "capabilities": {
         "history": "limited",
         "delta": "none",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "own_messages_only"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -773,7 +794,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "events",
-        "attachments": "references"
+        "attachments": "references",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -808,7 +830,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "unknown",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "prohibited_path",
       "ai_policy": {
@@ -830,19 +853,20 @@
       ]
     },
     {
-      "id": "signal_local",
+      "id": "signal_desktop_backup",
       "platform": "Signal",
       "connector_type": "LocalDataConnector",
       "access_method": "local_copy",
-      "support_status": "research",
-      "priority": "P2",
-      "credential_type": "user_provided_backup_key_if_required",
+      "support_status": "candidate",
+      "priority": "P1",
+      "credential_type": "user_supplied_local_recovery_key",
       "authorization_scope": "only provided local backup/copy",
       "selected_scope": "conversations actually present",
       "capabilities": {
-        "history": "unknown",
-        "delta": "none",
-        "attachments": "unknown"
+        "history": "available",
+        "delta": "reimport",
+        "attachments": "local_files",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -857,11 +881,11 @@
       "owner": "TGSUM maintainer",
       "evidence": "../research/connector-support-2026-09-26.md",
       "sources": [
-        "https://support.signal.org/hc/en-us/articles/360007059412-Signal-and-the-General-Data-Protection-Regulation-GDPR"
+        "https://support.signal.org/hc/en-us/articles/10870366816410-Signal-Desktop-Backups"
       ],
       "open_questions": [
-        "Select actual OS/format; validate encryption, keys, coherent snapshot and parser license.",
-        "No assumption of universally available plaintext database or all historical messages."
+        "Verify encrypted folder format/decryption, client version, stable IDs and available history/media with permitted fixtures.",
+        "Desktop repeat-backup automation has not been verified; no account restore needed for import."
       ]
     },
     {
@@ -870,14 +894,15 @@
       "connector_type": "ArchiveImporter",
       "access_method": "manual_archive",
       "support_status": "candidate",
-      "priority": "P2",
+      "priority": "P1",
       "credential_type": "none",
       "authorization_scope": "provided text file only",
       "selected_scope": "one exported chat; available history only",
       "capabilities": {
         "history": "limited",
         "delta": "none",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "partial"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -911,7 +936,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "none",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "no_platform_calls",
       "ai_policy": {
@@ -945,7 +971,8 @@
       "capabilities": {
         "history": "unknown",
         "delta": "events",
-        "attachments": "unknown"
+        "attachments": "unknown",
+        "coverage": "unknown"
       },
       "ban_risk": "conditional",
       "ai_policy": {
@@ -966,6 +993,43 @@
         "Commercial bot terms and webhook architecture; not universal personal history.",
         "Different product scenario; defer."
       ]
+    },
+    {
+      "id": "signal_android_backup",
+      "platform": "Signal",
+      "connector_type": "LocalDataConnector",
+      "access_method": "local_copy",
+      "support_status": "candidate",
+      "priority": "P1",
+      "credential_type": "user_supplied_local_recovery_key",
+      "authorization_scope": "only provided local backup/copy",
+      "selected_scope": "conversations actually present",
+      "capabilities": {
+        "history": "available",
+        "delta": "reimport",
+        "attachments": "local_files",
+        "coverage": "unknown"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://support.signal.org/hc/en-us/articles/10066926526362-Android-On-device-Backups"
+      ],
+      "open_questions": [
+        "New folder backup and legacy single-file backup are distinct formats; verify versions/decryption and exclusions.",
+        "Android schedules backup creation; transfer to a desktop inbox is a separate user-controlled flow."
+      ]
     }
-  ]
+  ],
+  "policy_use": "maintainer_research_not_user_authorization"
 }

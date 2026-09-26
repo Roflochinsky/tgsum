@@ -5,6 +5,9 @@ research review: тестовые аккаунты, реальные fixtures, �
 и допустимость конкретного договора с AI-провайдером ещё не проверены.
 `candidate` означает перспективный следующий источник, а не выпущенную функцию.
 Текущий TGSUM поддерживает только полный JSON-экспорт Telegram Desktop.
+Очередность ниже уточнена последующим решением пользователя: актуальные
+приоритеты и версии находятся в [матрице](../connectors/architecture.md) и
+[roadmap](../plans/context-gateway-roadmap.md).
 
 ## Решение по очередности
 
@@ -15,16 +18,19 @@ research review: тестовые аккаунты, реальные fixtures, �
 | P1 import | WhatsApp export, Slack export | Fixtures, границы покрытия, provenance; никакого входа в личный WhatsApp |
 | P1 import | Yandex archive | Получить реальный разрешённый fixture и подтвердить формат/состав |
 | P1 conditional | Google Chat Takeout | Поддерживать фактически доступные архивы; корпоративный scope не обещать |
-| P2 import | LINE export | Локали, многострочный текст, неполная история и отсутствие native IDs |
+| P1 import | LINE export | Локали, многострочный текст, неполная история и отсутствие native IDs |
 | P1 live research | Yandex Bot | Polling без публичного сервера; проверить хранение событий и AI-use |
 | P1 live research | Google Chat user OAuth | История + space events; проверить retention, consent и разрешения приложения |
 | P1 live research | Teams Graph | Отдельно delegated и RSC; tenant/admin и доставка уведомлений |
 | P1 live research | Slack App | Развести internal Socket Mode и коммерческую дистрибуцию |
-| P1 live research | MAX Bot | Admin access, токен, новые endpoint/сертификаты; отдельный AI-policy review |
-| P2 research | VK, Discord Bot, Signal local | Нельзя обещать поддержку до закрытия перечисленных ниже неизвестных |
+| P2 live research | MAX Bot | Admin access, токен, новые endpoint/сертификаты; внутренний review условий |
+| P1 local research | Signal Desktop/Android backup | Официальный backup подтверждён; формат/decryption/coverage ещё требуют fixtures |
+| P2 research | VK, Discord Bot | Нельзя обещать поддержку до закрытия перечисленных ниже неизвестных |
 | Defer | Viber | Backup/restore и бот не решают универсальный импорт личной истории |
 
-Все AI/cloud пути требуют отдельного review. «Официальный API» и «архив»
+Новые AI/cloud интеграции проходят внутренний release review. Пользователь сам
+решает вопрос использования содержимого; этот отчёт не является механизмом
+запрета Run по правам на конкретный чат. «Официальный API» и «архив»
 описывают получение данных, но не разрешение на произвольное downstream использование.
 Точный статус каждого способа — [registry](../connectors/registry.json).
 
@@ -72,7 +78,10 @@ Bot API относится к Яндекс 360 для бизнеса. `getUpdate
 Произвольный backfill старой истории через изученный polling-метод не подтверждён.
 Связка archive + bot возможна только после проверки совместимости chat/message IDs,
 момента начала подписки, overlap, потерь при простое и условий AI/retention.
-Присутствие бота сообщает о нём участникам, но не заменяет нужные согласия.
+Webhook гарантирует порядок внутри пары bot+chat, но недоставленные сообщения
+удаляются через 24 часа. Это не гарантирует бесконечный журнал или общий порядок
+между чатами. Для локального приложения polling остаётся первым кандидатом.
+[Webhook](https://yandex.ru/dev/messenger/doc/ru/api-requests/update-webhook).
 
 ### VK
 
@@ -173,12 +182,18 @@ AI на message content без разрешения. Из запрета trainin
 
 ### Signal, LINE, Viber
 
-- **Signal:** официальная справка признаёт локальное хранение и community
-  parsers. Это не гарантирует универсальную незашифрованную БД или стабильный
-  формат всех ОС. Исследовать конкретную предоставленную backup/copy, необходимые
-  пользовательские ключи, consistency и лицензию parser. Сеть/linked-device bot
-  не нужны для выбранного local importer.
-  [Signal export](https://support.signal.org/hc/en-us/articles/360007059412-Signal-and-the-General-Data-Protection-Regulation-GDPR).
+- **Signal, уточнение 2026-09-26:** официально документирован Desktop Backup:
+  пользователь выбирает папку, клиент выдаёт 64-character recovery key.
+  Это источник для локального importer; восстанавливать аккаунт в TGSUM не нужно.
+  [Desktop Backups](https://support.signal.org/hc/en-us/articles/10870366816410-Signal-Desktop-Backups).
+  Android On-device Backups имеют manual/scheduled создание, новый folder format
+  (`backup.db`, `attachments/`, `manifest.json`) и включают доступные сообщения/media
+  с исключениями для исчезающих сообщений. Старый single-file `.backup` — отдельная
+  версия. Нельзя заранее считать Desktop и Android или старый/новый форматы
+  полностью одинаковыми; нужны fixtures, decryption и проверка покрытия.
+  [Android backups](https://support.signal.org/hc/en-us/articles/10066926526362-Android-On-device-Backups).
+  Desktop automation/schedule и полнота исторических медиа пока не подтверждены;
+  официальный backup повышает приоритет исследования, не завершает importer.
 - **LINE:** официальный text export есть; desktop сохраняет доступные в чате
   сообщения. Нужны fixtures и честная маркировка неполноты.
   [LINE Help](https://help.line.me/line/smartphone?contentId=20007388&lang=en).

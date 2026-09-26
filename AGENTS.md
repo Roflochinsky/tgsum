@@ -44,6 +44,13 @@ from the repository root. Communicate with the user in concise Russian.
 - For a multi-step task, keep a short sequence of verifiable milestones in the
   Beads issue. Make scoped changes, run the relevant check, repair failures,
   then update the record. Preserve user changes and other workers' files.
+- Close an epic only when every task in its agreed scope is complete. By the
+  user's instruction, move newly discovered work needing their participation
+  to the backlog with the required action and affected release recorded; keep
+  progressing on independent code. A deferred verification does not prove support.
+- Test with synthetic fixtures and simulated clients. Tests involving real
+  messenger accounts require the user's control; never initiate an authenticated
+  client export or account API request autonomously for verification.
 - Continue routine authorized work without another permission round. Ask only
   for missing input that materially changes the result; work on independent
   parts while waiting. Follow the active task/skill's delegation rules.
@@ -85,10 +92,13 @@ Model/effort selection is a client setting, not an effect of this file.
 
 ## Connectors and data use
 
-Before adding a source, changing acquisition/auth/API/SDK or archive formats,
-automating a messenger client, changing retention, or handing data to an AI tool,
+Before implementing a source, changing acquisition/auth/API/SDK or archive formats,
+automating a messenger client, or changing retention/AI-handoff features,
 follow [the connector review cycle](docs/connectors/review-policy.md). Update its
 registry entry and Beads evidence before promoting support. Read
 [the gateway design](docs/specs/context-gateway.md) for new pipeline work and
 [CONTEXT.md](CONTEXT.md) for domain terms. Keep planned capabilities distinct
 from shipped behavior; registry metadata alone does not enforce runtime policy.
+Apply [the product responsibility boundary](docs/adr/0002-user-controlled-content.md):
+platform review guides integration/release decisions; content-use decisions belong
+to the user/organization. Keep per-chat legal adjudication out of the product UX.

@@ -3,6 +3,8 @@
 Дата: 2026-09-26. Статус: **принятый проект следующей архитектуры; не описание
 выпущенных функций**. [ADR](../adr/0001-local-context-gateway.md),
 [термины](../../CONTEXT.md), [research](../research/connector-support-2026-09-26.md).
+Продуктовый принцип: [пользователь управляет содержимым](../adr/0002-user-controlled-content.md).
+Очередность версий: [roadmap](../plans/context-gateway-roadmap.md).
 
 ## Назначение
 
@@ -19,7 +21,7 @@ pilot/project retro, decisions/actions, incident timeline, handover, weekly diff
 
 ```mermaid
 flowchart LR
-    A[Архив / OAuth / Bot / Local copy] --> B[Проверка способа получения]
+    A[Архив / OAuth / Bot / Local copy] --> B[Явное подключение и scope]
     B --> C[Snapshot и выбранный scope]
     C --> D[Нормализация и provenance]
     D --> E[Sanitizer и preview]
@@ -32,8 +34,10 @@ flowchart LR
 
 Acquisition driver получает данные; importer понимает их формат. Несколько
 способов получить один Telegram JSON могут использовать один importer, но
-имеют разные записи review. Policy проверяется и перед acquisition, и перед
-AI handoff; scope policy наследуется сообщениями при смешивании источников.
+имеют разные записи внутреннего review. Перед запуском проверяются поддержка
+технического способа, выбранный scope и получатель. TGSUM не устанавливает
+права пользователя на содержание; provenance и coverage сохраняются при
+смешивании источников.
 
 В registry три типа ввода: `ArchiveImporter`, `ApiConnector`, `LocalDataConnector`.
 User OAuth, application OAuth, bot token и клиентская сессия — отдельные профили
@@ -71,12 +75,13 @@ identity, где она нужна. Один `m:123` не уникален ме�
 
 ```text
 Source
-  source_id, platform, acquisition_method, connector_id, policy_revision
+  source_id, platform, acquisition_method, connector_id, connector_revision
   credential_ref?                  # ссылка на OS secret store, не значение
   authorization_scope, selected_scope
 Snapshot
   snapshot_id, source_id, acquired_at, format_version?, content_digest
-  coverage {conversations, time_range, completeness, known_gaps}
+  coverage {conversations, time_range, level, evidence, known_gaps}
+  # level: complete | partial | own_messages_only | future_only | unknown
 Conversation
   conversation_key {source_namespace, native_conversation_id}
   title?, kind, parent_conversation_key?
@@ -98,6 +103,13 @@ TXT без native ID: назначать evidence внутри snapshot по loc
 Между TXT-экспортами matching эвристический; сомнения показывать пользователю,
 а не удалять записи как «дубликаты».
 
+`complete` относится к доказанному диапазону и составу выбранного snapshot,
+не ко всей истории аккаунта. Возможности connector задают ожидаемый потолок
+покрытия; конкретный snapshot может оказаться хуже. Вместо выдуманного процента
+coverage confidence сохранять основание: manifest, проверенные counts, ограничения
+клиента, gaps. В recipe явно передавать partial/own_messages_only/future_only;
+полное retro по ограниченному корпусу не обещать.
+
 Архив и бот одной платформы объединяются только при подтверждённом identity
 mapping. Тема Telegram, Slack thread и Teams reply сохраняют исходную семантику;
 неразрешённая ссылка остаётся unresolved. Не выдумывать UTC из local timestamp.
@@ -118,8 +130,9 @@ Evidence в bundle — непрозрачный стабильный псевд�
 - Snapshot diff различает добавленные, изменённые, явно удалённые и отсутствующие
   записи. Отсутствие в частичном экспорте не означает deletion.
 - Повторный анализ привязан к паре snapshots, версии sanitizer и recipe;
-  сохраняет известные пробелы. Удаления/отзыв согласия инвалидируют зависимые
-  bundles/results согласно выбранной retention policy.
+  сохраняет известные пробелы. Явное удаление пользователем и выбранные им сроки
+  хранения инвалидируют связанные bundles/results. Самостоятельно определять
+  отзыв согласия участников по содержимому чата приложение не пытается.
 
 ## Watcher готовых экспортов
 
@@ -134,7 +147,25 @@ Evidence в bundle — непрозрачный стабильный псевд�
 Публиковать snapshot атомарно только после валидации. Новый архив вызывает
 локальный reindex/diff и предложение повторного анализа. Он не запускает облачный
 агент автоматически: scheduled analysis — самостоятельная будущая настройка
-с заранее заданным scope, получателем и повторной проверкой policy.
+с заранее заданным scope, получателем и проверкой действующей настройки запуска.
+
+## Official Client Bridge
+
+```text
+detect → version → launch → can_export(scope)
+       → export(scope) → wait_completion → locate_output → validate
+```
+
+`can_export` возвращает supported/assisted/unsupported для конкретного клиента,
+версии, ОС и scope. Доступная кнопка в UI не доказывает возможность фонового
+вызова. `export` может вернуть needs_user_action; helper не изображает успех.
+Результат — completed snapshot или явная ошибка/пауза. Извлечение сессий,
+credentials и произвольной истории из клиентских БД не входит в контракт.
+
+Уровни поставки: (1) ручной `Update project` с доступным assisted flow и fallback;
+(2) пользовательское расписание при активной сессии компьютера;
+(3) изолированный runtime как advanced-вариант после проверки стоимости поддержки.
+Успешный `launch` или `start in tray` не означает успешный export.
 
 ## Privacy и вложения до AI handoff
 
@@ -183,15 +214,9 @@ Review показывает выбранные чаты/период, полно
 нескольких проектов не отзывать незаметно. Удаление локальных файлов не обещает
 стереть уже отправленные данные у внешнего AI-провайдера.
 
-## Последовательность поставки
+## Поставка
 
-1. Single-chat Telegram, canonical identity/evidence, snapshot и совместимый export.
-2. Project + sanitizer minimum + preview + безопасные text attachments + bundle.
-3. Проверенный adapter, review/run/result и один recipe с проверяемыми evidence.
-4. Повторные snapshots, watcher и diff; затем второй архивный источник.
-5. Один live connector по результатам review и реального B2B сценария.
-   Yandex polling — первый кандидат; Teams/Google/Slack/MAX не обещаны одновременно.
-6. Отдельный spike Telegram UI helper; решение о выпуске по его результатам.
-
-Signing/notarization остаются условием качественного выпуска на соответствующих
-платформах. Конкретные реализации и их зависимости ведутся в Beads, не в этом документе.
+Версии и приоритеты определяет [roadmap](../plans/context-gateway-roadmap.md),
+способ получения данных — [матрица connector architecture](../connectors/architecture.md).
+Signing/notarization входят в подготовку соответствующих платформ к выпуску.
+Конкретные реализации, прогресс и зависимости ведутся в Beads.

@@ -329,6 +329,13 @@ scope, privacy review и отдельным запуском выбранног�
   [варианты автоматизации Telegram Desktop](docs/research/telegram-export-automation.md).
 - [Реестр способов подключения](docs/connectors/registry.json) и
   [обязательный цикл проверки API/условий](docs/connectors/review-policy.md).
+- [Матрица архитектуры коннекторов](docs/connectors/architecture.md),
+  [roadmap](docs/plans/context-gateway-roadmap.md) и
+  [граница ответственности продукта](docs/adr/0002-user-controlled-content.md).
+
+Принцип интеграций: TGSUM не читает базы сессий и credentials мессенджеров
+(`tdata`, session cookies, память клиента). Official Client Bridge получает
+файлы штатного экспорта; API-интеграции используют специально выданные им токены.
 
 Эти документы фиксируют направление и условия поддержки; новые коннекторы,
 автовыгрузка и запуск агентов ещё не реализованы.
