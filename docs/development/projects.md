@@ -23,12 +23,13 @@ projects/project-<random>/
 
 ## Persistence and recovery
 
-Manifests have `schema_version: 2`, adding source selections and an analysis
-baseline ledger. Version 1 opens in memory with default selections and no
-analysis baseline. Reading does not modify the original file; the next update
-publishes a separate v2 revision. Unknown versions are rejected before
-interpreting their fields and are never rewritten implicitly. Tests verify
-that the v1 bytes remain unchanged after both reading and upgrading.
+Manifests have `schema_version: 3`, adding a durable result reference to the
+scope/baseline ledger introduced in v2. Version 1 opens in memory with default
+selections and no baseline. Version 2 keeps its legacy runs without inventing
+result files. Reading leaves original bytes unchanged; the next update publishes
+a separate v3 revision. Unknown versions are rejected before interpreting their
+fields. The managed [analysis lifecycle](analyses.md) publishes result provenance
+and all baselines in one revision after validating/storing the result.
 
 Each update supplies `expected_revision`. Publication uses a flushed, synced
 temporary file and `persist_noclobber` for the next immutable revision. Two

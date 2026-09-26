@@ -20,8 +20,13 @@ Codex request/decoder, offline qualification, выбранный read-only auth 
 проверен на локальных готовых ответах с synthetic auth; реальные аккаунты и
 провайдеры не использовались. Полный gate — 141 passed; все 13 environment tests
 выполнены отдельно. [Контракт и границы проверки](../development/inference-egress.md).
-`hzm.7` остаётся в работе: нужны auth/result lifecycle, Review/Run и упаковка
-runtime. Облачная интеграция и весь Context Engine не объявляются завершёнными.
+Следующий backend-срез связал ticket, receiver/model, typed validation, durable
+result и baseline commit. Новый полный gate — **150 passed / 13 ignored**;
+два HTTPS-теста с 8 local synthetic сценариями выполнены отдельно, включая 401
+и receiver mismatch. [Журнал результатов](../development/analyses.md).
+`hzm.7` остаётся в работе: нужны synthetic ChatGPT/OAuth qualification,
+Review/Run и упаковка runtime. Облачная интеграция и весь Context Engine
+не объявляются завершёнными.
 
 ## Что согласовываем
 

@@ -232,3 +232,32 @@ tests: isolation 7/7, прежние Codex process 4/4, новые HTTPS 2/2. Р
 аккаунтов, DNS/TCP к OpenAI не использовано. Production DNS, ChatGPT OAuth, WSS,
 runtime packaging, auth/result lifecycle и Review/Run остаются вне доказанного
 среза. `tgsum-hzm.7` остаётся in progress.
+
+## Managed result lifecycle и HTTP 401
+
+Следующий backend-срез добавляет ticket с exact bundle/revision/model/receiver,
+`AnalysisJob` и `CodexNetworkRunner::run_analysis`. Сначала проверяются завершение
+процесса, clean gateway report, JSONL и typed recipe/evidence, затем публикуется
+checksummed result, после него — одна Project revision с result reference и
+baselines. Квалификация на local HTTPS теперь охватывает этот полный backend-путь.
+
+Добавлены HTTP 401 с synthetic API key и mismatched API-key/ChatGPT receiver.
+Первый достигает локального TLS endpoint и сохраняет static failure; второй
+отклоняется gateway до upstream connect. Ни один не двигает baseline и не
+приводит к fallback на другого получателя. JSONL failures не сохраняются целиком.
+В проверенных исходниках `TurnFailedEvent.error` имеет тип `ThreadErrorEvent`
+с единственным `message: String`; общего typed HTTP status здесь нет. Поэтому
+adapter не выводит «истёк token» из произвольного текста, сохраняет общий Agent
+failure. Источник, перечитан локально:
+[exec event types](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/exec/src/exec_events.rs).
+
+Полный gate — **150 passed / 13 ignored**; два ignored HTTPS-теста выполнены
+отдельно, **8 сценариев**. Прежние 11 environment tests в этом срезе не повторялись:
+launch/изоляция не менялись; их последний проход описан выше. Новые обычные tests
+проверяют durable results, rollback при конфликте, повреждение result/provenance,
+миграцию Project v2 → v3 и binding before launch. UI не менялся.
+
+Открытая инженерная работа: synthetic ChatGPT/OAuth success/expiry/revoke, recipes,
+Review/Run/result UI и упаковка. Только реальная account qualification относится
+к user-controlled `tgsum-t8t.19`. Контракт восстановления/границы:
+[analysis lifecycle](../development/analyses.md).

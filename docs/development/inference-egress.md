@@ -62,8 +62,10 @@ destination. Несовпадение не даёт переключения п�
 
 Возвращается `NetworkOutput { process, gateway, destination }`. Debug не содержит
 payload. Exit 0 не подтверждает schema/evidence или отсутствие отказов gateway:
-caller должен проверить результат и transport report перед сохранением. Этот слой
-не изменяет baseline и не записывает анализ. Синхронный runner следует вызывать
+`NetworkOutput::decode` проверяет process, отсутствие ошибок gateway, completed
+transport и JSONL/typed validator. Низкоуровневый `run` не записывает анализ;
+новый [`run_analysis`](analyses.md) сохраняет checked result и commit baseline.
+Синхронный runner следует вызывать
 на отдельном worker, удерживая его живым до возврата.
 
 ## Обработка соединения
@@ -164,8 +166,10 @@ provider config; вариант без auth выбирает test provider. Ло
 точный synthetic Bearer внутри TLS, отсутствие ключа в stdout/stderr, неверный CA
 после фактического TLS handshake, запрет `auth.openai.com`, cancel/timeout и удаление
 gateway. TLS handshake failure не считается успехом проверки, если CLI не дошёл
-до сервера. Baseline остаётся пустым.
+до сервера. Теперь success проходит до durable result и baseline через
+`AnalysisJob`; negative cases оставляют его пустым. Добавлены HTTP 401 с synthetic
+API key и mismatch API-key/ChatGPT destination без переключения получателя.
 
-Предстоят auth failure/expiry/result lifecycle, Review/Run, упаковка runtime и
+Предстоят synthetic ChatGPT/OAuth success/expiry/revoke, Review/Run, упаковка runtime и
 контролируемая пользователем реальная квалификация `tgsum-t8t.19`. WSS, ChatGPT
 OAuth и ОС кроме Linux этим не доказаны. `tgsum-hzm.7` остаётся открытой.

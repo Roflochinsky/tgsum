@@ -12,6 +12,7 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
+use tgsum_core::analysis::{AnalysisSpec, Completion};
 use tgsum_core::bundle::{BundleOptions, EvidenceRef};
 use tgsum_core::project::{ProjectChange, ProjectSource, ProjectStore};
 use tgsum_core::snapshot::SourceScope;
@@ -78,6 +79,152 @@ fn context() -> Context {
 
 fn schema() -> Value {
     json!({"type":"object","properties":{"summary":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}}},"required":["summary","evidence"],"additionalProperties":false})
+}
+
+fn review_spec(model: &str) -> AnalysisSpec {
+    AnalysisSpec {
+        agent: "codex".into(),
+        agent_version: "0.155.1".into(),
+        isolation_profile: LINUX_EGRESS_PROFILE.into(),
+        destination: "api.openai.com".into(),
+        model: model.into(),
+        recipe: "synthetic-summary".into(),
+        recipe_version: 1,
+    }
+}
+
+#[test]
+fn analysis_job_binds_context_model_receiver_version_and_profile_before_launch() {
+    use super::super::AnalysisJob;
+    let fixture = context();
+    let request = CodexRequest::prepare(
+        &fixture.context,
+        "fixture-model",
+        "Summary",
+        &schema(),
+        &Cancellation::default(),
+    )
+    .unwrap();
+    let store = ProjectStore::new(fixture.root.path());
+    let project = store.open(&fixture.project).unwrap();
+    for field in [
+        "model",
+        "destination",
+        "agent_version",
+        "isolation_profile",
+        "agent",
+    ] {
+        let mut spec = review_spec(request.model());
+        match field {
+            "model" => spec.model = "other-model".into(),
+            "destination" => spec.destination = "other.example".into(),
+            "agent_version" => spec.agent_version = "0.0.0".into(),
+            "isolation_profile" => spec.isolation_profile = "unqualified".into(),
+            _ => spec.agent = "other".into(),
+        }
+        let ticket = store
+            .begin_analysis(
+                &fixture.project,
+                &fixture.bundle,
+                project.revision,
+                spec,
+                || false,
+            )
+            .unwrap();
+        assert!(AnalysisJob::new(&request, &ticket).is_err());
+    }
+    let second = store
+        .prepare_bundle(
+            &fixture.project,
+            project.revision,
+            BundleOptions {
+                redact_candidates: true,
+            },
+            || false,
+        )
+        .unwrap();
+    let ticket = store
+        .begin_analysis(
+            &fixture.project,
+            &second.bundle_id,
+            project.revision,
+            review_spec(request.model()),
+            || false,
+        )
+        .unwrap();
+    assert!(AnalysisJob::new(&request, &ticket).is_err());
+    let ticket = store
+        .begin_analysis(
+            &fixture.project,
+            &fixture.bundle,
+            project.revision,
+            review_spec(request.model()),
+            || false,
+        )
+        .unwrap();
+    let job = AnalysisJob::new(&request, &ticket).unwrap();
+    let info = QualifiedAdapter {
+        id: "codex".into(),
+        version_output: String::from_utf8(VERSION_STDOUT.into()).unwrap(),
+        isolation_profile: LINUX_EGRESS_PROFILE,
+        authentication: AuthAvailability::Unknown,
+    };
+    job.check(&info, &Cancellation::default()).unwrap();
+    store.cancel_analysis(&ticket).unwrap();
+    assert!(job.check(&info, &Cancellation::default()).is_err());
+    assert_eq!(store.open(&fixture.project).unwrap(), project);
+}
+
+#[test]
+fn gateway_failures_cannot_be_hidden_by_valid_json_and_exit_zero() {
+    use super::super::DecodeError;
+    let mut output = NetworkOutput {
+        process: RunOutput {
+            termination: Termination::Exited,
+            exit_code: Some(0),
+            stdout: include_bytes!("../../../tests/fixtures/codex-success.jsonl").to_vec(),
+            stderr: vec![],
+        },
+        gateway: Report::default(),
+        destination: Destination::OpenAiApi,
+    };
+    assert_eq!(
+        output
+            .decode::<Answer>(|_| panic!("no transport"))
+            .unwrap_err(),
+        NetworkDecodeError::MissingTransport
+    );
+    output.gateway.completed = 1;
+    output.gateway.admitted_bytes = 1;
+    for failure in [
+        Failure::ConnectRequest,
+        Failure::ServerName,
+        Failure::EncryptedHello,
+        Failure::PrivateAddress,
+        Failure::Budget,
+        Failure::Timeout,
+        Failure::Cancelled,
+        Failure::Io,
+        Failure::Worker,
+    ] {
+        output.gateway.failures = vec![failure];
+        assert_eq!(
+            output
+                .decode::<Answer>(|_| panic!("rejected gateway"))
+                .unwrap_err(),
+            NetworkDecodeError::Gateway(failure)
+        );
+    }
+    output.process.termination = Termination::Cancelled;
+    assert!(matches!(
+        output
+            .decode::<Answer>(|_| panic!("cancelled"))
+            .unwrap_err(),
+        NetworkDecodeError::Response(DecodeError::Process {
+            termination: Termination::Cancelled,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -197,8 +344,15 @@ fn installed_codex_https_through_namespace_relay_with_and_without_synthetic_auth
 #[test]
 #[ignore = "requires Linux namespace backend and explicit built relay/HTTPS fixture/installed Codex paths"]
 fn installed_codex_https_rejects_unknown_ca_and_refresh_and_cleans_up_cancel_timeout() {
-    for mode in ["wrong-ca", "refresh-probe", "cancel", "timeout"] {
-        qualify(mode, false);
+    for (mode, auth) in [
+        ("wrong-ca", false),
+        ("refresh-probe", false),
+        ("cancel", false),
+        ("timeout", false),
+        ("unauthorized", true),
+        ("receiver-mismatch", true),
+    ] {
+        qualify(mode, auth);
     }
 }
 
@@ -242,6 +396,32 @@ fn qualify(mode: &str, auth: bool) {
     )
     .unwrap();
     let runner = runtime(&request_data, temporary.path());
+    let destination = if mode == "receiver-mismatch" {
+        Destination::ChatGpt
+    } else {
+        Destination::OpenAiApi
+    };
+    let store = ProjectStore::new(fixture.root.path());
+    let project = store.open(&fixture.project).unwrap();
+    let ticket = store
+        .begin_analysis(
+            &fixture.project,
+            &fixture.bundle,
+            project.revision,
+            AnalysisSpec {
+                agent: "codex".into(),
+                agent_version: "0.155.1".into(),
+                isolation_profile: runner.info().isolation_profile.into(),
+                destination: destination.host().into(),
+                model: request_data.model().into(),
+                recipe: "synthetic-summary".into(),
+                recipe_version: 1,
+            },
+            || false,
+        )
+        .unwrap();
+    let job = super::super::AnalysisJob::new(&request_data, &ticket).unwrap();
+    job.check(runner.info(), &cancel).unwrap();
     let auth_path = temporary.path().join("auth.json");
     let auth_file = if auth {
         fs::write(
@@ -259,7 +439,7 @@ fn qualify(mode: &str, auth: bool) {
         ..super::super::run_limits()
     };
     let gateway = InferenceGateway::fixture(
-        Destination::OpenAiApi,
+        destination,
         Limits {
             // Keep fixture gateway alive past the process deadline to test
             // the runner's own timeout/namespace cleanup independently.
@@ -301,6 +481,11 @@ fn qualify(mode: &str, auth: bool) {
                         }
                         let data = request(&mut tls, auth); count += 1;
                         seen.store(true, Ordering::Relaxed);
+                        if mode == "unauthorized" {
+                            let body = r#"{"error":{"message":"PRIVATE_SYNTHETIC_AUTH_FAILURE","type":"invalid_request_error","code":"invalid_api_key"}}"#;
+                            write!(tls,"HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+                            tls.conn.send_close_notify(); tls.flush().unwrap(); continue;
+                        }
                         assert!(data["tools"].is_null() || data["tools"].as_array().unwrap().is_empty());
                         assert_eq!(data["text"]["format"]["schema"], schema());
                         if mode == "cancel" {
@@ -331,7 +516,7 @@ fn qualify(mode: &str, auth: bool) {
         let output = runner.run_with_gateway(
             &request_data,
             auth_file.as_ref(),
-            Destination::OpenAiApi,
+            destination,
             limits,
             &cancel,
             gateway,
@@ -340,36 +525,42 @@ fn qualify(mode: &str, auth: bool) {
         (output.unwrap(), server.join().unwrap())
     });
     assert!(!socket_path.exists());
-    let store = ProjectStore::new(fixture.root.path());
+    for bytes in [&output.process.stdout, &output.process.stderr] {
+        assert!(!String::from_utf8_lossy(bytes).contains("tgsum-synthetic-not-a-real-key"));
+    }
     if mode == "success" {
-        assert!(
-            output.process.process_succeeded(),
-            "{output:?}\n{}\n{}",
-            String::from_utf8_lossy(&output.process.stdout),
-            String::from_utf8_lossy(&output.process.stderr)
-        );
+        assert!(output.process.process_succeeded(), "{output:?}");
         assert_eq!(count, 1);
-        let result = super::super::decode(&output.process, |answer: &Answer| {
-            answer.evidence.len() == 1
-                && answer.evidence.iter().all(|r| {
-                    let Some((id, revision)) = r.split_once('@') else {
-                        return false;
-                    };
-                    store
-                        .resolve_evidence(
-                            &fixture.project,
-                            &fixture.bundle,
-                            &EvidenceRef {
-                                id: id.into(),
-                                revision: revision.into(),
-                            },
-                        )
-                        .is_ok()
-                })
-        })
-        .unwrap();
-        assert_eq!(result.value.summary, "Canned HTTPS result");
         assert!(output.gateway.accepted > 0);
+        let completed = job
+            .finish(output, &cancel, |answer: &Answer| {
+                assert_eq!(answer.evidence.len(), 1);
+                answer
+                    .evidence
+                    .iter()
+                    .map(|r| {
+                        let (id, revision) = r
+                            .split_once('@')
+                            .ok_or_else(|| std::io::Error::other("invalid reference"))?;
+                        let reference = EvidenceRef {
+                            id: id.into(),
+                            revision: revision.into(),
+                        };
+                        store.resolve_evidence(&fixture.project, &fixture.bundle, &reference)?;
+                        Ok(reference)
+                    })
+                    .collect()
+            })
+            .unwrap();
+        assert_eq!(completed.result.value.summary, "Canned HTTPS result");
+        let saved = store
+            .read_analysis(&fixture.project, &ticket.request().run_id)
+            .unwrap();
+        assert_eq!(saved.committed_revision, Some(completed.committed_revision));
+        assert_eq!(
+            store.open(&fixture.project).unwrap().baselines[0].analysis_id,
+            completed.run_id
+        );
     } else {
         assert!(!output.process.process_succeeded(), "{output:?}");
         if matches!(mode, "cancel" | "timeout") {
@@ -382,10 +573,16 @@ fn qualify(mode: &str, auth: bool) {
                     Termination::TimedOut
                 }
             );
-        } else if mode == "refresh-probe" {
-            assert_eq!(output.process.exit_code, Some(42));
+        } else if matches!(mode, "refresh-probe" | "receiver-mismatch") {
+            if mode == "refresh-probe" {
+                assert_eq!(output.process.exit_code, Some(42));
+            }
             assert!(output.gateway.failures.contains(&Failure::ConnectRequest));
             assert_eq!(count, 0);
+            assert_eq!(connections, 0);
+        } else if mode == "unauthorized" {
+            assert!(observed.load(Ordering::Relaxed));
+            assert_eq!(count, 1);
         } else {
             assert!(
                 connections > 0,
@@ -393,9 +590,20 @@ fn qualify(mode: &str, auth: bool) {
             );
             assert_eq!(count, 0);
         }
+        let error = job
+            .finish(output, &cancel, |_answer: &Answer| {
+                panic!("validator must not see failed output")
+            })
+            .unwrap_err();
+        assert!(!format!("{error} {error:?}").contains("PRIVATE_SYNTHETIC_AUTH_FAILURE"));
+        let saved = store
+            .read_analysis(&fixture.project, &ticket.request().run_id)
+            .unwrap();
+        assert!(matches!(
+            saved.completion,
+            Some(Completion::Failed { .. } | Completion::Cancelled)
+        ));
+        assert!(saved.committed_revision.is_none());
+        assert_eq!(store.open(&fixture.project).unwrap(), project);
     }
-    for bytes in [&output.process.stdout, &output.process.stderr] {
-        assert!(!String::from_utf8_lossy(bytes).contains("tgsum-synthetic-not-a-real-key"));
-    }
-    assert!(store.open(&fixture.project).unwrap().baselines.is_empty());
 }

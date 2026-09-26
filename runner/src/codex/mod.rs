@@ -6,6 +6,8 @@
 #[cfg(target_os = "linux")]
 pub(crate) mod auth;
 #[cfg(target_os = "linux")]
+mod lifecycle;
+#[cfg(target_os = "linux")]
 mod network;
 mod request;
 mod response;
@@ -13,7 +15,9 @@ mod response;
 #[cfg(target_os = "linux")]
 pub use auth::SelectedAuthFile;
 #[cfg(target_os = "linux")]
-pub use network::{CodexNetworkRunner, NetworkOutput, LINUX_EGRESS_PROFILE};
+pub use lifecycle::{AnalysisError, AnalysisJob, CompletedAnalysis};
+#[cfg(target_os = "linux")]
+pub use network::{CodexNetworkRunner, NetworkDecodeError, NetworkOutput, LINUX_EGRESS_PROFILE};
 pub use request::CodexRequest;
 pub use response::decode;
 

@@ -16,6 +16,8 @@ pub struct PreparedContext {
     files: Vec<BundleFile>,
     store_root: PathBuf,
     project_id: String,
+    #[cfg(target_os = "linux")]
+    bundle_id: String,
     revision: u64,
 }
 
@@ -47,6 +49,8 @@ impl PreparedContext {
             files: exported.files,
             store_root,
             project_id: project_id.into(),
+            #[cfg(target_os = "linux")]
+            bundle_id: bundle_id.into(),
             revision: expected_revision,
         })
     }
@@ -64,6 +68,22 @@ impl PreparedContext {
             .into());
         }
         Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn analysis_store(
+        &self,
+        request: &tgsum_core::analysis::RunRequest,
+    ) -> Result<ProjectStore, RunnerError> {
+        if request.project_id != self.project_id
+            || request.bundle_id != self.bundle_id
+            || request.project_revision != self.revision
+        {
+            return Err(RunnerError::InvalidRequest(
+                "analysis is not bound to the prepared context",
+            ));
+        }
+        Ok(ProjectStore::new(&self.store_root))
     }
 
     /// Inline only the immutable public export, never traverse the source tree.

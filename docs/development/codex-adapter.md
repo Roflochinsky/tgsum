@@ -144,7 +144,13 @@ Auth milestone `366eb5b`, 2026-09-27 MSK: полный gate — **131 passed, 11
 
 ## Что остаётся до первого cloud Run
 
-1. Завершить auth failure/expiry и transport outcome lifecycle. Отдельный
+[`AnalysisJob` и `run_analysis`](analyses.md) уже связывают reviewed ticket,
+bundle/revision, destination/model/version/profile, typed validator, durable
+result и baseline. `NetworkOutput::decode` отвергает ошибки gateway даже при
+exit 0. Local HTTPS qualification покрывает также HTTP 401 и mismatch auth
+mode/receiver; они сохраняются как static failure без provider diagnostics.
+
+1. Завершить synthetic ChatGPT/OAuth success/expiry/revoke и recovery. Отдельный
    [CONNECT gateway + namespace relay](inference-egress.md) уже подключён к
    `CodexNetworkRunner`: exact selected auth mount, очищенный env и SSE provider.
    Установленный CLI прошёл local HTTPS qualification без auth и с synthetic
@@ -153,8 +159,8 @@ Auth milestone `366eb5b`, 2026-09-27 MSK: полный gate — **131 passed, 11
 2. Проверить effective tools/config/hooks/MCP и filesystem/network/IPC уже
    с выбранным auth transport, refresh и provider. Offline qualification
    доказывает только описанный выше профиль с готовыми ответами.
-3. Связать reviewed bundle, фактического получателя/model, recipe validator и
-   durable result/baseline lifecycle; подключить adapter к Review/Run UI.
+3. Подключить managed lifecycle к built-in recipes и Review/Run/result UI;
+   показывать фактического получателя и результат/recovery пользователю.
 4. Провести контролируемую пользователем квалификацию `tgsum-t8t.19`.
 
 Пункты 1–3 остаются инженерной работой; нужна и упаковка relay/runtime. Только

@@ -21,6 +21,48 @@ pub struct NetworkOutput {
     pub destination: Destination,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkDecodeError {
+    Response(super::DecodeError),
+    Gateway(crate::egress::Failure),
+    MissingTransport,
+}
+impl std::fmt::Display for NetworkDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Response(error) => error.fmt(f),
+            Self::Gateway(reason) => write!(f, "Codex transport rejected: {reason:?}"),
+            Self::MissingTransport => {
+                f.write_str("Codex returned without a completed inference transport")
+            }
+        }
+    }
+}
+impl std::error::Error for NetworkDecodeError {}
+
+impl NetworkOutput {
+    /// Process failure/cancellation takes precedence. A clean exit alone cannot
+    /// turn a rejected or missing transport into a validated analysis.
+    pub fn decode<T: serde::de::DeserializeOwned>(
+        &self,
+        validate: impl FnOnce(&T) -> bool,
+    ) -> Result<super::Decoded<T>, NetworkDecodeError> {
+        if !self.process.process_succeeded() {
+            return Err(NetworkDecodeError::Response(super::DecodeError::Process {
+                termination: self.process.termination,
+                exit_code: self.process.exit_code,
+            }));
+        }
+        if let Some(failure) = self.gateway.failures.first() {
+            return Err(NetworkDecodeError::Gateway(*failure));
+        }
+        if self.gateway.completed == 0 || self.gateway.admitted_bytes == 0 {
+            return Err(NetworkDecodeError::MissingTransport);
+        }
+        super::decode(&self.process, validate).map_err(NetworkDecodeError::Response)
+    }
+}
+
 impl CodexNetworkRunner {
     /// Trusted executable/runtime selection; never imported chat configuration.
     /// files includes request.schema_runtime_file(), platform libraries and an

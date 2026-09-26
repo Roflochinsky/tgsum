@@ -43,7 +43,9 @@ credentials. Исходный offline контракт описан ниже. Н
 6. `RunOutput` содержит сырые байты, exit code и причину завершения. Его Debug
    показывает только размеры, не содержимое. Exit 0 **не** подтверждает schema,
    evidence или качество анализа. Runner не записывает результат в Project
-   и не меняет baseline; это делает caller после проверки результата.
+   и не меняет baseline. Для Codex это выполняет отдельный
+   [managed analysis lifecycle](analyses.md) после проверки process/transport,
+   typed recipe/evidence и сохранения result artifact.
 
 Revision проверяется непосредственно перед подготовкой запуска. Выданный bundle
 является снимком согласованного scope; изменение Project во время выполнения

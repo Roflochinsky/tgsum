@@ -52,7 +52,7 @@ fn version_one_opens_with_default_scope_without_rewriting_old_revision() {
     fs::write(&path, &legacy_bytes).unwrap();
 
     let reopened = store.open(&project.project_id).unwrap();
-    assert_eq!(reopened.schema_version, 2);
+    assert_eq!(reopened.schema_version, 3);
     assert_eq!(reopened.sources[0].selection, Default::default());
     assert!(reopened.analysis_run.is_none() && reopened.baselines.is_empty());
     assert_eq!(fs::read(&path).unwrap(), legacy_bytes);
@@ -63,7 +63,7 @@ fn version_one_opens_with_default_scope_without_rewriting_old_revision() {
             ProjectChange::Rename("upgraded".into()),
         )
         .unwrap();
-    assert_eq!(updated.schema_version, 2);
+    assert_eq!(updated.schema_version, 3);
     assert_eq!(updated.revision, reopened.revision + 1);
     assert_eq!(store.open(&project.project_id).unwrap(), updated);
     assert_eq!(fs::read(path).unwrap(), legacy_bytes);
@@ -152,6 +152,71 @@ fn project_survives_restart_and_never_copies_the_original_archive() {
             0o600
         );
     }
+}
+
+#[test]
+fn version_two_baseline_only_run_does_not_invent_a_stored_result() {
+    use tgsum_core::project::AnalysisOutcome;
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = store.create("legacy v2").unwrap();
+    let scope = SourceScope::telegram("work", "1");
+    store
+        .snapshots(&project.project_id)
+        .unwrap()
+        .import_telegram(
+            "s1",
+            &scope,
+            Cursor::new(r#"{"id":1,"messages":[{"id":1,"text":"legacy"}]}"#),
+        )
+        .unwrap();
+    let project = store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(ProjectSource {
+                source_id: "client".into(),
+                connector_id: "telegram_export".into(),
+                scope,
+                archive_path: None,
+                latest_snapshot_id: Some("s1".into()),
+                selection: Default::default(),
+            }),
+        )
+        .unwrap();
+    let project = store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::BeginAnalysis {
+                run_id: "legacy-run".into(),
+            },
+        )
+        .unwrap();
+    let project = store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::FinishAnalysis {
+                run_id: "legacy-run".into(),
+                outcome: AnalysisOutcome::Succeeded,
+            },
+        )
+        .unwrap();
+    let mut legacy = serde_json::to_value(&project).unwrap();
+    legacy["schema_version"] = 2.into();
+    legacy["analysis_run"]
+        .as_object_mut()
+        .unwrap()
+        .remove("result");
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let path = manifest(root.path(), &project);
+    fs::write(&path, &bytes).unwrap();
+    let opened = store.open(&project.project_id).unwrap();
+    assert_eq!(opened.schema_version, 3);
+    assert_eq!(opened.baselines, project.baselines);
+    assert!(opened.analysis_run.unwrap().result.is_none());
+    assert_eq!(fs::read(path).unwrap(), bytes);
 }
 
 #[test]

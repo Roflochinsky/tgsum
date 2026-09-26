@@ -68,9 +68,11 @@ that run analyzed. `Failed` and `Cancelled` leave existing baselines untouched.
 A late success cannot reattach a removed source or a source replaced with a
 different namespace. Repeated finish calls and mismatched run IDs are rejected.
 
-These are host operations. There is no UI button to claim a successful analysis.
-The future runner must call success only after validating and durably storing
-its result; the current ledger alone does not validate an AI output.
+These are legacy host operations. There is no UI button to claim a successful
+analysis; this ledger primitive alone does not validate an AI output. The new
+Codex adapter uses the [managed result pipeline](analyses.md): validated result
+first, then one Project revision containing both result reference and baselines.
+That pipeline rejects a changed Project revision rather than rebinding a result.
 
 ## Desktop flow
 

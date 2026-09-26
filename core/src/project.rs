@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +82,9 @@ pub struct AnalysisRun {
     pub run_id: String,
     pub inputs: Vec<AnalysisInput>,
     pub outcome: Option<AnalysisOutcome>,
+    /// Present for the managed result pipeline; v1/v2 baseline-only runs lack it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<crate::analysis::ResultRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,14 +233,21 @@ impl ProjectStore {
             .ok_or_else(|| {
                 invalid("project has no committed manifest; restore a known revision")
             })?;
-        let metadata = fs::symlink_metadata(&latest.1)?;
+        self.read_revision(project_id, latest.0)
+    }
+
+    pub(crate) fn read_revision(&self, project_id: &str, revision: u64) -> io::Result<Project> {
+        let revisions = self.directory(project_id)?.join("revisions");
+        require_directory(&revisions)?;
+        let path = revisions.join(format!("{revision:020}.json"));
+        let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() || metadata.len() > MAX_MANIFEST_BYTES {
             return Err(invalid(
                 "project manifest must be a regular file of at most 1 MiB",
             ));
         }
         let mut bytes = Vec::new();
-        File::open(latest.1)?
+        File::open(path)?
             .take(MAX_MANIFEST_BYTES + 1)
             .read_to_end(&mut bytes)?;
         if bytes.len() as u64 > MAX_MANIFEST_BYTES {
@@ -246,17 +256,18 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1) | Some(2)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=3)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
         }
         let mut project: Project = serde_json::from_value(value).map_err(invalid)?;
         // Version 1 had no scope or analysis ledger. Defaults preserve its
-        // full-source behavior; a later update publishes v2 as a new revision.
+        // full-source behavior. v2 lacked durable result references. Reading
+        // migrates in memory; only a later write publishes a new v3 revision.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
-        if project.project_id != project_id || project.revision != latest.0 {
+        if project.project_id != project_id || project.revision != revision {
             return Err(invalid(
                 "manifest identity/revision does not match its location",
             ));
@@ -388,6 +399,7 @@ impl ProjectStore {
                     run_id,
                     inputs,
                     outcome: None,
+                    result: None,
                 });
             }
             ProjectChange::FinishAnalysis { run_id, outcome } => {
@@ -471,6 +483,52 @@ impl ProjectStore {
         Ok(SnapshotStore::new(directory))
     }
 
+    pub(crate) fn publish_analysis(
+        &self,
+        project_id: &str,
+        expected_revision: u64,
+        run: AnalysisRun,
+    ) -> io::Result<Project> {
+        let mut project = self.open(project_id)?;
+        if project.revision != expected_revision {
+            return Err(conflict());
+        }
+        if run.outcome != Some(AnalysisOutcome::Succeeded) || run.result.is_none() {
+            return Err(invalid("managed analysis needs a stored validated result"));
+        }
+        for input in &run.inputs {
+            if !project.sources.iter().any(|source| {
+                source.source_id == input.source_id
+                    && source.scope == input.source
+                    && source.latest_snapshot_id.as_ref() == Some(&input.snapshot_id)
+                    && source.selection == input.selection
+            }) {
+                return Err(conflict());
+            }
+            project.baselines.retain(|b| b.source_id != input.source_id);
+            project.baselines.push(AnalysisBaseline {
+                source_id: input.source_id.clone(),
+                source: input.source.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                filter: input.selection.filter.clone(),
+                analysis_id: run.run_id.clone(),
+            });
+        }
+        project.analysis_run = Some(run);
+        project.revision = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("project revision exhausted"))?;
+        validate_project(&project)?;
+        write_revision(&self.directory(project_id)?.join("revisions"), &project).map_err(|e| {
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                conflict()
+            } else {
+                e
+            }
+        })?;
+        Ok(project)
+    }
+
     pub(crate) fn directory(&self, project_id: &str) -> io::Result<PathBuf> {
         validate_snapshot_id(project_id)?;
         if !project_id.starts_with("project-") {
@@ -524,6 +582,12 @@ fn validate_project(project: &Project) -> io::Result<()> {
     }
     if let Some(run) = &project.analysis_run {
         validate_snapshot_id(&run.run_id)?;
+        if let Some(result) = &run.result {
+            result.validate()?;
+            if run.outcome != Some(AnalysisOutcome::Succeeded) || result.run_id != run.run_id {
+                return Err(invalid("analysis result identity or outcome mismatch"));
+            }
+        }
         if run.inputs.is_empty() {
             return Err(invalid("analysis has no inputs"));
         }
@@ -571,6 +635,8 @@ fn write_revision(directory: &Path, project: &Project) -> io::Result<()> {
     staged
         .persist_noclobber(directory.join(format!("{:020}.json", project.revision)))
         .map_err(|e| e.error)?;
+    #[cfg(unix)]
+    File::open(directory)?.sync_all()?;
     Ok(())
 }
 

@@ -123,7 +123,93 @@ pub struct ResolvedEvidence {
     pub message: CanonicalMessage,
 }
 
+pub(crate) struct AnalysisBundle {
+    pub revision: u64,
+    pub manifest_sha256: String,
+    pub inputs: Vec<AnalysisInput>,
+    pub manifest: BundleManifest,
+}
+
 impl ProjectStore {
+    pub(crate) fn analysis_bundle(
+        &self,
+        project_id: &str,
+        bundle_id: &str,
+        cancelled: &impl Fn() -> bool,
+    ) -> io::Result<AnalysisBundle> {
+        let (directory, private, manifest) =
+            self.checked_bundle(project_id, bundle_id, cancelled)?;
+        if manifest.privacy.needs_review != 0 {
+            return Err(invalid("resolve privacy findings before analysis"));
+        }
+        for file in &manifest.files {
+            check_cancel(cancelled)?;
+            let path = directory.join("context").join(&file.name);
+            if read_regular(&path)?.metadata()?.len() != file.bytes
+                || files::digest_file(&path, cancelled)? != file.sha256
+            {
+                return Err(invalid("reviewed context file changed"));
+            }
+        }
+        Ok(AnalysisBundle {
+            revision: private.project_revision,
+            manifest_sha256: private.manifest_sha256,
+            inputs: private.inputs,
+            manifest,
+        })
+    }
+
+    pub(crate) fn check_analysis_evidence(
+        &self,
+        project_id: &str,
+        bundle_id: &str,
+        references: &[EvidenceRef],
+        cancelled: &impl Fn() -> bool,
+    ) -> io::Result<()> {
+        use std::collections::BTreeSet;
+        use std::io::Read;
+        if references.len() > 512
+            || references
+                .iter()
+                .any(|r| r.id.len() > 128 || r.revision.len() > 128)
+        {
+            return Err(invalid(
+                "analysis evidence exceeds count or identity limits",
+            ));
+        }
+        let mut remaining: BTreeSet<_> = references
+            .iter()
+            .map(|r| (r.id.clone(), r.revision.clone()))
+            .collect();
+        if remaining.len() != references.len() {
+            return Err(invalid("duplicate analysis evidence"));
+        }
+        let (directory, _, _) = self.checked_bundle(project_id, bundle_id, cancelled)?;
+        let mut reader = BufReader::new(read_regular(&directory.join("evidence.jsonl"))?);
+        loop {
+            check_cancel(cancelled)?;
+            let mut line = String::new();
+            if reader
+                .by_ref()
+                .take(INDEX_LINE_BYTES + 1)
+                .read_line(&mut line)?
+                == 0
+            {
+                break;
+            }
+            if line.len() as u64 > INDEX_LINE_BYTES {
+                return Err(invalid("evidence entry is too large"));
+            }
+            let entry: EvidenceEntry =
+                serde_json::from_str(&line).map_err(|_| invalid("invalid evidence entry"))?;
+            remaining.remove(&(entry.reference.id, entry.reference.revision));
+        }
+        if !remaining.is_empty() {
+            return Err(invalid("analysis evidence is outside reviewed bundle"));
+        }
+        Ok(())
+    }
+
     /// Prepare a private draft for local review. Every emitted data field is
     /// scanned before Markdown formatting; pending medium findings block export.
     pub fn prepare_bundle(
