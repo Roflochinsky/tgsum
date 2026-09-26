@@ -137,7 +137,7 @@ provider проверяет точный Bearer sentinel без вывода hea
 Прочие account/ChatGPT refresh modes этим тестом не квалифицированы.
 Контракт и пределы — [в runner](runner.md#явно-выбранная-авторизация-codex-только-offline).
 
-Результат 2026-09-27 MSK: полный gate — **131 passed, 11 ignored**;
+Auth milestone `366eb5b`, 2026-09-27 MSK: полный gate — **131 passed, 11 ignored**;
 отдельно isolation **7/7**, Codex process tests **4/4**, включая установленный CLI.
 Идентификация executable и источники настроек — в
 [дополнении исследования](../research/codex-adapter-2026-09-26.md#квалификация-установленного-cli-без-аккаунта).
@@ -145,7 +145,9 @@ provider проверяет точный Bearer sentinel без вывода hea
 ## Что остаётся до первого cloud Run
 
 1. Реализовать auth/inference transport с выбранной границей всего процесса,
-   без копирования auth tokens или всего профиля Codex.
+   без копирования auth tokens или всего профиля Codex. Host
+   [CONNECT gateway](inference-egress.md) уже проверен на локальных fixtures;
+   нужно подключить relay/namespace и квалифицировать установленный CLI через TLS.
 2. Проверить effective tools/config/hooks/MCP и filesystem/network/IPC уже
    с выбранным auth transport, refresh и provider. Offline qualification
    доказывает только описанный выше профиль с готовыми ответами.

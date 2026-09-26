@@ -83,7 +83,7 @@ fn drain(input: &mut impl Read, output: &mut Vec<u8>, limit: usize) -> io::Resul
     Ok((false, false))
 }
 
-pub(super) fn execute(
+pub(crate) fn execute(
     command: Command,
     input: &[u8],
     limits: RunLimits,

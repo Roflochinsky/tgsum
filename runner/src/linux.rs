@@ -1,4 +1,4 @@
-mod process;
+pub(crate) mod process;
 
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};

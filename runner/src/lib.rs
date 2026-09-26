@@ -6,6 +6,8 @@ pub mod codex;
 mod context;
 mod discovery;
 #[cfg(target_os = "linux")]
+pub mod egress;
+#[cfg(target_os = "linux")]
 mod linux;
 
 pub use context::PreparedContext;

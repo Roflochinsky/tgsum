@@ -23,6 +23,10 @@ serde_json = "1"
 libc = "0.2"
 rustix = { version = "1", features = ["fs", "process"] }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.13"
+
 [[bin]]
 name = "tgsum-runner-fixture"
 path = "tests/support/fake_agent.rs"

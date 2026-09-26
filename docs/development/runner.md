@@ -8,6 +8,9 @@
 offline namespace. Реальные анализы и аккаунты не запускались.
 Выбранный auth-файл можно передать только в offline-профиле; это отдельная
 capability без обнаружения/копирования credentials, описанная ниже.
+Для следующего сетевого профиля отдельно реализован
+[ограниченный inference gateway](inference-egress.md). Его Unix relay ещё не
+подключён к runner; существующие профили сохраняют offline-поведение.
 
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).
