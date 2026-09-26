@@ -317,6 +317,22 @@ bd init --non-interactive --skip-agents --skip-hooks --setup-exclude \
 изменения через `bd dolt commit`. Ошибки синхронизации нужно устранить и проверить,
 прежде чем считать память сохранённой на удалённой стороне.
 
+## Направление развития
+
+Текущая версия остаётся локальным импортёром полного экспорта Telegram Desktop.
+Следующая архитектура — подготовка контекста из нескольких мессенджеров с явным
+scope, privacy review и отдельным запуском выбранного AI-инструмента.
+
+- [Архитектурное решение](docs/adr/0001-local-context-gateway.md) и
+  [проект следующего pipeline](docs/specs/context-gateway.md).
+- [Проверка платформ](docs/research/connector-support-2026-09-26.md) и
+  [варианты автоматизации Telegram Desktop](docs/research/telegram-export-automation.md).
+- [Реестр способов подключения](docs/connectors/registry.json) и
+  [обязательный цикл проверки API/условий](docs/connectors/review-policy.md).
+
+Эти документы фиксируют направление и условия поддержки; новые коннекторы,
+автовыгрузка и запуск агентов ещё не реализованы.
+
 ## Лицензия
 
 MIT. Фон рисует генеративный движок живописи с сайта автора (`src-tauri/ui/paint.js`).

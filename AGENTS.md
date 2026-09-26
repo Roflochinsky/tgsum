@@ -82,3 +82,13 @@ Report the outcome, actual checks, remaining scope, branch/commit, and sync erro
 When changing this workflow or model settings, read the dated sources and
 applicability limits in [the SOL 6 research](docs/research/openai-sol6-agent-workflow.md).
 Model/effort selection is a client setting, not an effect of this file.
+
+## Connectors and data use
+
+Before adding a source, changing acquisition/auth/API/SDK or archive formats,
+automating a messenger client, changing retention, or handing data to an AI tool,
+follow [the connector review cycle](docs/connectors/review-policy.md). Update its
+registry entry and Beads evidence before promoting support. Read
+[the gateway design](docs/specs/context-gateway.md) for new pipeline work and
+[CONTEXT.md](CONTEXT.md) for domain terms. Keep planned capabilities distinct
+from shipped behavior; registry metadata alone does not enforce runtime policy.

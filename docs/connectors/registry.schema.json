@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TGSUM connector support inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "enforcement",
+    "connectors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "enforcement": {
+      "const": "governance_only"
+    },
+    "connectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/connector"
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "connector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "platform",
+        "connector_type",
+        "access_method",
+        "support_status",
+        "priority",
+        "credential_type",
+        "authorization_scope",
+        "selected_scope",
+        "capabilities",
+        "ban_risk",
+        "ai_policy",
+        "enabled_operations",
+        "review_level",
+        "last_policy_reviewed_at",
+        "next_review_due_at",
+        "owner",
+        "evidence",
+        "sources",
+        "open_questions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]+$"
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connector_type": {
+          "enum": [
+            "ArchiveImporter",
+            "ApiConnector",
+            "LocalDataConnector"
+          ]
+        },
+        "access_method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "support_status": {
+          "enum": [
+            "supported",
+            "candidate",
+            "research",
+            "excluded",
+            "deferred"
+          ]
+        },
+        "priority": {
+          "enum": [
+            "current",
+            "P0",
+            "P1",
+            "P2",
+            "defer",
+            "excluded"
+          ]
+        },
+        "credential_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorization_scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selected_scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "history",
+            "delta",
+            "attachments"
+          ],
+          "properties": {
+            "history": {
+              "enum": [
+                "available",
+                "limited",
+                "none",
+                "unknown"
+              ]
+            },
+            "delta": {
+              "enum": [
+                "none",
+                "events",
+                "reimport",
+                "history_polling",
+                "unknown"
+              ]
+            },
+            "attachments": {
+              "enum": [
+                "local_files",
+                "references",
+                "mixed",
+                "none",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "ban_risk": {
+          "enum": [
+            "no_platform_calls",
+            "conditional",
+            "prohibited_path",
+            "unknown"
+          ]
+        },
+        "ai_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "local_inference",
+            "cloud_inference",
+            "training"
+          ],
+          "properties": {
+            "local_inference": {
+              "enum": [
+                "review_required",
+                "restricted",
+                "unknown",
+                "allowed_with_conditions"
+              ]
+            },
+            "cloud_inference": {
+              "enum": [
+                "review_required",
+                "restricted",
+                "unknown",
+                "allowed_with_conditions"
+              ]
+            },
+            "training": {
+              "enum": [
+                "review_required",
+                "restricted",
+                "unknown",
+                "allowed_with_conditions"
+              ]
+            }
+          }
+        },
+        "enabled_operations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "local_import",
+              "acquisition",
+              "local_inference",
+              "cloud_inference"
+            ]
+          }
+        },
+        "review_level": {
+          "enum": [
+            "initial",
+            "verified",
+            "not_reviewed"
+          ]
+        },
+        "last_policy_reviewed_at": {
+          "$ref": "#/$defs/date"
+        },
+        "next_review_due_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

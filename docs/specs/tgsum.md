@@ -4,6 +4,10 @@
 **Date:** 2026-06-25
 **Owner:** Roflochinsky
 
+This document describes the existing v0.2 behavior. The accepted direction for
+future sources, privacy and agent handoff is in
+[context-gateway.md](context-gateway.md); those capabilities are not shipped yet.
+
 ## Problem
 
 A non-technical product manager needs to research a pilot project from an **internal team Telegram chat** — where our colleagues (field reps, developers) discuss the pilot. The PM wants to answer: what did the customer dislike / like, who among the customer's decision-makers (ЛПР) is blocking us, how the people on site feel, what problems came up during the pilot.

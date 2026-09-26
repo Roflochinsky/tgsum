@@ -1,0 +1,971 @@
+{
+  "schema_version": 1,
+  "enforcement": "governance_only",
+  "connectors": [
+    {
+      "id": "telegram_full_export",
+      "platform": "Telegram",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "supported",
+      "priority": "current",
+      "credential_type": "none",
+      "authorization_scope": "user-provided file only",
+      "selected_scope": "chats/topics selected during import",
+      "capabilities": {
+        "history": "available",
+        "delta": "none",
+        "attachments": "local_files"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "restricted",
+        "cloud_inference": "restricted",
+        "training": "restricted"
+      },
+      "enabled_operations": [
+        "local_import"
+      ],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-export-automation.md",
+      "sources": [
+        "https://telegram.org/blog/export-and-more",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "Current parser supports chats.list only; attachments currently become markers, not copied files.",
+        "Any AI handoff needs a separately supported content-use basis."
+      ]
+    },
+    {
+      "id": "telegram_single_export",
+      "platform": "Telegram",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P0",
+      "credential_type": "none",
+      "authorization_scope": "user-provided single-chat file only",
+      "selected_scope": "one chat exported by user",
+      "capabilities": {
+        "history": "available",
+        "delta": "none",
+        "attachments": "local_files"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "restricted",
+        "cloud_inference": "restricted",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-export-automation.md",
+      "sources": [
+        "https://telegram.org/blog/export-and-more",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "Implement top-level chat object parsing, strict format detection and real fixtures.",
+        "Verify topic exports and completeness before promising them."
+      ]
+    },
+    {
+      "id": "telegram_desktop_ui",
+      "platform": "Telegram",
+      "connector_type": "ArchiveImporter",
+      "access_method": "official_client_ui",
+      "support_status": "research",
+      "priority": "P2",
+      "credential_type": "user_session_inside_isolated_client",
+      "authorization_scope": "Telegram session can access the account",
+      "selected_scope": "helper requests only selected chat; app-enforced",
+      "capabilities": {
+        "history": "available",
+        "delta": "reimport",
+        "attachments": "local_files"
+      },
+      "ban_risk": "unknown",
+      "ai_policy": {
+        "local_inference": "restricted",
+        "cloud_inference": "restricted",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-export-automation.md",
+      "sources": [
+        "https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/core/launcher.cpp",
+        "https://core.telegram.org/api/takeout",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "No supported export CLI found in inspected source.",
+        "Prototype UI accessibility, exact account/chat matching and completion on one OS.",
+        "Resolve acquisition and downstream-use policy for the actual scenario."
+      ]
+    },
+    {
+      "id": "telegram_client_fork",
+      "platform": "Telegram",
+      "connector_type": "ArchiveImporter",
+      "access_method": "modified_client_export",
+      "support_status": "deferred",
+      "priority": "defer",
+      "credential_type": "own_api_id_and_user_session",
+      "authorization_scope": "user account session",
+      "selected_scope": "custom exporter selection; app-enforced",
+      "capabilities": {
+        "history": "available",
+        "delta": "reimport",
+        "attachments": "local_files"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "restricted",
+        "cloud_inference": "restricted",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-export-automation.md",
+      "sources": [
+        "https://core.telegram.org/api/takeout",
+        "https://core.telegram.org/api/terms",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "Client maintenance, GPL distribution boundary, security updates and own API credentials.",
+        "No official-client branding or exemption from content-use terms."
+      ]
+    },
+    {
+      "id": "telegram_mtproto",
+      "platform": "Telegram",
+      "connector_type": "ApiConnector",
+      "access_method": "mtproto_user_session_not_oauth",
+      "support_status": "research",
+      "priority": "defer",
+      "credential_type": "api_id_api_hash_user_session",
+      "authorization_scope": "user account session; not chat-scoped OAuth",
+      "selected_scope": "selected peers enforced by implementation",
+      "capabilities": {
+        "history": "available",
+        "delta": "unknown",
+        "attachments": "mixed"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "restricted",
+        "cloud_inference": "restricted",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-export-automation.md",
+      "sources": [
+        "https://core.telegram.org/api/takeout",
+        "https://core.telegram.org/api/terms",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "Resolve policy before implementing a production connector.",
+        "Validate edits/deletes and gap recovery; last_message_id alone is insufficient."
+      ]
+    },
+    {
+      "id": "max_open_client",
+      "platform": "MAX",
+      "connector_type": "ApiConnector",
+      "access_method": "open_client_api",
+      "support_status": "excluded",
+      "priority": "excluded",
+      "credential_type": "developer_program_credentials_user_session",
+      "authorization_scope": "program-specific client permissions",
+      "selected_scope": "selected content cannot remove platform use restrictions",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "unknown",
+        "attachments": "unknown"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "restricted",
+        "cloud_inference": "restricted",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://legal.max.ru/openclient-docs"
+      ],
+      "open_questions": [
+        "Documented restrictions conflict with persistent indexed multi-source AI corpus."
+      ]
+    },
+    {
+      "id": "max_bot",
+      "platform": "MAX",
+      "connector_type": "ApiConnector",
+      "access_method": "bot_api",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "bot_token",
+      "authorization_scope": "admin permissions in joined chats/channels; not read-only",
+      "selected_scope": "selected bot chats",
+      "capabilities": {
+        "history": "available",
+        "delta": "unknown",
+        "attachments": "unknown"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://dev.max.ru/docs-api/methods/GET/messages",
+        "https://dev.max.ru/docs/legal/rules"
+      ],
+      "open_questions": [
+        "Verify bot creation eligibility, AI use and retention.",
+        "Contract-test from/to millisecond bounds and equal timestamps.",
+        "Verify platform-api2 TLS trust without silently broadening system trust.",
+        "Review updates semantics and reconnect gaps."
+      ]
+    },
+    {
+      "id": "yandex_archive",
+      "platform": "Yandex Messenger",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P1",
+      "credential_type": "user_supplied_archive_password_if_needed",
+      "authorization_scope": "provided archive only",
+      "selected_scope": "selected conversations after import",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "none",
+        "attachments": "unknown"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://m.yandex.ru/support/yandex-360/customers/messenger/ru/data"
+      ],
+      "open_questions": [
+        "Obtain permitted fixture; verify schema, complete participants, attachments and business-account availability."
+      ]
+    },
+    {
+      "id": "yandex_bot",
+      "platform": "Yandex Messenger",
+      "connector_type": "ApiConnector",
+      "access_method": "bot_polling",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "bot_oauth_token",
+      "authorization_scope": "all chats where bot is subscriber/member/admin",
+      "selected_scope": "separate bot membership plus local selection",
+      "capabilities": {
+        "history": "none",
+        "delta": "events",
+        "attachments": "unknown"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://yandex.ru/dev/messenger/doc/ru/api-requests/update-polling"
+      ],
+      "open_questions": [
+        "Confirm event retention, edits/deletes and downstream AI/retention terms.",
+        "Commit data before advancing destructive offset; one cursor owner.",
+        "Verify archive/bot identity mapping and bootstrap overlap."
+      ]
+    },
+    {
+      "id": "vk_user",
+      "platform": "VK",
+      "connector_type": "ApiConnector",
+      "access_method": "user_oauth",
+      "support_status": "research",
+      "priority": "P2",
+      "credential_type": "user_oauth_token",
+      "authorization_scope": "actual grants for new applications unverified",
+      "selected_scope": "selected peer is a request filter",
+      "capabilities": {
+        "history": "available",
+        "delta": "unknown",
+        "attachments": "unknown"
+      },
+      "ban_risk": "unknown",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://github.com/VKCOM/vk-java-sdk/blob/master/sdk/src/main/java/com/vk/api/sdk/actions/Messages.java"
+      ],
+      "open_questions": [
+        "SDK proves method presence only; primary method page unavailable during review.",
+        "Verify new-app user scope issuance, distribution, AI use and platform enforcement."
+      ]
+    },
+    {
+      "id": "teams_delegated",
+      "platform": "Teams",
+      "connector_type": "ApiConnector",
+      "access_method": "graph_delegated",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "delegated_oauth_token",
+      "authorization_scope": "Chat.Read reads chats on behalf of signed-in user",
+      "selected_scope": "selected subscriptions; not a token-level chat grant",
+      "capabilities": {
+        "history": "available",
+        "delta": "events",
+        "attachments": "references"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://learn.microsoft.com/en-us/graph/teams-changenotifications-chatmessage",
+        "https://learn.microsoft.com/en-us/graph/permissions-reference#chatread"
+      ],
+      "open_questions": [
+        "Verify user/tenant consent, attachment permissions, storage and AI use.",
+        "Resolve public notification delivery, subscription renewal and offline gaps."
+      ]
+    },
+    {
+      "id": "teams_rsc",
+      "platform": "Teams",
+      "connector_type": "ApiConnector",
+      "access_method": "graph_resource_specific_consent",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "application_token_resource_consent",
+      "authorization_scope": "ChatMessage.Read.Chat for consented chat",
+      "selected_scope": "resource-specific chat scope where supported",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "events",
+        "attachments": "references"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://learn.microsoft.com/en-us/graph/teams-changenotifications-chatmessage"
+      ],
+      "open_questions": [
+        "Notification docs mark this RSC permission beta; verify supported API version and app installation.",
+        "Validate history method and credential provisioning for desktop product.",
+        "Review tenant policy, retention and AI use."
+      ]
+    },
+    {
+      "id": "teams_export",
+      "platform": "Teams",
+      "connector_type": "ApiConnector",
+      "access_method": "graph_application_export",
+      "support_status": "research",
+      "priority": "P2",
+      "credential_type": "application_token_admin_consent",
+      "authorization_scope": "broad tenant application permissions as configured",
+      "selected_scope": "export request filters",
+      "capabilities": {
+        "history": "available",
+        "delta": "unknown",
+        "attachments": "references"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://learn.microsoft.com/en-us/microsoftteams/export-teams-content"
+      ],
+      "open_questions": [
+        "Keep separate from delegated desktop connector.",
+        "Verify Teams licensing, application permissions and storage/AI use."
+      ]
+    },
+    {
+      "id": "google_chat_takeout",
+      "platform": "Google Chat",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P1",
+      "credential_type": "none",
+      "authorization_scope": "provided archive only; subject to export eligibility",
+      "selected_scope": "only conversations actually present in archive",
+      "capabilities": {
+        "history": "limited",
+        "delta": "none",
+        "attachments": "mixed"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://support.google.com/chat/answer/10126829?hl=en"
+      ],
+      "open_questions": [
+        "Work/school-origin group messages/spaces may be excluded.",
+        "Verify fixtures, organization/domain coverage and attachment representation."
+      ]
+    },
+    {
+      "id": "google_chat_oauth",
+      "platform": "Google Chat",
+      "connector_type": "ApiConnector",
+      "access_method": "user_oauth_space_events",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "user_oauth_token",
+      "authorization_scope": "chat.messages.readonly; not a per-selected-space grant",
+      "selected_scope": "space parameter and application selection",
+      "capabilities": {
+        "history": "available",
+        "delta": "events",
+        "attachments": "mixed"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://developers.google.com/workspace/chat/list-messages",
+        "https://developers.google.com/workspace/chat/list-space-events",
+        "https://developers.google.com/workspace/workspace-api-user-data-developer-policy"
+      ],
+      "open_questions": [
+        "Review persistent corpus/cache limits and specific AI recipient conditions.",
+        "Verify account tier, OAuth verification and administrator restrictions.",
+        "Space events window is 28 days: test gaps and reconciliation."
+      ]
+    },
+    {
+      "id": "slack_export",
+      "platform": "Slack",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P1",
+      "credential_type": "none",
+      "authorization_scope": "provided archive determined by admin/export entitlement",
+      "selected_scope": "selected exported conversations",
+      "capabilities": {
+        "history": "limited",
+        "delta": "none",
+        "attachments": "references"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://slack.com/help/articles/201658943-Export-your-workspace-data"
+      ],
+      "open_questions": [
+        "Obtain JSON fixtures for supported export types and identify missing history.",
+        "File links do not prove local attachment availability.",
+        "Research built-in recurring exports for eligible workspaces."
+      ]
+    },
+    {
+      "id": "slack_internal_bot",
+      "platform": "Slack",
+      "connector_type": "ApiConnector",
+      "access_method": "internal_socket_mode",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "bot_oauth_and_app_level_token",
+      "authorization_scope": "scopes plus bot channel membership",
+      "selected_scope": "selected conversations within actual token grant",
+      "capabilities": {
+        "history": "available",
+        "delta": "events",
+        "attachments": "references"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://docs.slack.dev/reference/methods/conversations.history/",
+        "https://docs.slack.dev/apis/events-api/using-socket-mode/",
+        "https://slack.com/terms-of-service/api"
+      ],
+      "open_questions": [
+        "Socket Mode cannot be listed in public Marketplace per current docs.",
+        "Validate customer-owned app deployment, reconnect gaps, retention and AI use."
+      ]
+    },
+    {
+      "id": "slack_distributed_app",
+      "platform": "Slack",
+      "connector_type": "ApiConnector",
+      "access_method": "commercial_app_api",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "oauth_tokens_per_installation",
+      "authorization_scope": "depends on bot/user token and granted scopes",
+      "selected_scope": "selected conversations are app-controlled",
+      "capabilities": {
+        "history": "available",
+        "delta": "events",
+        "attachments": "references"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://docs.slack.dev/reference/methods/conversations.history/",
+        "https://docs.slack.dev/apis/events-api/using-socket-mode/",
+        "https://slack.com/terms-of-service/api"
+      ],
+      "open_questions": [
+        "Verify distribution/Marketplace status, rate-limit tier and event transport.",
+        "1 request/minute and 15 messages may apply to commercial non-Marketplace history.",
+        "Review full applicable data/AI terms before implementation."
+      ]
+    },
+    {
+      "id": "whatsapp_export",
+      "platform": "WhatsApp Personal",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P1",
+      "credential_type": "none",
+      "authorization_scope": "user-exported chat file only",
+      "selected_scope": "single exported conversation",
+      "capabilities": {
+        "history": "limited",
+        "delta": "none",
+        "attachments": "mixed"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://faq.whatsapp.com/1180414079177245/?cms_platform=android&locale=lt_LT"
+      ],
+      "open_questions": [
+        "Fixtures across iOS/Android/locales; no assumed global message IDs.",
+        "Verify media and retained history limits; user rights for chosen AI recipient."
+      ]
+    },
+    {
+      "id": "whatsapp_unofficial",
+      "platform": "WhatsApp Personal",
+      "connector_type": "ApiConnector",
+      "access_method": "web_session_scraping",
+      "support_status": "excluded",
+      "priority": "excluded",
+      "credential_type": "personal_client_session",
+      "authorization_scope": "potentially personal account history",
+      "selected_scope": "not supported",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "unknown",
+        "attachments": "unknown"
+      },
+      "ban_risk": "unknown",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://faq.whatsapp.com/1180414079177245/?cms_platform=android&locale=lt_LT"
+      ],
+      "open_questions": [
+        "Excluded by product decision; official personal export is the selected path.",
+        "Detailed current unofficial-client policy was not verified in this pass."
+      ]
+    },
+    {
+      "id": "discord_package",
+      "platform": "Discord",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P2",
+      "credential_type": "none",
+      "authorization_scope": "provided user data package",
+      "selected_scope": "only user's sent messages; not full transcript",
+      "capabilities": {
+        "history": "limited",
+        "delta": "none",
+        "attachments": "references"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://support.discord.com/hc/en-us/articles/360004957991-Your-Discord-Data-Package"
+      ],
+      "open_questions": [
+        "Show own-messages-only coverage; review native IDs, attachments and data rights."
+      ]
+    },
+    {
+      "id": "discord_bot",
+      "platform": "Discord",
+      "connector_type": "ApiConnector",
+      "access_method": "bot_api_gateway",
+      "support_status": "research",
+      "priority": "P2",
+      "credential_type": "bot_token",
+      "authorization_scope": "permissions and intents in installed servers/channels",
+      "selected_scope": "selected allowed channels",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "events",
+        "attachments": "references"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://support-dev.discord.com/hc/en-us/articles/8563934450327-Discord-Developer-Policy"
+      ],
+      "open_questions": [
+        "Verify history methods, message-content intent approval and Gateway recovery.",
+        "AI training needs Discord permission; inference/retention needs separate full-terms review."
+      ]
+    },
+    {
+      "id": "discord_selfbot",
+      "platform": "Discord",
+      "connector_type": "ApiConnector",
+      "access_method": "personal_user_token_automation",
+      "support_status": "excluded",
+      "priority": "excluded",
+      "credential_type": "personal_user_token",
+      "authorization_scope": "normal user account",
+      "selected_scope": "not supported",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "unknown",
+        "attachments": "unknown"
+      },
+      "ban_risk": "prohibited_path",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots"
+      ],
+      "open_questions": [
+        "Platform explicitly prohibits this automation path."
+      ]
+    },
+    {
+      "id": "signal_local",
+      "platform": "Signal",
+      "connector_type": "LocalDataConnector",
+      "access_method": "local_copy",
+      "support_status": "research",
+      "priority": "P2",
+      "credential_type": "user_provided_backup_key_if_required",
+      "authorization_scope": "only provided local backup/copy",
+      "selected_scope": "conversations actually present",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "none",
+        "attachments": "unknown"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://support.signal.org/hc/en-us/articles/360007059412-Signal-and-the-General-Data-Protection-Regulation-GDPR"
+      ],
+      "open_questions": [
+        "Select actual OS/format; validate encryption, keys, coherent snapshot and parser license.",
+        "No assumption of universally available plaintext database or all historical messages."
+      ]
+    },
+    {
+      "id": "line_export",
+      "platform": "LINE",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "candidate",
+      "priority": "P2",
+      "credential_type": "none",
+      "authorization_scope": "provided text file only",
+      "selected_scope": "one exported chat; available history only",
+      "capabilities": {
+        "history": "limited",
+        "delta": "none",
+        "attachments": "unknown"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "review_required",
+        "cloud_inference": "review_required",
+        "training": "review_required"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://help.line.me/line/smartphone?contentId=20007388&lang=en"
+      ],
+      "open_questions": [
+        "Fixtures, locale/timezone, multiline records and ambiguous identity across snapshots."
+      ]
+    },
+    {
+      "id": "viber_archive",
+      "platform": "Viber",
+      "connector_type": "ArchiveImporter",
+      "access_method": "manual_archive",
+      "support_status": "deferred",
+      "priority": "defer",
+      "credential_type": "unknown",
+      "authorization_scope": "archive suitable for TGSUM unverified",
+      "selected_scope": "unknown",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "none",
+        "attachments": "unknown"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-12-25",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://developers.viber.com/docs/api/rest-bot-api/"
+      ],
+      "open_questions": [
+        "Bot docs are not evidence of a usable personal archive; obtain official archive source and fixture first."
+      ]
+    },
+    {
+      "id": "viber_bot",
+      "platform": "Viber",
+      "connector_type": "ApiConnector",
+      "access_method": "bot_webhook",
+      "support_status": "deferred",
+      "priority": "defer",
+      "credential_type": "bot_token",
+      "authorization_scope": "bot communication",
+      "selected_scope": "bot subscribers",
+      "capabilities": {
+        "history": "unknown",
+        "delta": "events",
+        "attachments": "unknown"
+      },
+      "ban_risk": "conditional",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "unknown"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-09-26",
+      "next_review_due_at": "2026-10-26",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/connector-support-2026-09-26.md",
+      "sources": [
+        "https://developers.viber.com/docs/api/rest-bot-api/"
+      ],
+      "open_questions": [
+        "Commercial bot terms and webhook architecture; not universal personal history.",
+        "Different product scenario; defer."
+      ]
+    }
+  ]
+}
