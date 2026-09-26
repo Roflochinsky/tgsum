@@ -3,6 +3,7 @@ mod process;
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -143,6 +144,17 @@ impl Backend {
         limits: RunLimits,
         cancellation: &Cancellation,
     ) -> Result<RunOutput, RunnerError> {
+        self.run_with_auth(context, invocation, limits, cancellation, None)
+    }
+
+    pub(crate) fn run_with_auth(
+        &self,
+        context: &Path,
+        invocation: &Invocation,
+        limits: RunLimits,
+        cancellation: &Cancellation,
+        auth: Option<&crate::codex::SelectedAuthFile>,
+    ) -> Result<RunOutput, RunnerError> {
         limits.validate(invocation)?;
         // Recheck the backend on every launch; never silently accept a helper
         // update while the application is running.
@@ -188,6 +200,15 @@ impl Backend {
         for (source, guest) in &self.mounts {
             command.arg("--ro-bind").arg(source).arg(guest);
         }
+        if let Some(auth) = auth {
+            auth.validate()?;
+            command.args(["--dir", crate::codex::auth::AUTH_HOME]);
+            command
+                .arg("--ro-bind-fd")
+                .arg(auth.mount_fd().as_raw_fd().to_string())
+                .arg(crate::codex::auth::AUTH_PATH);
+            command.args(["--setenv", "CODEX_HOME", crate::codex::auth::AUTH_HOME]);
+        }
         if self.private_proc {
             command.args(["--proc", "/proc", "--remount-ro", "/proc"]);
         }
@@ -201,7 +222,13 @@ impl Backend {
             "/runtime/agent",
         ]);
         command.args(&invocation.args);
-        process::execute(command, &invocation.stdin, limits, cancellation)
+        process::execute_with_mount_fd(
+            command,
+            &invocation.stdin,
+            limits,
+            cancellation,
+            auth.map(crate::codex::SelectedAuthFile::mount_fd),
+        )
     }
 }
 

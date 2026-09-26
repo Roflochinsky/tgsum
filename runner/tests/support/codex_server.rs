@@ -12,14 +12,38 @@ use serde_json::{json, Value};
 fn main() {
     let mut args: Vec<_> = std::env::args_os().skip(1).collect();
     if args == ["--version"] {
+        assert!(!std::path::Path::new("/home/agent/.codex/auth.json").exists());
         let status = Command::new("/runtime/codex").args(&args).status().unwrap();
         std::process::exit(status.code().unwrap_or(1));
     }
     assert_eq!(args.pop().unwrap(), "-");
+    let has_auth = std::path::Path::new("/home/agent/.codex/auth.json").exists();
+    if has_auth {
+        assert_eq!(std::env::var("CODEX_HOME").unwrap(), "/home/agent/.codex");
+        assert!(std::fs::write("/home/agent/.codex/auth.json", "overwrite").is_err());
+        assert!(std::fs::remove_file("/home/agent/.codex/auth.json").is_err());
+        assert!(!std::path::Path::new("/home/agent/.codex/config.toml").exists());
+        assert_eq!(std::fs::read_dir("/home/agent/.codex").unwrap().count(), 1);
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let auth = std::fs::metadata("/home/agent/.codex/auth.json").unwrap();
+            for path in ["/proc/self/fd", "/proc/1/fd"] {
+                for entry in std::fs::read_dir(path).unwrap() {
+                    if let Ok(metadata) = std::fs::metadata(entry.unwrap().path()) {
+                        assert!(
+                            (metadata.dev(), metadata.ino()) != (auth.dev(), auth.ino()),
+                            "auth mount descriptor must not survive in sandbox processes"
+                        );
+                    }
+                }
+            }
+        }
+    }
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let provider = format!(
-        "model_providers.tgsum_fixture={{name=\"TGSUM synthetic provider\",base_url=\"http://{}/v1\",wire_api=\"responses\",requires_openai_auth=false,request_max_retries=0,stream_max_retries=0,stream_idle_timeout_ms=3000}}",
+        "model_providers.tgsum_fixture={{name=\"TGSUM synthetic provider\",base_url=\"http://{}/v1\",wire_api=\"responses\",requires_openai_auth={has_auth},request_max_retries=0,stream_max_retries=0,stream_idle_timeout_ms=3000}}",
         listener.local_addr().unwrap()
     );
     // Test-only provider injection. Product request API accepts no overrides.
@@ -59,7 +83,7 @@ fn main() {
                         assert!(peer.ip().is_loopback());
                         socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
                         socket.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
-                        let request = read_request(&mut socket);
+                        let request = read_request(&mut socket, has_auth);
                         let report = json!({
                             "tools": request["tools"], "model": request["model"],
                             "input_bytes": request["input"].to_string().len(),
@@ -100,7 +124,7 @@ fn main() {
     std::process::exit(output.status.code().unwrap_or(1));
 }
 
-fn read_request(socket: &mut TcpStream) -> Value {
+fn read_request(socket: &mut TcpStream, has_auth: bool) -> Value {
     let mut bytes = Vec::new();
     let header_end = loop {
         assert!(bytes.len() < 32 * 1024);
@@ -116,10 +140,21 @@ fn read_request(socket: &mut TcpStream) -> Value {
         headers.starts_with("post /v1/responses http/1.1\r\n"),
         "unexpected fixture request path"
     );
-    assert!(
-        !headers.contains("authorization:"),
-        "fixture must not receive credentials"
-    );
+    let authorization = headers
+        .lines()
+        .find(|line| line.starts_with("authorization:"));
+    if has_auth {
+        // Assert a boolean so diagnostics never print an unexpected header.
+        assert!(
+            authorization == Some("authorization: bearer tgsum-synthetic-not-a-real-key"),
+            "expected only the pinned synthetic credential"
+        );
+    } else {
+        assert!(
+            authorization.is_none(),
+            "fixture must not receive credentials"
+        );
+    }
     assert!(
         !headers.contains("content-encoding:"),
         "unsupported compressed request"

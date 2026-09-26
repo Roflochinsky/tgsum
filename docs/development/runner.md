@@ -2,10 +2,12 @@
 
 `tgsum-runner` — отдельный workspace crate вне offline core. Он реализует
 границу процесса для будущих adapters. Приложение пока не подключает его к Run;
-Облачная сеть и авторизация ещё не реализованы. Для Codex добавлены
+облачный запуск ещё не реализован. Для Codex добавлены
 [подготовка запроса и проверка structured result](codex-adapter.md): fake CLI
 и установленный 0.155.1 проверены с локальным сервером готовых ответов внутри
 offline namespace. Реальные анализы и аккаунты не запускались.
+Выбранный auth-файл можно передать только в offline-профиле; это отдельная
+capability без обнаружения/копирования credentials, описанная ниже.
 
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).
@@ -67,11 +69,12 @@ Host procfs не монтируется. Первый профиль по-пре
 | `/runtime/agent` и перечисленные runtime-файлы | Read-only отдельные копии, проверенные до передачи context |
 | `/home/agent`, `/tmp` | Пустые отдельные tmpfs для каждого запуска, по 64 MiB |
 | Host HOME, Project store, исходные exports, connector secrets | Не монтируются |
+| Явно выбранный Codex `auth.json` | Только `run_codex_with_auth`: один read-only файл, offline |
 | Host `/proc`, `/sys`, `/run`, `/dev`, sockets | Не монтируются |
 | Собственный `/proc` | Только явный `offline-proc-v1`, read-only, процессы private PID namespace |
 | Сеть | Отдельный namespace, доступа к host loopback/сокетам нет |
-| Окружение | Только HOME, TMPDIR, PATH, LANG и PWD; env_clear применяется и к helper |
-| Дополнительные FD | CLOEXEC на всех FD > 2 перед exec helper |
+| Окружение | HOME, TMPDIR, PATH, LANG и PWD; при auth-mount фиксированный CODEX_HOME; env_clear также у helper |
+| Дополнительные FD | CLOEXEC на FD > 2; единственный auth O_PATH fd передаётся helper для монтажа и закрывается до payload |
 
 Root filesystem read-only, capabilities сброшены, новые user namespaces
 запрещены, controlling terminal отсутствует. Source/guest пути runtime ограничены
@@ -79,6 +82,33 @@ Root filesystem read-only, capabilities сброшены, новые user namesp
 mount. Установка runtime-файлов после qualification не меняет копию. До запуска
 runtime staging доступен лишь host-пользователю; каталоги не передаются агенту
 целиком вместе с соседними файлами.
+
+### Явно выбранная авторизация Codex, только offline
+
+`codex::SelectedAuthFile::select` (Linux) открывает выбранный абсолютный
+`auth.json` с `O_PATH | O_NOFOLLOW | O_CLOEXEC`, проверяя только metadata.
+Принимается обычный файл текущего владельца, без group/other permissions,
+special bits и hardlinks, с owner read и размером 1…65536 bytes. TGSUM не
+читает/копирует содержимое и не проверяет действительность входа.
+
+`OfflineRunner::run_codex_with_auth` принимает подготовленный `CodexRequest`,
+требует версию 0.155.1 и явный offline-proc profile. Version probe всегда без auth.
+В новом HOME появляется только `/home/agent/.codex/auth.json`; `CODEX_HOME`
+фиксирован, credential store принудительно `file`. Keyring и соседние файлы
+не передаются. Metadata проверяется повторно перед запуском.
+
+O_PATH закрепляет inode без копирования. `bwrap --ro-bind-fd` проверяет dev/inode
+результата монтажа и закрывает переданный FD. Pre-exec разрешает только этот FD
+helper-процессу; FD родителя сохраняет CLOEXEC. Передача через host
+`/proc/<parent>/fd` оказалась недоступна внутри user namespace, fallback на
+обычный путь не используется. Источник: [bubblewrap 0.12.0](https://raw.githubusercontent.com/containers/bubblewrap/v0.12.0/bubblewrap.c).
+
+Pin не защищает байты от записи другого host-процесса в тот же inode. Выбирать
+capability заново для каждого запуска; изменения permissions/типа/размера дают
+отказ. Нельзя обещать неизменный снимок auth или использовать этот механизм с
+разрешённым OAuth refresh: ротация на сервере может предшествовать ошибке записи.
+Пока внешняя сеть полностью закрыта. Основание и следующий сетевой срез —
+[auth research](../research/codex-auth-boundary-2026-09-27.md).
 
 ## Лимиты и завершение
 

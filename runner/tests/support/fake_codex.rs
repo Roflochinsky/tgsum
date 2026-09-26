@@ -41,6 +41,7 @@ fn main() {
                     "--config" => {
                         assert!([
                             "web_search=\"disabled\"",
+                            "cli_auth_credentials_store=\"file\"",
                             "tools.experimental_request_user_input.enabled=false",
                             "tools.update_plan.enabled=false",
                             "analytics.enabled=false",
@@ -105,7 +106,7 @@ fn main() {
         assert!(disabled.contains(required));
     }
     assert_eq!(schema.unwrap()["additionalProperties"], false);
-    assert_eq!(settings.len(), 9);
+    assert_eq!(settings.len(), 10);
     assert_eq!(
         std::env::current_dir().unwrap(),
         std::path::Path::new("/context")

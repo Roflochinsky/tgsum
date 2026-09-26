@@ -298,6 +298,19 @@ mod process {
     #[test]
     #[ignore = "requires offline Linux sandbox and TGSUM_CODEX_TEST_BINARY pointing to static Codex 0.155.1"]
     fn installed_cli_uses_mock_provider_without_accounts_or_external_network() {
+        installed_cli(false);
+    }
+
+    #[test]
+    #[ignore = "requires offline Linux sandbox and TGSUM_CODEX_TEST_BINARY; synthetic auth only"]
+    fn installed_cli_reads_only_selected_synthetic_auth_without_mutation() {
+        installed_cli(true);
+    }
+
+    fn installed_cli(with_auth: bool) {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
         let binary = std::env::var_os("TGSUM_CODEX_TEST_BINARY")
             .expect("explicit static Codex 0.155.1 executable path required");
         let fixture = context("SELECTED token=SYNTHETIC_SECRET");
@@ -332,14 +345,45 @@ mod process {
         .unwrap();
         let mut limits = codex::run_limits();
         limits.timeout = Duration::from_secs(20);
-        let output = runner
-            .run(
-                request.context(),
-                request.invocation().unwrap(),
-                limits,
-                &cancel,
+        let auth_home = tempfile::tempdir().unwrap();
+        let auth_path = auth_home.path().join("auth.json");
+        let saved = auth_home.path().join("original.json");
+        let synthetic =
+            r#"{"auth_mode":"apikey","OPENAI_API_KEY":"tgsum-synthetic-not-a-real-key"}"#;
+        let output = if with_auth {
+            fs::write(&auth_path, synthetic).unwrap();
+            fs::set_permissions(&auth_path, fs::Permissions::from_mode(0o600)).unwrap();
+            fs::write(
+                auth_home.path().join("config.toml"),
+                "MUST_NOT_LOAD_INVALID_CONFIG",
             )
             .unwrap();
+            let auth = codex::SelectedAuthFile::select(&auth_path).unwrap();
+            // Replace the selected name before launch; only the pinned inode
+            // may reach Codex. No real profile is used by this test.
+            fs::rename(&auth_path, &saved).unwrap();
+            fs::write(&auth_path, "REPLACEMENT_MUST_NOT_BE_READ").unwrap();
+            runner
+                .run_codex_with_auth(&request, &auth, limits, &cancel)
+                .unwrap()
+        } else {
+            runner
+                .run(
+                    request.context(),
+                    request.invocation().unwrap(),
+                    limits,
+                    &cancel,
+                )
+                .unwrap()
+        };
+        if with_auth {
+            assert_eq!(fs::read_to_string(&saved).unwrap(), synthetic);
+            assert_eq!(
+                fs::read_to_string(&auth_path).unwrap(),
+                "REPLACEMENT_MUST_NOT_BE_READ"
+            );
+            assert_eq!(fs::read_dir(auth_home.path()).unwrap().count(), 3);
+        }
         // This fixture has no access to accounts or host HOME. On a failure,
         // its bounded diagnostic output is safe synthetic test evidence.
         assert!(
@@ -347,6 +391,9 @@ mod process {
             "{output:?}\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        for bytes in [&output.stdout, &output.stderr] {
+            assert!(!String::from_utf8_lossy(bytes).contains("tgsum-synthetic-not-a-real-key"));
+        }
         let stderr = std::str::from_utf8(&output.stderr).unwrap();
         let report: Value = serde_json::from_str(
             stderr

@@ -136,6 +136,8 @@ impl<'a> CodexRequest<'a> {
             "--config",
             "web_search=\"disabled\"",
             "--config",
+            "cli_auth_credentials_store=\"file\"",
+            "--config",
             "tools.experimental_request_user_input.enabled=false",
             "--config",
             "tools.update_plan.enabled=false",

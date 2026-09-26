@@ -3,9 +3,13 @@
 //! A qualified auth/network boundary and a Review naming the actual receiver
 //! are still required. CLI flags alone are not an isolation boundary.
 
+#[cfg(target_os = "linux")]
+pub(crate) mod auth;
 mod request;
 mod response;
 
+#[cfg(target_os = "linux")]
+pub use auth::SelectedAuthFile;
 pub use request::CodexRequest;
 pub use response::decode;
 

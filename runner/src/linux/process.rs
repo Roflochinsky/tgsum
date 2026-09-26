@@ -1,5 +1,5 @@
 use std::io::{self, Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -25,15 +25,17 @@ impl Drop for ChildGuard {
     }
 }
 
-// SAFETY: This narrowly scoped pre_exec hook performs only a Linux syscall and
+// SAFETY: This narrowly scoped pre_exec hook performs only Linux syscalls and
 // errno conversion after fork, without allocation, environment access or locks.
 // CLOEXEC keeps Rust's internal exec-error pipe usable until exec. Failure is
 // propagated by spawn; there is no less restrictive fallback. See the dated
-// runner-isolation research for the inherited-FD hole in bwrap itself.
+// runner-isolation research for the inherited-FD hole in bwrap itself. The sole
+// optional exception is a borrowed O_PATH fd for --ro-bind-fd. Bwrap consumes
+// and closes it before payload exec; the parent retains CLOEXEC unchanged.
 #[allow(unsafe_code)]
-fn close_inherited_descriptors(command: &mut Command) {
+fn close_inherited_descriptors(command: &mut Command, mount_fd: Option<RawFd>) {
     unsafe {
-        command.pre_exec(|| {
+        command.pre_exec(move || {
             if libc::syscall(
                 libc::SYS_close_range,
                 3u32,
@@ -42,6 +44,11 @@ fn close_inherited_descriptors(command: &mut Command) {
             ) == -1
             {
                 return Err(io::Error::last_os_error());
+            }
+            if let Some(fd) = mount_fd {
+                if libc::fcntl(fd, libc::F_SETFD, 0) == -1 {
+                    return Err(io::Error::last_os_error());
+                }
             }
             Ok(())
         });
@@ -77,10 +84,20 @@ fn drain(input: &mut impl Read, output: &mut Vec<u8>, limit: usize) -> io::Resul
 }
 
 pub(super) fn execute(
+    command: Command,
+    input: &[u8],
+    limits: RunLimits,
+    cancellation: &Cancellation,
+) -> Result<RunOutput, RunnerError> {
+    execute_with_mount_fd(command, input, limits, cancellation, None)
+}
+
+pub(super) fn execute_with_mount_fd(
     mut command: Command,
     input: &[u8],
     limits: RunLimits,
     cancellation: &Cancellation,
+    mount_fd: Option<BorrowedFd<'_>>,
 ) -> Result<RunOutput, RunnerError> {
     if cancellation.is_cancelled() {
         return Err(RunnerError::Cancelled);
@@ -89,7 +106,7 @@ pub(super) fn execute(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    close_inherited_descriptors(&mut command);
+    close_inherited_descriptors(&mut command, mount_fd.map(|fd| fd.as_raw_fd()));
     let started = Instant::now();
     let mut owned = ChildGuard {
         child: command.spawn()?,

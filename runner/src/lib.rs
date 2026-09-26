@@ -247,6 +247,35 @@ impl OfflineRunner {
         &self.info
     }
 
+    /// Expose only the selected Codex auth inode, read-only, to the pinned
+    /// request in an OFFLINE namespace. This does not qualify cloud auth:
+    /// read-only storage alone cannot prevent remote refresh-token rotation.
+    /// Version qualification receives no credentials. No generic argv/env or
+    /// auth path discovery is accepted here.
+    #[cfg(target_os = "linux")]
+    pub fn run_codex_with_auth(
+        &self,
+        request: &codex::CodexRequest<'_>,
+        auth: &codex::SelectedAuthFile,
+        limits: RunLimits,
+        cancellation: &Cancellation,
+    ) -> Result<RunOutput, RunnerError> {
+        if self.info.version_output.as_bytes() != codex::VERSION_STDOUT
+            || self.info.isolation_profile != LINUX_OFFLINE_PROC_PROFILE
+        {
+            return Err(RunnerError::ExportOnly(
+                "Codex auth requires the reviewed offline proc profile and CLI version",
+            ));
+        }
+        self.backend.run_with_auth(
+            request.context().directory(),
+            request.invocation()?,
+            limits,
+            cancellation,
+            Some(auth),
+        )
+    }
+
     /// Synchronous: call on a dedicated host worker, keeping that thread alive
     /// until this method returns (Linux parent-death signals are thread-bound).
     pub fn run(

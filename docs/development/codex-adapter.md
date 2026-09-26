@@ -5,9 +5,9 @@
 разделяет проверенные аргументы, wire format и ещё не доказанную изоляцию.
 
 **Это ещё не работающий облачный adapter.** Модуль не запускает Codex,
-не читает его профиль/авторизацию и не подключён к UI Run. Реализованы
+не читает содержимое его профиля/авторизации и не подключён к UI Run. Реализованы
 подготовка запроса и decoder, проверенные на synthetic executable и установленном
-Codex с локальным сервером готовых ответов без авторизации и внешней сети.
+Codex с локальным сервером готовых ответов без настоящей авторизации и внешней сети.
 Публичный bundle по-прежнему имеет `destination: export_only`.
 
 ## Запрос
@@ -38,6 +38,7 @@ Codex с локальным сервером готовых ответов бе�
   отключение web search и перечисленных в коде features. Отдельно выключены
   `tools.experimental_request_user_input.enabled`, `tools.update_plan.enabled`,
   analytics, feedback и три OTel exporters; `otel.log_user_prompt=false`.
+  `cli_auth_credentials_store="file"` исключает переключение на keyring.
   Последний аргумент `-`.
   Дополнительные argv, shell command, config path и env caller не передаёт.
 
@@ -111,8 +112,8 @@ cancel/stale revision, UTF-8, JSON/type/evidence, lifecycle и пределы в
 output, tool event, nonzero exit, timeout и cancel после уже выданного ответа.
 Пропуск этих тестов не считается проверкой backend.
 
-Третий ignored-тест запускает установленный **static Linux x86_64 Codex 0.155.1**.
-Путь передаётся явно; профили и credentials не используются:
+Ещё два ignored-теста запускают установленный **static Linux x86_64 Codex 0.155.1**.
+Путь передаётся явно; настоящие профили и credentials не используются:
 
 ```sh
 TGSUM_CODEX_TEST_BINARY=/absolute/path/to/codex \
@@ -121,14 +122,23 @@ TGSUM_CODEX_TEST_BINARY=/absolute/path/to/codex \
 
 Test-only launcher и локальный HTTP/SSE сервер работают вместе с Codex внутри
 `linux-x86_64-bwrap-offline-proc-v1`. Сервер принимает только `/v1/responses`,
-отклоняет Authorization и отдаёт готовую JSON-фикстуру. Model `gpt-6-astra`
+отклоняет Authorization в варианте без auth и отдаёт готовую JSON-фикстуру. Model `gpt-6-astra`
 выбирает bundled metadata; модель не вызывается и default продукта не меняется.
 Проверяются один request, пустой tool catalog, schema и evidence по исходному
 private bundle. HOME пуст, внешняя сеть недоступна, baseline не меняется.
 Fixture provider overrides отсутствуют в публичном API запроса.
 
-Результат 2026-09-27 MSK: полный gate — **129 passed, 10 ignored**;
-отдельно isolation **7/7**, Codex process tests **3/3**, включая установленный CLI.
+Второй installed-CLI тест создаёт отдельный synthetic API-key `auth.json`.
+`SelectedAuthFile` закрепляет его без чтения, а `run_codex_with_auth` монтирует
+только его read-only в private HOME. Официальный Codex сам читает auth; canned
+provider проверяет точный Bearer sentinel без вывода header. Проверяются запрет
+записи/удаления, отсутствие соседнего config и оставшегося auth FD, подмена
+исходного пути, неизменность host-файла и отсутствие sentinel в stdout/stderr.
+Прочие account/ChatGPT refresh modes этим тестом не квалифицированы.
+Контракт и пределы — [в runner](runner.md#явно-выбранная-авторизация-codex-только-offline).
+
+Результат 2026-09-27 MSK: полный gate — **131 passed, 11 ignored**;
+отдельно isolation **7/7**, Codex process tests **4/4**, включая установленный CLI.
 Идентификация executable и источники настроек — в
 [дополнении исследования](../research/codex-adapter-2026-09-26.md#квалификация-установленного-cli-без-аккаунта).
 
