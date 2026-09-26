@@ -3761,6 +3761,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tgsum-runner"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "tempfile",
+ "tgsum-core",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"

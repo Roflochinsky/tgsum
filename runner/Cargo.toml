@@ -1,0 +1,27 @@
+[package]
+name = "tgsum-runner"
+description = "Isolated process boundary for TGSUM analysis adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+test-fixtures = []
+
+[dependencies]
+tgsum-core.workspace = true
+tempfile = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+rustix = { version = "1", features = ["fs", "process"] }
+
+[[bin]]
+name = "tgsum-runner-fixture"
+path = "tests/support/fake_agent.rs"
+required-features = ["test-fixtures"]

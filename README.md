@@ -172,9 +172,10 @@ Parser в текущих исходниках также поддерживае�
 ## Как это работает
 
 В offline core добавлены snapshots одного выбранного чата, повторный diff и
-контракт событий Bridge. Они доступны библиотеке и синтетическому примеру;
-Project UI и автоматическое управление Telegram ещё не подключены.
-[Контракт, пример и ограничения](docs/development/archive-core.md).
+контракт событий Bridge. Project UI позволяет выбрать scope и подготовить
+очищенный context через Review → Export only. Автоматическое управление Telegram
+ещё не подключено. [Контракт архива](docs/development/archive-core.md),
+[context bundle и ограничения](docs/development/bundles.md).
 
 Два потоковых прохода по `result.json`. Первый строит лёгкий индекс (чаты, топики, счётчики, даты)
 и держит в памяти только один чат за раз, без текстов сообщений. Второй вытаскивает выбранное
@@ -183,11 +184,14 @@ Project UI и автоматическое управление Telegram ещё 
 
 ```
 core/          tgsum-core — Rust-библиотека: потоковый парсер, топики, Markdown, запись файлов
+runner/        tgsum-runner — изолированный процессный runner (пока offline Linux profile)
 src-tauri/     приложение tgsum на Tauri 2: окно, команды, диалоги, прогресс и отмена
 src-tauri/ui/  интерфейс: HTML + CSS + JS без сборки и без npm
 packaging/     пакет для Arch/Omarchy (PKGBUILD)
 install.sh     установка одной командой: зависимости, Rust, cargo install
 ```
+
+[Контракт runner, ограничения и отдельная проверка Linux-изоляции](docs/development/runner.md).
 
 ## Сборка из исходников
 
