@@ -207,3 +207,43 @@ header локальному canned server внутри того же offline nam
 Результат не доказывает cloud auth или отсутствие всех способов утечки через
 непроверенные model tools. Следующий обязательный срез — внешний egress helper
 с запретом refresh authority и его проверки на synthetic endpoints.
+
+## Дополнение: synthetic managed ChatGPT file auth
+
+После реализации relay/gateway проверен установленный CLI 0.155.1 с полностью
+синтетическим `auth_mode: chatgpt`. ID token содержит фиктивный `sub`, access JWT
+имеет заведомо невалидную подпись и управляемый `exp`; refresh token — sentinel.
+Эти данные принимает только локальный canned TLS server, публичные auth/inference
+endpoints не вызываются. Конструктор fixture использует формат versioned
+[upstream auth tests](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/login/tests/suite/auth_refresh.rs).
+
+Проверены свежий JWT при старом last_refresh, expired JWT, непрозрачный access
+token со старым cache, HTTP 401 и несовпадение выбранного receiver. В успешном
+варианте CLI читает read-only file и получает ответ через `chatgpt.com`, затем
+TGSUM сохраняет результат и baseline. Во всех случаях исходные auth bytes
+неизменны; ID/access/refresh tokens и API key отсутствуют в stdout/stderr.
+
+Уточнение по перечитанному `AuthManager::auth()`: после ошибки proactive refresh
+метод возвращает прежний auth. Значит, отказ refresh сам по себе не гарантирует
+неуспех inference/exit code. TGSUM проверяет весь gateway report: denied refresh
+не позволяет принять даже успешный response со старым token — это проверено
+отдельным unit test decoder. В фактическом installed-CLI прогоне expired/stale
+сценарии завершились с exit 1 после 13 отказов refresh и 3 metadata connections,
+до inference, в пределах 16 admissions gateway. Сценарий 401 сделал два inference
+запроса (guarded auth reload), затем refresh был отклонён. Успешного inference
+после denied refresh в этом installed-CLI прогоне не было.
+[Versioned manager](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/login/src/auth/manager.rs).
+
+Также наблюдались запросы `GET /backend-api/codex/models?client_version=0.155.1`
+и `GET /backend-api/wham/settings/user`; они используют тот же выбранный host.
+Последний имеет ответ `commit_attribution_enabled`, как подтверждает
+[backend client](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/backend-client/src/client.rs)
+и [response type](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/backend-client/src/types.rs).
+Локальный сервер принимает только перечисленные пути и Responses, проверяет
+Bearer/account ID. CONNECT/SNI gateway по-прежнему не видит encrypted HTTP path.
+
+Это квалификация описанного synthetic file-auth flow, не всех типов аккаунта:
+enterprise cloud requirements, agent identity, keyring, live token refresh и
+реальные права моделей требуют дальнейшей проверки. Реальные аккаунты остаются
+`tgsum-t8t.19`; synthetic enterprise policy testing остаётся инженерной работой.
+Команды и 13 сценариев — в [контракте transport](../development/inference-egress.md).

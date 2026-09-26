@@ -1,8 +1,8 @@
 # Журнал анализа и commit результата
 
 Код: `core::analysis`, `runner::codex::AnalysisJob`, срез `tgsum-hzm.7`.
-Это реализация backend. Экран Review/Run, шесть встроенных recipes, упаковка
-runtime и реальная квалификация аккаунтов ещё не завершены.
+Это реализация backend со [встроенными recipes](recipes.md). Экран Review/Run,
+упаковка runtime и реальная квалификация аккаунтов ещё не завершены.
 
 ## Порядок операций
 
@@ -29,7 +29,8 @@ runtime и реальная квалификация аккаунтов ещё �
 Строка destination в core является метаданными, а не сетевой настройкой.
 Codex adapter принимает только `api.openai.com` или `chatgpt.com` и сопоставляет
 их с typed gateway target. Recipe ID/version записываются до запуска; соответствие
-task/schema конкретному recipe обеспечивает trusted recipe builder. Core не
+task/schema конкретному recipe обеспечивает `RecipeRequest`, а `run_recipe`
+применяет связанный validator. Core не
 оценивает фактическую правдивость вывода и не заменяет этот validator.
 
 ## Хранение и восстановление
@@ -110,7 +111,8 @@ buffers, не в durable record/Display. Adapter пока сохраняет о�
 JSONL этой версии не даёт здесь надёжного typed HTTP status, строка ошибки не
 используется как универсальный детектор истёкшей авторизации.
 
-Открыто: synthetic ChatGPT/OAuth success и expiry/revoke, выдача понятного recovery
-в UI, built-in recipe catalog, Review/Run/result UI, runtime packaging. Реальная
+Synthetic ChatGPT file auth проверен на локальном HTTPS: success, expiry,
+stale cache, 401 и mismatch receiver; см. [границы проверки](inference-egress.md).
+Открыто: выдача понятного recovery в UI, Review/Run/result UI, runtime packaging. Реальная
 авторизация — отдельно `tgsum-t8t.19`, только под контролем пользователя. Эти
 локальные tests не доказывают production support, WSS или другие ОС.

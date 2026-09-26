@@ -29,6 +29,7 @@ pub struct BundleOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvidenceRef {
     pub id: String,
     pub revision: String,

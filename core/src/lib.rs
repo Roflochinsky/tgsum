@@ -17,6 +17,7 @@ pub mod model;
 pub mod output;
 pub mod progress;
 pub mod project;
+pub mod recipe;
 pub mod sanitize;
 pub mod scope;
 pub mod snapshot;

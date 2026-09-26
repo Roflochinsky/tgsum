@@ -1,6 +1,7 @@
 use super::*;
 use crate::egress::Failure;
 use crate::{PreparedContext, Termination};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -258,7 +259,73 @@ fn sse(answer: &str) -> String {
         .iter().map(|v| format!("event: {}\ndata: {v}\n\n",v["type"].as_str().unwrap())).collect()
 }
 
-fn request(stream: &mut impl Read, auth: bool) -> Value {
+#[derive(Clone, Copy, Debug)]
+enum FixtureAuth {
+    None,
+    ApiKey,
+    ChatGpt,
+    ExpiredChatGpt,
+    StaleChatGpt,
+}
+
+impl FixtureAuth {
+    fn destination(self) -> Destination {
+        match self {
+            Self::None | Self::ApiKey => Destination::OpenAiApi,
+            _ => Destination::ChatGpt,
+        }
+    }
+
+    fn data(self) -> Option<Value> {
+        match self {
+            Self::None => None,
+            Self::ApiKey => Some(
+                json!({"auth_mode":"apikey", "OPENAI_API_KEY":"tgsum-synthetic-not-a-real-key"}),
+            ),
+            _ => {
+                // Unsigned synthetic tokens, like the tagged upstream auth suite.
+                // These bytes are only sent to a loopback canned TLS server.
+                let jwt = |claims: Value| {
+                    format!(
+                        "e30.{}.c3ludGhldGlj",
+                        URL_SAFE_NO_PAD.encode(claims.to_string())
+                    )
+                };
+                let expiration = match self {
+                    Self::ExpiredChatGpt => 1,
+                    _ => {
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + 86400
+                    }
+                };
+                let access = if matches!(self, Self::StaleChatGpt) {
+                    "tgsum-synthetic-opaque-chatgpt-token".into()
+                } else {
+                    jwt(json!({"sub":"synthetic-user", "exp":expiration}))
+                };
+                Some(json!({"auth_mode":"chatgpt", "tokens":{
+                    "id_token":jwt(json!({"sub":"synthetic-user"})),
+                    "access_token":access,
+                    "refresh_token":"tgsum-synthetic-never-refresh",
+                    "account_id":"synthetic-account"
+                },
+                // Fresh JWT expiry takes precedence over the old cache date;
+                // opaque access tokens exercise the last_refresh fallback.
+                "last_refresh":"2020-01-01T00:00:00Z"}))
+            }
+        }
+    }
+}
+
+enum FixtureRequest {
+    Metadata(&'static str),
+    Inference(Value),
+}
+
+fn request(stream: &mut impl Read, auth: FixtureAuth, auth_data: Option<&Value>) -> FixtureRequest {
     let mut header = Vec::new();
     while !header.ends_with(b"\r\n\r\n") {
         assert!(header.len() < 32768);
@@ -266,13 +333,49 @@ fn request(stream: &mut impl Read, auth: bool) -> Value {
         stream.read_exact(&mut byte).unwrap();
         header.push(byte[0]);
     }
-    let header = String::from_utf8(header).unwrap().to_lowercase();
-    assert!(header.starts_with("post /v1/responses http/1.1\r\n"));
-    let supplied = header.lines().find(|l| l.starts_with("authorization:"));
-    if auth {
-        assert!(supplied == Some("authorization: bearer tgsum-synthetic-not-a-real-key"));
+    let header = String::from_utf8(header).unwrap();
+    let path = if auth.destination() == Destination::ChatGpt {
+        "/backend-api/codex/responses"
     } else {
-        assert!(supplied.is_none());
+        "/v1/responses"
+    };
+    let models = auth.destination() == Destination::ChatGpt
+        && header.starts_with("GET /backend-api/codex/models?client_version=0.155.1 HTTP/1.1\r\n");
+    let settings = auth.destination() == Destination::ChatGpt
+        && header.starts_with("GET /backend-api/wham/settings/user HTTP/1.1\r\n");
+    assert!(
+        models || settings || header.starts_with(&format!("POST {path} HTTP/1.1\r\n")),
+        "unexpected request line: {:?}",
+        header.lines().next()
+    );
+    let field = |name: &str| {
+        header
+            .lines()
+            .filter_map(|l| l.split_once(':'))
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.trim())
+    };
+    assert_eq!(field("host"), Some(auth.destination().host()));
+    let supplied = field("authorization");
+    let expected = auth_data.map(|data| {
+        format!(
+            "Bearer {}",
+            match auth {
+                FixtureAuth::ApiKey => data["OPENAI_API_KEY"].as_str().unwrap(),
+                _ => data["tokens"]["access_token"].as_str().unwrap(),
+            }
+        )
+    });
+    // Don't print token values even when a fixture assertion fails.
+    assert!(supplied == expected.as_deref());
+    if auth.destination() == Destination::ChatGpt {
+        assert_eq!(field("chatgpt-account-id"), Some("synthetic-account"));
+    }
+    if models {
+        return FixtureRequest::Metadata(r#"{"models":[]}"#);
+    }
+    if settings {
+        return FixtureRequest::Metadata(r#"{"commit_attribution_enabled":false}"#);
     }
     let n: usize = header
         .lines()
@@ -284,7 +387,7 @@ fn request(stream: &mut impl Read, auth: bool) -> Value {
     assert!(n <= 4 * 1024 * 1024);
     let mut bytes = vec![0; n];
     stream.read_exact(&mut bytes).unwrap();
-    serde_json::from_slice(&bytes).unwrap()
+    FixtureRequest::Inference(serde_json::from_slice(&bytes).unwrap())
 }
 
 fn runtime(request: &CodexRequest<'_>, directory: &std::path::Path) -> CodexNetworkRunner {
@@ -336,7 +439,7 @@ fn runtime(request: &CodexRequest<'_>, directory: &std::path::Path) -> CodexNetw
 #[test]
 #[ignore = "requires Linux namespace backend and explicit built relay/HTTPS fixture/installed Codex paths"]
 fn installed_codex_https_through_namespace_relay_with_and_without_synthetic_auth() {
-    for auth in [false, true] {
+    for auth in [FixtureAuth::None, FixtureAuth::ApiKey] {
         qualify("success", auth);
     }
 }
@@ -345,18 +448,32 @@ fn installed_codex_https_through_namespace_relay_with_and_without_synthetic_auth
 #[ignore = "requires Linux namespace backend and explicit built relay/HTTPS fixture/installed Codex paths"]
 fn installed_codex_https_rejects_unknown_ca_and_refresh_and_cleans_up_cancel_timeout() {
     for (mode, auth) in [
-        ("wrong-ca", false),
-        ("refresh-probe", false),
-        ("cancel", false),
-        ("timeout", false),
-        ("unauthorized", true),
-        ("receiver-mismatch", true),
+        ("wrong-ca", FixtureAuth::None),
+        ("refresh-probe", FixtureAuth::None),
+        ("cancel", FixtureAuth::None),
+        ("timeout", FixtureAuth::None),
+        ("unauthorized", FixtureAuth::ApiKey),
+        ("receiver-mismatch", FixtureAuth::ApiKey),
     ] {
         qualify(mode, auth);
     }
 }
 
-fn qualify(mode: &str, auth: bool) {
+#[test]
+#[ignore = "requires Linux namespace backend and explicit built relay/HTTPS fixture/installed Codex paths"]
+fn installed_codex_https_chatgpt_success_expiry_stale_cache_and_revocation() {
+    for (mode, auth) in [
+        ("success", FixtureAuth::ChatGpt),
+        ("expired", FixtureAuth::ExpiredChatGpt),
+        ("stale", FixtureAuth::StaleChatGpt),
+        ("unauthorized", FixtureAuth::ChatGpt),
+        ("receiver-mismatch", FixtureAuth::ChatGpt),
+    ] {
+        qualify(mode, auth);
+    }
+}
+
+fn qualify(mode: &str, auth: FixtureAuth) {
     use rustls::pki_types::PrivatePkcs8KeyDer;
     use rustls::{ServerConfig, ServerConnection, StreamOwned};
     let fixture = context();
@@ -369,7 +486,8 @@ fn qualify(mode: &str, auth: bool) {
         &cancel,
     )
     .unwrap();
-    let certificate = rcgen::generate_simple_self_signed(vec!["api.openai.com".into()]).unwrap();
+    let certificate =
+        rcgen::generate_simple_self_signed(vec![auth.destination().host().into()]).unwrap();
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(
@@ -397,9 +515,13 @@ fn qualify(mode: &str, auth: bool) {
     .unwrap();
     let runner = runtime(&request_data, temporary.path());
     let destination = if mode == "receiver-mismatch" {
-        Destination::ChatGpt
+        if auth.destination() == Destination::ChatGpt {
+            Destination::OpenAiApi
+        } else {
+            Destination::ChatGpt
+        }
     } else {
-        Destination::OpenAiApi
+        auth.destination()
     };
     let store = ProjectStore::new(fixture.root.path());
     let project = store.open(&fixture.project).unwrap();
@@ -423,12 +545,28 @@ fn qualify(mode: &str, auth: bool) {
     let job = super::super::AnalysisJob::new(&request_data, &ticket).unwrap();
     job.check(runner.info(), &cancel).unwrap();
     let auth_path = temporary.path().join("auth.json");
-    let auth_file = if auth {
-        fs::write(
-            &auth_path,
-            r#"{"auth_mode":"apikey","OPENAI_API_KEY":"tgsum-synthetic-not-a-real-key"}"#,
-        )
-        .unwrap();
+    let auth_data = auth.data();
+    let secrets: Vec<String> = auth_data
+        .as_ref()
+        .into_iter()
+        .flat_map(|data| {
+            [
+                "/OPENAI_API_KEY",
+                "/tokens/id_token",
+                "/tokens/access_token",
+                "/tokens/refresh_token",
+            ]
+            .into_iter()
+            .filter_map(|path| {
+                data.pointer(path)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+        })
+        .collect();
+    let auth_bytes = auth_data.as_ref().map(|v| serde_json::to_vec(v).unwrap());
+    let auth_file = if let Some(bytes) = &auth_bytes {
+        fs::write(&auth_path, bytes).unwrap();
         fs::set_permissions(&auth_path, fs::Permissions::from_mode(0o600)).unwrap();
         Some(SelectedAuthFile::select(&auth_path).unwrap())
     } else {
@@ -479,7 +617,14 @@ fn qualify(mode: &str, auth: bool) {
                         if mode == "wrong-ca" {
                             assert!(tls.conn.complete_io(&mut tls.sock).is_err()); continue;
                         }
-                        let data = request(&mut tls, auth); count += 1;
+                        let data = match request(&mut tls, auth, auth_data.as_ref()) {
+                            FixtureRequest::Metadata(body) => {
+                                write!(tls,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+                                tls.conn.send_close_notify(); tls.flush().unwrap(); continue;
+                            },
+                            FixtureRequest::Inference(data) => data,
+                        };
+                        count += 1;
                         seen.store(true, Ordering::Relaxed);
                         if mode == "unauthorized" {
                             let body = r#"{"error":{"message":"PRIVATE_SYNTHETIC_AUTH_FAILURE","type":"invalid_request_error","code":"invalid_api_key"}}"#;
@@ -525,8 +670,20 @@ fn qualify(mode: &str, auth: bool) {
         (output.unwrap(), server.join().unwrap())
     });
     assert!(!socket_path.exists());
+    eprintln!("fixture {mode}/{auth:?}: inference={count}, connections={connections}, exit={:?}, gateway={:?}",output.process.exit_code,output.gateway.failures);
+    if let Some(bytes) = auth_bytes {
+        assert!(
+            fs::read(&auth_path).unwrap() == bytes,
+            "selected synthetic auth changed"
+        );
+    }
     for bytes in [&output.process.stdout, &output.process.stderr] {
-        assert!(!String::from_utf8_lossy(bytes).contains("tgsum-synthetic-not-a-real-key"));
+        for secret in &secrets {
+            assert!(
+                !String::from_utf8_lossy(bytes).contains(secret),
+                "synthetic credential reached diagnostics"
+            );
+        }
     }
     if mode == "success" {
         assert!(output.process.process_succeeded(), "{output:?}");
@@ -562,7 +719,11 @@ fn qualify(mode: &str, auth: bool) {
             completed.run_id
         );
     } else {
-        assert!(!output.process.process_succeeded(), "{output:?}");
+        // The CLI can return success after denied proactive refresh. The
+        // managed adapter must still reject the dirty gateway report.
+        if !matches!(mode, "expired" | "stale") {
+            assert!(!output.process.process_succeeded(), "{output:?}");
+        }
         if matches!(mode, "cancel" | "timeout") {
             assert!(observed.load(Ordering::Relaxed));
             assert_eq!(
@@ -580,9 +741,22 @@ fn qualify(mode: &str, auth: bool) {
             assert!(output.gateway.failures.contains(&Failure::ConnectRequest));
             assert_eq!(count, 0);
             assert_eq!(connections, 0);
+        } else if matches!(mode, "expired" | "stale") {
+            assert!(
+                output.gateway.failures.contains(&Failure::ConnectRequest),
+                "{output:?}"
+            );
         } else if mode == "unauthorized" {
             assert!(observed.load(Ordering::Relaxed));
-            assert_eq!(count, 1);
+            if auth.destination() == Destination::ChatGpt {
+                assert_eq!(count, 2); // guarded auth reload, then denied refresh
+                assert!(
+                    output.gateway.failures.contains(&Failure::ConnectRequest),
+                    "{output:?}"
+                );
+            } else {
+                assert_eq!(count, 1);
+            }
         } else {
             assert!(
                 connections > 0,

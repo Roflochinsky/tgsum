@@ -105,7 +105,8 @@ fn main() {
     ] {
         assert!(disabled.contains(required));
     }
-    assert_eq!(schema.unwrap()["additionalProperties"], false);
+    let schema = schema.unwrap();
+    assert_eq!(schema["additionalProperties"], false);
     assert_eq!(settings.len(), 10);
     assert_eq!(
         std::env::current_dir().unwrap(),
@@ -146,7 +147,19 @@ fn main() {
         ),
         _ => {}
     }
-    let text = if mode == "invalid-result" {
+    let text = if let Some(recipe) = schema["properties"]["recipe"]["enum"][0].as_str() {
+        assert!(mode.contains(&format!("Recipe: {recipe} version 1.")));
+        assert!(mode.contains("Unknown owner/deadline MUST be null"));
+        let (id, revision) = evidence.split_once('@').unwrap();
+        let claim = json!({"text":"Synthetic result","evidence":[{"id":id,"revision":revision}]});
+        let sections = schema["properties"]["sections"]["items"]["properties"]["id"]["enum"]
+            .as_array()
+            .unwrap();
+        json!({"recipe":recipe,"version":1,
+            "sections":sections.iter().enumerate().map(|(i,id)|json!({"id":id,"claims":if i==0 {vec![claim.clone()]} else {vec![]}})).collect::<Vec<_>>(),
+            "actions":[{"task":claim,"owner":null,"deadline":null}]
+        }).to_string()
+    } else if mode == "invalid-result" {
         "not JSON".to_owned()
     } else {
         json!({"summary":"Synthetic result","evidence":[evidence]}).to_string()

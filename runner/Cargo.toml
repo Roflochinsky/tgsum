@@ -24,6 +24,7 @@ libc = "0.2"
 rustix = { version = "1", features = ["fs", "process", "net"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+base64 = "0.22"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.13"
 

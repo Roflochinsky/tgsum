@@ -150,16 +150,19 @@ result и baseline. `NetworkOutput::decode` отвергает ошибки gate
 exit 0. Local HTTPS qualification покрывает также HTTP 401 и mismatch auth
 mode/receiver; они сохраняются как static failure без provider diagnostics.
 
-1. Завершить synthetic ChatGPT/OAuth success/expiry/revoke и recovery. Отдельный
-   [CONNECT gateway + namespace relay](inference-egress.md) уже подключён к
-   `CodexNetworkRunner`: exact selected auth mount, очищенный env и SSE provider.
-   Установленный CLI прошёл local HTTPS qualification без auth и с synthetic
-   API key; проверены wrong CA, прямой TCP, refresh authority, cancel/timeout.
+Synthetic managed ChatGPT file auth теперь также проходит локальный HTTPS:
+success, expired JWT, stale opaque cache, 401 и обратный receiver mismatch.
+[Шесть recipes](recipes.md) подключены через `RecipeRequest`/`run_recipe`;
+инструкции, schema, validator и reviewed recipe version связаны до launch.
+
+1. Реализовать понятный recovery и упаковку relay/runtime. Отдельный
+   [CONNECT gateway + namespace relay](inference-egress.md) уже проверяет
+   выбранный auth mount, очищенный env, SSE и отказ refresh authority.
    Реальную авторизацию и весь профиль TGSUM не обнаруживает и не копирует.
 2. Проверить effective tools/config/hooks/MCP и filesystem/network/IPC уже
    с выбранным auth transport, refresh и provider. Offline qualification
    доказывает только описанный выше профиль с готовыми ответами.
-3. Подключить managed lifecycle к built-in recipes и Review/Run/result UI;
+3. Подключить managed lifecycle с built-in recipes к Review/Run/result UI;
    показывать фактического получателя и результат/recovery пользователю.
 4. Провести контролируемую пользователем квалификацию `tgsum-t8t.19`.
 

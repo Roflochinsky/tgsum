@@ -57,8 +57,9 @@ Codex получает собственный фиксированный provide
 `requires_openai_auth=true`, без WebSocket и автоматических connection retries.
 Built-in ID `openai` в 0.155.1 нельзя переопределять. Base URL не задаётся: CLI сам
 выбирает API/ChatGPT endpoint по auth mode, а gateway пропускает только reviewed
-destination. Несовпадение не даёт переключения получателя. API-key режим проверен
-на synthetic auth; ChatGPT/OAuth modes ещё не квалифицированы.
+destination. Несовпадение не даёт переключения получателя. API-key и managed
+ChatGPT file auth проверены на synthetic tokens и локальном TLS. Реальные
+аккаунты, keyring, enterprise requirements и agent identity ещё не квалифицированы.
 
 Возвращается `NetworkOutput { process, gateway, destination }`. Debug не содержит
 payload. Exit 0 не подтверждает schema/evidence или отсутствие отказов gateway:
@@ -148,7 +149,7 @@ relay при заполненной очереди Unix socket без блоки
 Тесты подключают loopback server через private `Dial` seam; публичный constructor
 не позволяет этот override. Реальный DNS/TCP к OpenAI и аккаунты не использованы.
 
-Два дополнительных ignored-теста проверяют весь путь установленного CLI:
+Три дополнительных ignored-теста проверяют весь путь установленного CLI:
 
 ```sh
 cargo build -p tgsum-runner --all-features --bins --locked
@@ -161,7 +162,7 @@ TGSUM_HTTPS_FIXTURE_BINARY="$PWD/target/debug/tgsum-codex-https-fixture" \
 Нужны static Linux x86_64 Codex 0.155.1 и bwrap 0.12.0. Test wrapper проверяет
 env/FD/direct-TCP boundary и запускает CLI. В auth-варианте используется production
 provider config; вариант без auth выбирает test provider. Локальный TLS server
-имеет SAN `api.openai.com`: точные CONNECT/SNI остаются production, только Dial
+имеет SAN `api.openai.com` или `chatgpt.com`: точные CONNECT/SNI остаются production, только Dial
 направляется на `127.0.0.2`. Проверяются запрос без tools, schema, scoped evidence,
 точный synthetic Bearer внутри TLS, отсутствие ключа в stdout/stderr, неверный CA
 после фактического TLS handshake, запрет `auth.openai.com`, cancel/timeout и удаление
@@ -170,6 +171,15 @@ gateway. TLS handshake failure не считается успехом прове
 `AnalysisJob`; negative cases оставляют его пустым. Добавлены HTTP 401 с synthetic
 API key и mismatch API-key/ChatGPT destination без переключения получателя.
 
-Предстоят synthetic ChatGPT/OAuth success/expiry/revoke, Review/Run, упаковка runtime и
-контролируемая пользователем реальная квалификация `tgsum-t8t.19`. WSS, ChatGPT
-OAuth и ОС кроме Linux этим не доказаны. `tgsum-hzm.7` остаётся открытой.
+Ещё пять сценариев используют synthetic managed ChatGPT file auth: свежий JWT
+с намеренно старым last_refresh, истёкший JWT, непрозрачный token со старым cache,
+HTTP 401 и обратный mismatch ChatGPT/API destination. Локальный сервер проверяет
+Bearer и account ID, отвечает на models/settings и Responses; неожиданные пути
+отклоняются тестом. Проверены неизменность выбранного auth и отсутствие API key,
+ID/access/refresh tokens в stdout/stderr. Expiry/stale/401 вызывают отказ gateway
+для refresh authority; любой такой отказ запрещает commit, даже если CLI смог
+получить успешный canned response со старым token. Всего **13 сценариев**.
+
+Предстоят Review/Run, упаковка runtime и контролируемая пользователем реальная
+квалификация `tgsum-t8t.19`. Live OAuth, enterprise/agent identity, WSS и ОС кроме
+Linux этим не доказаны. `tgsum-hzm.7` остаётся открытой.

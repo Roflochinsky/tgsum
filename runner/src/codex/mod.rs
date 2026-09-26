@@ -9,6 +9,7 @@ pub(crate) mod auth;
 mod lifecycle;
 #[cfg(target_os = "linux")]
 mod network;
+mod recipe;
 mod request;
 mod response;
 
@@ -18,6 +19,7 @@ pub use auth::SelectedAuthFile;
 pub use lifecycle::{AnalysisError, AnalysisJob, CompletedAnalysis};
 #[cfg(target_os = "linux")]
 pub use network::{CodexNetworkRunner, NetworkDecodeError, NetworkOutput, LINUX_EGRESS_PROFILE};
+pub use recipe::RecipeRequest;
 pub use request::CodexRequest;
 pub use response::decode;
 
