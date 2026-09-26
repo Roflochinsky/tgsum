@@ -138,10 +138,63 @@ fn tolerates_odd_types_and_skips_other_top_level_keys() {
 
 #[test]
 fn not_an_export_is_a_clear_error() {
-    for bad in ["", "[1,2]", "{\"chats\": {\"list\": [1]}}", "{\"chats\":"] {
+    for bad in [
+        "",
+        "[1,2]",
+        "{}",
+        r#"{"unrelated": []}"#,
+        r#"{"chats": {}}"#,
+        r#"{"messages": []}"#,
+        r#"{"id": 1}"#,
+        r#"{"id":1,"messages":[],"chats":{"list":[]}}"#,
+        r#"{"chats":{"list":[],"list":[]}}"#,
+        "{\"chats\": {\"list\": [1]}}",
+        "{\"chats\":",
+    ] {
         let err = index_reader(Cursor::new(bad)).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData, "{bad}: {err}");
     }
+}
+
+#[test]
+fn single_chat_matches_full_export_including_topics_and_markdown() {
+    let export: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixture()).unwrap()).unwrap();
+    let full = stream_index(&fixture()).unwrap();
+    for chat in export["chats"]["list"].as_array().unwrap() {
+        let bytes = serde_json::to_vec(chat).unwrap();
+        let index = index_reader(Cursor::new(&bytes)).unwrap();
+        let original = full.iter().find(|c| c.chat_id == index[0].chat_id).unwrap();
+        assert_eq!(
+            serde_json::to_value(&index[0]).unwrap(),
+            serde_json::to_value(original).unwrap()
+        );
+        let selection = [pick(&index[0].chat_id, &[])];
+        let single_units = extract_reader(Cursor::new(&bytes), &selection).unwrap();
+        let full_units = extract_selection(&fixture(), &selection).unwrap();
+        assert_eq!(single_units[0].messages, full_units[0].messages);
+        assert_eq!(
+            tgsum_core::format_unit(&single_units[0], 100_000).parts,
+            tgsum_core::format_unit(&full_units[0], 100_000).parts
+        );
+    }
+}
+
+#[test]
+fn single_chat_supports_any_field_order_empty_history_and_exact_ids() {
+    let json = r#"{"messages":[{"id":18446744073709551615,"text":"hello"}],"name":"Big","id":9007199254740993,"type":"personal_chat"}"#;
+    let idx = index_reader(Cursor::new(json)).unwrap();
+    assert_eq!(idx[0].chat_id, "9007199254740993");
+    let units = extract_reader(Cursor::new(json), &[pick(&idx[0].chat_id, &[])]).unwrap();
+    assert_eq!(ids(&units[0].messages), ["18446744073709551615"]);
+    assert_eq!(
+        index_reader(Cursor::new(r#"{"messages":[],"id":"1"}"#)).unwrap()[0].count,
+        0
+    );
+    assert!(index_reader(Cursor::new(r#"{"chats":{"list":[]}}"#))
+        .unwrap()
+        .is_empty());
+    assert!(index_reader(Cursor::new(format!("{json} garbage"))).is_err());
 }
 
 #[test]

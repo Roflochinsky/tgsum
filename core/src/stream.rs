@@ -2,8 +2,9 @@
 //!
 //! A full account export is one pretty-printed JSON document of up to a few
 //! GB. It is never loaded whole: a serde visitor walks the root object, skips
-//! everything but `chats.list`, and hands over one chat at a time, so only the
-//! chat being processed is in memory.
+//! everything but `chats.list`, and hands over one chat at a time. A per-chat
+//! export is a single root chat object and uses the same message deserializer.
+//! Memory is bounded by one chat, not by one message.
 
 use std::cell::Cell;
 use std::fmt;
@@ -19,8 +20,10 @@ use serde::de::{
 use crate::de::KeyIs;
 use crate::model::RawChat;
 
-/// Calls `on_chat` for every chat in `chats.list[]`, in file order. Returning
+/// Calls `on_chat` for every chat in `chats.list[]` or the single root chat. Returning
 /// [`ControlFlow::Break`] stops reading the rest of the file.
+/// Callbacks run before EOF validation: use `Continue` and stage any persistent
+/// writes until this function succeeds when importing an entire snapshot.
 ///
 /// `M` picks how much of each message is kept (e.g. [`crate::MessageMeta`] for
 /// the light index pass, [`crate::RawMessage`] for extraction).
@@ -78,15 +81,55 @@ where
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
-        while let Some(is_chats) = map.next_key_seed(KeyIs("chats"))? {
-            if is_chats {
-                map.next_value_seed(Chats {
-                    on_chat: &mut *self.on_chat,
-                    stopped: self.stopped,
-                    _m: PhantomData,
-                })?;
-            } else {
-                map.next_value::<IgnoredAny>()?;
+        let mut full = false;
+        let mut id = None;
+        let mut name = None;
+        let mut kind = None;
+        let mut messages = None;
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "chats" if !full && messages.is_none() => {
+                    full = true;
+                    map.next_value_seed(Chats {
+                        on_chat: &mut *self.on_chat,
+                        stopped: self.stopped,
+                        _m: PhantomData,
+                    })?;
+                }
+                "messages" if !full && messages.is_none() => {
+                    messages = Some(map.next_value::<Vec<M>>()?);
+                }
+                "id" if id.is_none() => id = Some(map.next_value_seed(crate::de::Id)?),
+                "name" if name.is_none() => name = Some(map.next_value_seed(crate::de::OptString)?),
+                "type" if kind.is_none() => {
+                    kind = Some(
+                        map.next_value_seed(crate::de::OptString)?
+                            .unwrap_or_default(),
+                    )
+                }
+                "chats" | "messages" | "id" | "name" | "type" => {
+                    return Err(de::Error::custom("duplicate or mixed export fields"))
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        if !full {
+            let id = id
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| de::Error::custom("missing chat id"))?;
+            let messages = messages.ok_or_else(|| de::Error::custom("missing chat messages"))?;
+            if (self.on_chat)(RawChat {
+                id,
+                name: name.flatten(),
+                kind: kind.unwrap_or_default(),
+                messages,
+            })
+            .is_break()
+            {
+                self.stopped.set(true);
+                return Err(de::Error::custom("stopped early"));
             }
         }
         Ok(())
@@ -124,8 +167,13 @@ where
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        let mut found = false;
         while let Some(is_list) = map.next_key_seed(KeyIs("list"))? {
             if is_list {
+                if found {
+                    return Err(de::Error::duplicate_field("list"));
+                }
+                found = true;
                 map.next_value_seed(List {
                     on_chat: &mut *self.on_chat,
                     stopped: self.stopped,
@@ -134,6 +182,9 @@ where
             } else {
                 map.next_value::<IgnoredAny>()?;
             }
+        }
+        if !found {
+            return Err(de::Error::missing_field("list"));
         }
         Ok(())
     }

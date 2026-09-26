@@ -5,6 +5,7 @@
 //! topics, [`format_unit`] turns each into Markdown and [`write_units`] saves
 //! the files. Nothing leaves the machine: no network, no LLM.
 
+pub mod bridge;
 mod de;
 pub mod extract;
 pub mod format;
@@ -12,6 +13,7 @@ pub mod index;
 pub mod model;
 pub mod output;
 pub mod progress;
+pub mod snapshot;
 pub mod stream;
 pub mod text;
 

@@ -46,10 +46,13 @@ application token ботом. Возможности определяет manife
 
 ## Слой совместимости с текущим core
 
-Сейчас `stream_chats` читает `chats.list` и держит один чат в памяти;
-`RawMessage.photo/file` — boolean, `ExtractedUnit` не хранит chat ID,
-formatter не выводит evidence ID. Это конкретные места расширения,
-а не повод переписывать streaming parser целиком.
+`stream_chats` читает `chats.list` и одиночный корневой чат, держит один чат
+в памяти. Offline `snapshot` сохраняет native keys и metadata вложений;
+`bridge` проверяет события симулятора и публикует готовые snapshots.
+[Реализованный контракт](../development/archive-core.md).
+В legacy Markdown `RawMessage.photo/file` остаются boolean, `ExtractedUnit`
+не хранит chat ID, formatter не выводит evidence ID. Эти места расширяются
+при реализации context bundle, без переписывания parser целиком.
 [stream](../../core/src/stream.rs), [model](../../core/src/model.rs),
 [formatter](../../core/src/format.rs).
 

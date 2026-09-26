@@ -3,7 +3,8 @@
 //! The export is loosely typed: ids are numbers or strings, `text` is a string
 //! or an array of runs, old exports use other shapes. Every helper here accepts
 //! any JSON value and coerces it the way the original JS implementation did, so
-//! an odd field never aborts parsing a multi-GB file.
+//! most odd display fields do not abort parsing a multi-GB file. Native chat
+//! and snapshot message identities use the strict `Id` visitor instead.
 
 use std::fmt;
 
@@ -266,7 +267,46 @@ impl<'de> Visitor<'de> for Run<'_> {
     }
 }
 
-struct OptString;
+pub(crate) struct OptString;
+
+/// Native identities accept strings and exact integers, never floating point.
+pub(crate) struct Id;
+
+impl<'de> DeserializeSeed<'de> for Id {
+    type Value = String;
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<String, D::Error> {
+        d.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Id {
+    type Value = String;
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a nonempty native ID string or integer")
+    }
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<String, E> {
+        if v.is_empty() {
+            return Err(E::custom("empty native ID"));
+        }
+        Ok(v.to_owned())
+    }
+    fn visit_u64<E>(self, v: u64) -> Result<String, E> {
+        Ok(v.to_string())
+    }
+    fn visit_i64<E>(self, v: i64) -> Result<String, E> {
+        Ok(v.to_string())
+    }
+}
+
+pub(crate) fn id<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Id.deserialize(d)
+}
+
+pub(crate) fn optional_id<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    #[derive(serde::Deserialize)]
+    struct NativeId(#[serde(deserialize_with = "id")] String);
+    Ok(<Option<NativeId> as serde::Deserialize>::deserialize(d)?.map(|v| v.0))
+}
 
 impl<'de> DeserializeSeed<'de> for OptString {
     type Value = Option<String>;

@@ -29,9 +29,9 @@
    уважать ожидание и переходить в понятное состояние, а не повторять входы.
    [account.initTakeoutSession](https://core.telegram.org/method/account.initTakeoutSession).
 5. Одиночный экспорт имеет корневой объект чата с `messages`; полный — оболочку
-   `chats.list`. В TGSUM `core/src/stream.rs` сейчас обрабатывает только вторую
-   форму, пропуская остальные ключи. Валидный одиночный JSON может дать пустой
-   индекс без ошибки. Это отдельная совместимость, которую нужно реализовать.
+   `chats.list`. До эпика `tgsum-d9b` parser TGSUM обрабатывал только вторую
+   форму, а одиночный JSON давал пустой индекс без ошибки. В текущих исходниках
+   обе формы покрыты regression fixtures; неизвестная форма выдаёт ошибку.
    [JsonWriter::start / writeDialogStart](https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/export/output/export_output_json.cpp),
    [текущий parser](../../core/src/stream.rs).
 6. `result.json` создаётся до окончания экспорта; writer дописывает структуру,
@@ -39,6 +39,11 @@
    создания файла или пауза в его росте не доказывают завершение всех вложений.
    [JsonWriter](https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/export/output/export_output_json.cpp),
    [ControllerObject::exportNext](https://github.com/telegramdesktop/tdesktop/blob/fcdcf9252be2c5b96c9778f0c0e958632a3fb64c/Telegram/SourceFiles/export/export_controller.cpp#L404).
+
+Реализация `tgsum-d9b` проверяет parser, scoped snapshots/diff и lifecycle
+Bridge на синтетических файлах. [Пример и область проверки](../development/archive-core.md).
+Это не проверка реального клиента: native OS drivers и account PoC остаются
+отдельной работой под контролем пользователя (`tgsum-yu3`).
 
 ## Доступ и условия использования
 

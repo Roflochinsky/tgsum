@@ -14,7 +14,7 @@
       "selected_scope": "chats/topics selected during import",
       "capabilities": {
         "history": "available",
-        "delta": "none",
+        "delta": "reimport",
         "attachments": "local_files",
         "coverage": "unknown"
       },
@@ -37,8 +37,10 @@
         "https://telegram.org/tos/content-licensing"
       ],
       "open_questions": [
-        "Current parser supports chats.list only; attachments currently become markers, not copied files.",
-        "Any AI handoff needs a separately supported content-use basis."
+        "Current source tree supports both JSON shapes and offline snapshot/diff with synthetic fixtures; Project UI and OS automation are separate.",
+        "Archive media may exist locally; snapshots keep references only. Safe attachment packaging is not implemented.",
+        "Real-client export validation remains a user-controlled backlog PoC; history completeness is unknown.",
+        "AI runner integration is outside this importer and requires separate integration review."
       ]
     },
     {
@@ -46,14 +48,14 @@
       "platform": "Telegram",
       "connector_type": "ArchiveImporter",
       "access_method": "manual_archive",
-      "support_status": "candidate",
+      "support_status": "supported",
       "priority": "P0",
       "credential_type": "none",
       "authorization_scope": "user-provided single-chat file only",
       "selected_scope": "one chat exported by user",
       "capabilities": {
         "history": "available",
-        "delta": "none",
+        "delta": "reimport",
         "attachments": "local_files",
         "coverage": "unknown"
       },
@@ -63,7 +65,9 @@
         "cloud_inference": "restricted",
         "training": "restricted"
       },
-      "enabled_operations": [],
+      "enabled_operations": [
+        "local_import"
+      ],
       "review_level": "initial",
       "last_policy_reviewed_at": "2026-09-26",
       "next_review_due_at": "2026-12-25",
@@ -74,8 +78,10 @@
         "https://telegram.org/tos/content-licensing"
       ],
       "open_questions": [
-        "Implement top-level chat object parsing, strict format detection and real fixtures.",
-        "Verify topic exports and completeness before promising them."
+        "Current source tree supports both JSON shapes and offline snapshot/diff with synthetic fixtures; Project UI and OS automation are separate.",
+        "Archive media may exist locally; snapshots keep references only. Safe attachment packaging is not implemented.",
+        "Real-client export validation remains a user-controlled backlog PoC; history completeness is unknown.",
+        "AI runner integration is outside this importer and requires separate integration review."
       ]
     },
     {

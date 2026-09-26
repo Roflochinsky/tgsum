@@ -57,8 +57,10 @@
 
 `candidate` — перспективный способ; `research` — существенные открытые вопросы;
 `excluded` — несовместим с выбранным use case; `deferred` — не в текущей очереди.
-`supported` требует проверенной реализации; сейчас это только существующий
-Telegram full-export import. Ни один новый network/AI путь этим registry не включён.
+`supported` требует проверенной реализации; в текущих исходниках это Telegram
+full-export и single-chat JSON import с синтетическими regression fixtures.
+Offline snapshot/diff не означает, что реализованы автоматическая выгрузка или
+Project UI. Ни один новый network/AI путь этим registry не включён.
 
 Дата `last_policy_reviewed_at` означает чтение перечисленных источников,
 не юридическое одобрение. `review_level: initial` оставляет открытые вопросы.

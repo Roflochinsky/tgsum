@@ -111,7 +111,7 @@ macro_rules! impl_message {
 
 impl_message!(RawMessage, MessageMeta);
 
-/// One element of `chats.list[]`.
+/// One element of `chats.list[]`, or the root of a per-chat export.
 #[derive(Debug, Deserialize)]
 #[serde(bound(deserialize = "M: Deserialize<'de>"))]
 pub struct RawChat<M> {
@@ -119,9 +119,8 @@ pub struct RawChat<M> {
     pub name: Option<String>,
     #[serde(rename = "type", default, deserialize_with = "de::string")]
     pub kind: String,
-    #[serde(default, deserialize_with = "de::string")]
+    #[serde(deserialize_with = "de::id")]
     pub id: String,
-    #[serde(default)]
     pub messages: Vec<M>,
 }
 

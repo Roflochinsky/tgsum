@@ -1,0 +1,11 @@
+{
+  "name": "Synthetic project",
+  "type": "private_supergroup",
+  "id": 9007199254740993,
+  "messages": [
+    {"id": 1, "type": "message", "date": "2026-01-01T10:00:00", "from": "Alice", "from_id": "user10", "text": "Repeated text"},
+    {"id": 2, "type": "message", "date": "2026-01-01T10:01:00", "from": "Bob", "from_id": "user11", "reply_to_message_id": 1, "text": ["Deploy ", {"type": "bold", "text": "tomorrow"}], "file": "files/deploy.log", "file_name": "deploy.log", "mime_type": "text/plain", "file_size": 42},
+    {"id": 3, "type": "message", "text": "May be outside the next export interval"},
+    {"id": 18446744073709551615, "type": "message", "text": "Repeated text"}
+  ]
+}
