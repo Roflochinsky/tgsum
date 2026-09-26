@@ -2,15 +2,16 @@
 
 `tgsum-runner` — отдельный workspace crate вне offline core. Он реализует
 границу процесса для будущих adapters. Приложение пока не подключает его к Run;
-облачный запуск ещё не реализован. Для Codex добавлены
+облачный запуск из UI ещё не доступен. Для Codex добавлены
 [подготовка запроса и проверка structured result](codex-adapter.md): fake CLI
 и установленный 0.155.1 проверены с локальным сервером готовых ответов внутри
 offline namespace. Реальные анализы и аккаунты не запускались.
-Выбранный auth-файл можно передать только в offline-профиле; это отдельная
-capability без обнаружения/копирования credentials, описанная ниже.
-Для следующего сетевого профиля отдельно реализован
-[ограниченный inference gateway](inference-egress.md). Его Unix relay ещё не
-подключён к runner; существующие профили сохраняют offline-поведение.
+Выбранный auth-файл передаётся отдельной capability без обнаружения/копирования
+credentials. Исходный offline контракт описан ниже. Новый `CodexNetworkRunner`
+использует [ограниченный inference gateway + Unix relay](inference-egress.md)
+в отдельном профиле `linux-x86_64-bwrap-codex-egress-v1`. Его namespace/HTTPS
+цепочка проверена установленным CLI и synthetic API key на local fixtures;
+существующие `OfflineRunner` profiles сохраняют offline-поведение.
 
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).

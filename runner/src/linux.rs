@@ -29,6 +29,12 @@ pub(crate) struct Backend {
     private_proc: bool,
 }
 
+#[derive(Default)]
+pub(crate) struct Access<'a> {
+    pub auth: Option<&'a crate::codex::SelectedAuthFile>,
+    pub gateway: Option<&'a crate::egress::InferenceGateway>,
+}
+
 impl Backend {
     pub(crate) fn qualify(
         contract: &AdapterContract,
@@ -37,7 +43,10 @@ impl Backend {
     ) -> Result<Self, RunnerError> {
         check_helper(cancellation)?;
         let mut backend = Self::stage(runtime, cancellation)?;
-        backend.private_proc = contract.isolation_profile == LINUX_OFFLINE_PROC_PROFILE;
+        backend.private_proc = matches!(
+            contract.isolation_profile.as_str(),
+            LINUX_OFFLINE_PROC_PROFILE | crate::codex::LINUX_EGRESS_PROFILE
+        );
         let empty = tempfile::tempdir()?;
         let output = backend.run(
             empty.path(),
@@ -155,6 +164,26 @@ impl Backend {
         cancellation: &Cancellation,
         auth: Option<&crate::codex::SelectedAuthFile>,
     ) -> Result<RunOutput, RunnerError> {
+        self.run_with_access(
+            context,
+            invocation,
+            limits,
+            cancellation,
+            Access {
+                auth,
+                gateway: None,
+            },
+        )
+    }
+
+    pub(crate) fn run_with_access(
+        &self,
+        context: &Path,
+        invocation: &Invocation,
+        limits: RunLimits,
+        cancellation: &Cancellation,
+        access: Access<'_>,
+    ) -> Result<RunOutput, RunnerError> {
         limits.validate(invocation)?;
         // Recheck the backend on every launch; never silently accept a helper
         // update while the application is running.
@@ -200,7 +229,8 @@ impl Backend {
         for (source, guest) in &self.mounts {
             command.arg("--ro-bind").arg(source).arg(guest);
         }
-        if let Some(auth) = auth {
+        let mut mount_fds = Vec::new();
+        if let Some(auth) = access.auth {
             auth.validate()?;
             command.args(["--dir", crate::codex::auth::AUTH_HOME]);
             command
@@ -208,6 +238,15 @@ impl Backend {
                 .arg(auth.mount_fd().as_raw_fd().to_string())
                 .arg(crate::codex::auth::AUTH_PATH);
             command.args(["--setenv", "CODEX_HOME", crate::codex::auth::AUTH_HOME]);
+            mount_fds.push(auth.mount_fd());
+        }
+        if let Some(gateway) = access.gateway {
+            let fd = gateway.mount_fd()?;
+            command
+                .args(["--dir", "/gateway", "--ro-bind-fd"])
+                .arg(fd.as_raw_fd().to_string())
+                .arg(crate::egress::SOCKET_PATH);
+            mount_fds.push(fd);
         }
         if self.private_proc {
             command.args(["--proc", "/proc", "--remount-ro", "/proc"]);
@@ -222,12 +261,12 @@ impl Backend {
             "/runtime/agent",
         ]);
         command.args(&invocation.args);
-        process::execute_with_mount_fd(
+        process::execute_with_mount_fds(
             command,
             &invocation.stdin,
             limits,
             cancellation,
-            auth.map(crate::codex::SelectedAuthFile::mount_fd),
+            &mount_fds,
         )
     }
 }

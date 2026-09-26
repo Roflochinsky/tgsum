@@ -4,10 +4,10 @@
 на CLI **0.155.1**; [исследование](../research/codex-adapter-2026-09-26.md)
 разделяет проверенные аргументы, wire format и ещё не доказанную изоляцию.
 
-**Это ещё не работающий облачный adapter.** Модуль не запускает Codex,
-не читает содержимое его профиля/авторизации и не подключён к UI Run. Реализованы
-подготовка запроса и decoder, проверенные на synthetic executable и установленном
-Codex с локальным сервером готовых ответов без настоящей авторизации и внешней сети.
+**Облачный adapter ещё не подключён к UI Run.** Реализованы подготовка запроса,
+decoder, offline запуск и отдельный `CodexNetworkRunner` с ограниченным HTTPS
+transport. Они проверены на synthetic executable и установленном Codex с локальными
+серверами готовых ответов, без настоящей авторизации и запросов к провайдеру.
 Публичный bundle по-прежнему имеет `destination: export_only`.
 
 ## Запрос
@@ -144,10 +144,12 @@ Auth milestone `366eb5b`, 2026-09-27 MSK: полный gate — **131 passed, 11
 
 ## Что остаётся до первого cloud Run
 
-1. Реализовать auth/inference transport с выбранной границей всего процесса,
-   без копирования auth tokens или всего профиля Codex. Host
-   [CONNECT gateway](inference-egress.md) уже проверен на локальных fixtures;
-   нужно подключить relay/namespace и квалифицировать установленный CLI через TLS.
+1. Завершить auth failure/expiry и transport outcome lifecycle. Отдельный
+   [CONNECT gateway + namespace relay](inference-egress.md) уже подключён к
+   `CodexNetworkRunner`: exact selected auth mount, очищенный env и SSE provider.
+   Установленный CLI прошёл local HTTPS qualification без auth и с synthetic
+   API key; проверены wrong CA, прямой TCP, refresh authority, cancel/timeout.
+   Реальную авторизацию и весь профиль TGSUM не обнаруживает и не копирует.
 2. Проверить effective tools/config/hooks/MCP и filesystem/network/IPC уже
    с выбранным auth transport, refresh и provider. Offline qualification
    доказывает только описанный выше профиль с готовыми ответами.
@@ -155,5 +157,6 @@ Auth milestone `366eb5b`, 2026-09-27 MSK: полный gate — **131 passed, 11
    durable result/baseline lifecycle; подключить adapter к Review/Run UI.
 4. Провести контролируемую пользователем квалификацию `tgsum-t8t.19`.
 
-Пункты 1–3 остаются инженерной работой. Только пункт 4 требует реального входа
-пользователя. `tgsum-hzm.7` и весь эпик этим протокольным этапом не закрываются.
+Пункты 1–3 остаются инженерной работой; нужна и упаковка relay/runtime. Только
+пункт 4 требует реального входа пользователя. `tgsum-hzm.7` и весь эпик этим
+транспортным этапом не закрываются.

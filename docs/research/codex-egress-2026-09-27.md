@@ -168,7 +168,7 @@ support status и не закрывает **tgsum-hzm.7**.
 socket, exact target, CONNECT/ClientHello validation и ограниченное двустороннее
 копирование TLS bytes. Первый тест выявил, что нельзя полагаться на default
 permissions TempDir; теперь `0700` задаётся явно до появления socket `0600`.
-Остальные offline profiles не изменены. Relay/монтаж в namespace ещё не подключён.
+На том этапе relay/монтаж ещё отсутствовал; последующий срез описан ниже.
 
 Для DNS используется bounded `getent ahosts` subprocess вместо потенциально
 неотменяемого resolver thread. Команда получает только fixed destination;
@@ -197,3 +197,38 @@ rcgen 0.13.2. Они добавлены только как Linux dev-dependenci
 поведение offline/auth launch не менялось. Новые восемь gateway tests входят
 в обычный gate. Контракт, команды и текущие ограничения:
 [inference egress](../development/inference-egress.md).
+
+## Namespace integration и installed CLI
+
+Следующий срез подключил `CodexNetworkRunner` / `tgsum-codex-relay`: O_PATH mount
+только Unix socket, отдельный network namespace, fixed `/runtime/codex`, private
+HOME и очищенный proxy env. Version probe проходит без auth/gateway. Отдельные
+тесты подтвердили отсутствие обоих mount FD в payload и namespace init.
+
+Реальная проверка CLI выявила ошибку первоначального argv: в 0.155.1 нельзя
+переопределять built-in provider ID `openai`. Использован собственный
+`tgsum_openai` с именем `TGSUM OpenAI`, `requires_openai_auth=true`, Responses,
+`supports_websockets=false`, retries=0. Base URL отсутствует: `to_api_provider`
+выбирает endpoint по auth mode. Эта конфигурация не включает `is_openai()`-ветки
+по provider name; другие auth/model modes требуют проверки. Источник:
+[provider implementation](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/model-provider-info/src/lib.rs).
+
+Пройден весь путь TLS в двух ignored-тестах (шесть сценариев): success без auth,
+success с synthetic API key, wrong CA, refresh authority denial, cancel, timeout.
+В отличие от предложенного выше примера с `fixture.test`, фактический fixture
+использует SAN/CONNECT `api.openai.com` и private Dial → `127.0.0.2`; так exact-host
+policy не подменяется. Auth-вариант сохраняет production provider config.
+Проверены пустой tool catalog, schema, evidence и отсутствие baseline. Wrong-CA
+тест требует фактически достигнутого TLS сервера; ранняя ошибка запуска его не
+удовлетворяет. Сертификат проверяет Codex, gateway TLS не расшифровывает.
+
+Relay Unix connect стал nonblocking: заполненная очередь немедленно отклоняется,
+чтобы join workers не блокировал cleanup. Для этого включена `net` существующего
+rustix; новый обычный regression test использует local backlog=0. Также обычный
+тест запрещает OfflineRunner принимать egress profile до чтения runtime.
+
+Полный gate: **141 passed, 13 ignored**. Отдельно выполнены все 13 environment
+tests: isolation 7/7, прежние Codex process 4/4, новые HTTPS 2/2. Реальных профилей,
+аккаунтов, DNS/TCP к OpenAI не использовано. Production DNS, ChatGPT OAuth, WSS,
+runtime packaging, auth/result lifecycle и Review/Run остаются вне доказанного
+среза. `tgsum-hzm.7` остаётся in progress.

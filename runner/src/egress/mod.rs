@@ -4,13 +4,16 @@
 //! enable cloud Run or qualify an installed provider account.
 mod hello;
 mod policy;
+mod relay;
 #[cfg(test)]
 mod tests;
 mod transport;
 
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::net::TcpStream;
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,6 +22,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::{Cancellation, RunnerError};
+
+pub use relay::{codex_relay, RELAY_VERSION};
+pub(crate) const SOCKET_PATH: &str = "/gateway/proxy.sock";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
@@ -139,6 +145,7 @@ type Dial = dyn Fn(Destination, &Stop) -> Result<TcpStream, Failure> + Send + Sy
 pub struct InferenceGateway {
     _directory: tempfile::TempDir,
     socket: PathBuf,
+    socket_inode: File,
     stop: Cancellation,
     worker: Option<JoinHandle<Report>>,
 }
@@ -168,6 +175,10 @@ impl InferenceGateway {
         let socket = directory.path().join("proxy.sock");
         let listener = UnixListener::bind(&socket)?;
         std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
+        let socket_inode = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&socket)?;
         listener.set_nonblocking(true)?;
         let stop = Stop {
             local: Cancellation::default(),
@@ -181,6 +192,7 @@ impl InferenceGateway {
         Ok(Self {
             _directory: directory,
             socket,
+            socket_inode,
             stop: signal,
             worker: Some(worker),
         })
@@ -190,6 +202,40 @@ impl InferenceGateway {
     /// its parent directory, host network, or unrelated Unix sockets.
     pub fn socket_path(&self) -> &Path {
         &self.socket
+    }
+
+    pub(crate) fn mount_fd(&self) -> Result<BorrowedFd<'_>, RunnerError> {
+        let metadata = self.socket_inode.metadata()?;
+        if self.socket_inode.as_raw_fd() < 3
+            || !metadata.file_type().is_socket()
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.mode() & 0o7777 != 0o600
+            || metadata.nlink() != 1
+        {
+            return Err(RunnerError::InvalidRequest(
+                "gateway socket metadata changed",
+            ));
+        }
+        Ok(self.socket_inode.as_fd())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixture(
+        destination: Destination,
+        limits: Limits,
+        cancel: &Cancellation,
+        address: std::net::SocketAddr,
+    ) -> Self {
+        Self::start_with(
+            destination,
+            limits,
+            cancel,
+            Arc::new(move |_, _| {
+                TcpStream::connect_timeout(&address, Duration::from_secs(1))
+                    .map_err(|_| Failure::Unreachable)
+            }),
+        )
+        .unwrap()
     }
 
     pub fn finish(mut self) -> Report {
