@@ -88,11 +88,13 @@ if ($Worker) {
 $outPath = [IO.Path]::GetTempFileName()
 $errPath = [IO.Path]::GetTempFileName()
 try {
+    $script:ProbePhase = 'parent_start'
     $shell = Join-Path $PSHOME 'powershell.exe'
     $arguments = '-NoProfile -NonInteractive -MTA -File "{0}" -ProcessId {1} -Executable "{2}" -WindowHandle {3} -Stage {4} -Observe -Worker' -f
         $PSCommandPath, $ProcessId, $Executable, $WindowHandle, $Stage
     $child = Start-Process -FilePath $shell -ArgumentList $arguments -PassThru `
         -RedirectStandardOutput $outPath -RedirectStandardError $errPath
+    $script:ProbePhase = 'parent_wait'
     if (-not $child.WaitForExit(30000)) {
         Stop-Process -InputObject $child -Force -ErrorAction SilentlyContinue
         '{"error":"probe_timeout"}'
@@ -110,15 +112,19 @@ try {
         }
         exit 1
     }
+    $script:ProbePhase = 'parent_read'
     $body = [IO.File]::ReadAllText($outPath)
+    $script:ProbePhase = 'parent_parse'
     $report = $body | ConvertFrom-Json
+    $script:ProbePhase = 'parent_validate'
     if ($null -eq $report.ok -or $report.ok.schema_version -ne 1) {
         '{"error":"probe_failed"}'
         exit 1
     }
     $body.Trim()
 } catch {
-    '{"error":"probe_failed"}'
+    @{ error = 'probe_failed'; phase = $script:ProbePhase } |
+        ConvertTo-Json -Compress
     exit 1
 } finally {
     Remove-Item $outPath, $errPath -ErrorAction SilentlyContinue
