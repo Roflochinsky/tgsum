@@ -1,6 +1,7 @@
 use tgsum_core::assisted::AssistedExportSettings;
 use tgsum_core::bridge_schedule::{
-    RefreshCadence, RefreshCheckpoint, RefreshContext, RefreshDecision, TelegramExportLease,
+    ClientReview, RefreshCadence, RefreshCheckpoint, RefreshContext, RefreshDecision,
+    TelegramExportLease,
 };
 use tgsum_core::project::{ProjectChange, ProjectSource, ProjectStore};
 use tgsum_core::snapshot::SourceScope;
@@ -261,6 +262,93 @@ fn persisted_claim_and_global_lease_prevent_replay_after_restart() {
             .unwrap_err(),
         RefreshDecision::WaitUntil(1102)
     );
+}
+
+#[test]
+fn reviewed_recovery_after_restart_requires_current_project_and_delays_retry() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project_id = configured_source(&store, root.path());
+    let lease = TelegramExportLease::try_acquire(&store).unwrap().unwrap();
+    let attempt = lease
+        .claim(&store, &project_id, "pilot", context(100, "launch-1"))
+        .unwrap()
+        .unwrap();
+    drop(attempt);
+    drop(lease); // Interrupted process: no in-memory attempt survives.
+
+    let restarted = ProjectStore::new(root.path());
+    let recovery_lease = TelegramExportLease::try_acquire(&restarted)
+        .unwrap()
+        .unwrap();
+    let displayed = restarted.open(&project_id).unwrap();
+    let checkpoint = displayed.telegram_refresh["pilot"].checkpoint.clone();
+    assert!(checkpoint.unresolved_attempt);
+    let edited = restarted
+        .update(
+            &project_id,
+            displayed.revision,
+            ProjectChange::Rename("Edited during review".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        recovery_lease
+            .resolve_after_client_review(
+                &restarted,
+                &displayed,
+                "pilot",
+                ClientReview::NoExportInProgress,
+                50,
+            )
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert!(
+        restarted.open(&project_id).unwrap().telegram_refresh["pilot"]
+            .checkpoint
+            .unresolved_attempt
+    );
+
+    let recovered = recovery_lease
+        .resolve_after_client_review(
+            &restarted,
+            &edited,
+            "pilot",
+            ClientReview::NoExportInProgress,
+            50,
+        )
+        .unwrap();
+    assert_eq!(
+        recovered.telegram_refresh["pilot"]
+            .checkpoint
+            .retry_not_before,
+        Some(1000)
+    );
+    assert_eq!(
+        recovery_lease
+            .claim(&restarted, &project_id, "pilot", context(999, "launch-2"))
+            .unwrap()
+            .unwrap_err(),
+        RefreshDecision::WaitUntil(1000)
+    );
+    assert_eq!(
+        recovery_lease
+            .resolve_after_client_review(
+                &restarted,
+                &recovered,
+                "pilot",
+                ClientReview::NoExportInProgress,
+                1000,
+            )
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+    assert!(recovery_lease
+        .claim(&restarted, &project_id, "pilot", context(1000, "launch-2"))
+        .unwrap()
+        .is_ok());
 }
 
 #[test]

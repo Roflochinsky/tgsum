@@ -15,6 +15,7 @@ use crate::project::{Project, ProjectStore};
 
 const SIX_HOURS: u64 = 6 * 60 * 60;
 const DAY: u64 = 24 * 60 * 60;
+const MANUAL_RECOVERY_BACKOFF: u64 = 15 * 60;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -58,6 +59,13 @@ pub struct RefreshAttempt {
     project_id: String,
     source_id: String,
     checkpoint: RefreshCheckpoint,
+}
+
+/// The user has checked the official client after an interrupted TGSUM run.
+/// This is a host assertion, not a state inferred from an archive or a timer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientReview {
+    NoExportInProgress,
 }
 
 impl TelegramExportLease {
@@ -143,6 +151,45 @@ impl TelegramExportLease {
             store,
             attempt,
             attempt.checkpoint.resolved_with_backoff(now, seconds),
+        )
+    }
+
+    /// Recover a claim whose in-memory `RefreshAttempt` was lost on restart.
+    /// The host must obtain an explicit user review that the official client is
+    /// no longer exporting. It must handle any resulting archive separately;
+    /// this operation never marks an archive as imported or a refresh as
+    /// successful. A stale Project revision or checkpoint requires a new review.
+    pub fn resolve_after_client_review(
+        &self,
+        store: &ProjectStore,
+        reviewed_project: &Project,
+        source_id: &str,
+        _review: ClientReview,
+        now: u64,
+    ) -> io::Result<Project> {
+        let expected_checkpoint = &reviewed_project
+            .telegram_refresh
+            .get(source_id)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Telegram refresh is not configured for this source",
+                )
+            })?
+            .checkpoint;
+        if !expected_checkpoint.unresolved_attempt {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Telegram refresh has no unresolved attempt to review",
+            ));
+        }
+        let backoff_from = now.max(expected_checkpoint.last_started_at.unwrap_or(now));
+        store.publish_telegram_refresh_checkpoint(
+            &reviewed_project.project_id,
+            source_id,
+            expected_checkpoint,
+            Some(reviewed_project.revision),
+            expected_checkpoint.resolved_with_backoff(backoff_from, MANUAL_RECOVERY_BACKOFF),
         )
     }
 
