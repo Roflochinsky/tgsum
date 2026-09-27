@@ -29,6 +29,14 @@ jobs:
           python scripts/check-registry-schema.py
       - name: Telegram AT-SPI probe fake-tree checks
         run: python -B scripts/test-telegram-atspi-probe.py
+      - name: Install synthetic Linux AT-SPI runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-atspi-2.0 at-spi2-core libatk-adaptor xvfb dbus-x11
+      - name: Telegram AT-SPI synthetic native-window transport
+        env:
+          NO_AT_BRIDGE: '0'
+        run: dbus-run-session -- xvfb-run -a /usr/bin/python3 scripts/test-telegram-atspi-native.py
       - name: Install repository Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2

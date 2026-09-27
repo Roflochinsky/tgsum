@@ -43,8 +43,11 @@ Offline fake-tree validation requires no desktop or account:
 python -B scripts/test-telegram-atspi-probe.py
 ```
 
-The CI `connectors` job runs the same fake-tree tests on Ubuntu. It never
-installs or opens Telegram for this check.
+The CI `connectors` job runs these fake-tree tests and a native transport check
+under Xvfb/D-Bus. The latter creates its own GTK window, calls the real AT-SPI
+probe against that process, checks that private-looking labels and raw IDs are
+absent, and rejects a wrong executable or PID. It terminates only the fake GTK
+process. Neither check installs or opens Telegram.
 
 This host's read-only package metadata showed Arch `telegram-desktop 7.2.5-1`
 at `/usr/bin/Telegram` on 2026-09-27. The source review pinned upstream
