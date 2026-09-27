@@ -100,7 +100,11 @@ try {
         '{"error":"probe_timeout"}'
         exit 1
     }
-    if ($child.ExitCode -ne 0) {
+    $child.Refresh()
+    $exitCode = $child.ExitCode
+    # Start-Process -PassThru on Windows PowerShell can leave ExitCode unset
+    # even after WaitForExit. A validated worker report is still required below.
+    if (-not [string]::IsNullOrEmpty([string]$exitCode) -and $exitCode -ne 0) {
         $failed = [IO.File]::ReadAllText($outPath) | ConvertFrom-Json
         if ($failed.error -eq 'probe_failed' -and
             $failed.phase -in @('target', 'owner', 'window', 'uia_root',
@@ -109,7 +113,7 @@ try {
                 ConvertTo-Json -Compress
         } else {
             @{ error = 'probe_failed'; phase = 'parent_child_exit';
-                exit_code = $child.ExitCode;
+                exit_code = $exitCode;
                 stdout_bytes = (Get-Item -LiteralPath $outPath).Length;
                 stderr_bytes = (Get-Item -LiteralPath $errPath).Length } |
                 ConvertTo-Json -Compress
