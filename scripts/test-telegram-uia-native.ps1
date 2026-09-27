@@ -27,7 +27,23 @@ try {
         -WindowHandle $target.hwnd -Stage chat -Observe
     if ($LASTEXITCODE -ne 0) {
         $safe = $output | ConvertFrom-Json
-        throw "native UIA probe failed at $($safe.phase)"
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $direct = & $shell -NoProfile -NonInteractive -MTA -File $probe `
+                -ProcessId $target.pid -Executable $target.executable `
+                -WindowHandle $target.hwnd -Stage chat -Observe -Worker 2>&1
+            $directCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousPreference
+        }
+        $detail = ($direct | Out-String)
+        foreach ($private in @('Private Customer Alice message 123',
+                               'Another private label', 'session-private', '123456789')) {
+            $detail = $detail.Replace($private, '[synthetic]')
+        }
+        if ($detail.Length -gt 1200) { $detail = $detail.Substring(0, 1200) }
+        throw "native UIA probe failed at $($safe.phase); worker exit=$directCode; $detail"
     }
     $report = $output | ConvertFrom-Json
     Assert-True ($report.ok.schema_version -eq 1) 'probe schema mismatch'
