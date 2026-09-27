@@ -31,7 +31,7 @@ fn context() -> Context {
     let project = store.create("HTTPS synthetic Project").unwrap();
     let scope = SourceScope::telegram("PRIVATE_ACCOUNT", "77");
     store.snapshots(&project.project_id).unwrap().import_telegram("snapshot", &scope,
-        Cursor::new(r#"{"id":77,"name":"Selected","messages":[{"id":1,"date":"2026-06-18T10:00:00","text":"Synthetic selected message"}]}"#)).unwrap();
+        Cursor::new(r#"{"id":77,"name":"Selected","messages":[{"id":1,"date":"2026-06-18T10:00:00","text":"Synthetic selected message /help @/runtime/peer-address"}]}"#)).unwrap();
     let project = store
         .update(
             &project.project_id,
@@ -123,7 +123,7 @@ fn runtime(directory: &Path, cancel: &Cancellation) -> linux::Backend {
     }
     let mut expected = format!("{CLAUDE_RELAY_VERSION}\n").into_bytes();
     expected.extend_from_slice(VERSION_STDOUT);
-    linux::Backend::qualify(
+    linux::Backend::qualify_claude(
         &AdapterContract {
             id: "claude".into(),
             isolation_profile: LINUX_EGRESS_PROFILE.into(),
@@ -136,6 +136,7 @@ fn runtime(directory: &Path, cancel: &Cancellation) -> linux::Backend {
                 .into(),
             files,
         },
+        EndpointPolicy::fixture(&directory.join("endpoint"), cancel).unwrap(),
         cancel,
     )
     .unwrap()
@@ -220,7 +221,26 @@ fn installed_claude_https_rejects_ca_refresh_receiver_and_reaps_cancel_timeout()
 #[test]
 #[ignore = "requires namespace backend and explicit Claude/relay/HTTPS fixture binaries; synthetic OAuth only"]
 fn installed_claude_https_managed_fetch_failures_prevent_inference() {
-    for mode in ["policy-403", "policy-304", "policy-version"] {
+    for mode in [
+        "policy-403",
+        "policy-304",
+        "policy-version",
+        "policy-env",
+        "policy-fallback",
+    ] {
+        qualify(mode);
+    }
+}
+
+#[test]
+#[ignore = "requires namespace backend and explicit Claude/relay/HTTPS fixture binaries; synthetic endpoint policy only"]
+fn installed_claude_https_preserves_endpoint_policy_and_rechecks_before_launch() {
+    for mode in [
+        "endpoint-version",
+        "endpoint-fragment",
+        "policy-force-fragment",
+        "endpoint-changed",
+    ] {
         qualify(mode);
     }
 }
@@ -271,7 +291,40 @@ fn qualify(mode: &str) {
     listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap();
     fs::write(temp.path().join("peer-address"), address.to_string()).unwrap();
+    if mode.starts_with("endpoint-") || mode == "policy-force-fragment" {
+        let endpoint = temp.path().join("endpoint");
+        fs::create_dir(&endpoint).unwrap();
+        let settings = if mode == "endpoint-version" {
+            json!({"requiredMinimumVersion":"99.0.0"})
+        } else {
+            json!({"forceRemoteSettingsRefresh":false})
+        };
+        fs::write(endpoint.join("managed-settings.json"), settings.to_string()).unwrap();
+        if matches!(mode, "endpoint-fragment" | "policy-force-fragment") {
+            fs::create_dir(endpoint.join("managed-settings.d")).unwrap();
+            let settings = if mode == "endpoint-fragment" {
+                json!({"requiredMinimumVersion":"99.0.0","forceRemoteSettingsRefresh":false})
+            } else {
+                json!({"forceRemoteSettingsRefresh":false})
+            };
+            fs::write(
+                endpoint.join("managed-settings.d/zzzz-last.json"),
+                settings.to_string(),
+            )
+            .unwrap();
+        }
+    }
     let runner = runtime(temp.path(), &cancel);
+    if mode == "endpoint-changed" {
+        fs::write(temp.path().join("endpoint/managed-settings.json"), "{}").unwrap();
+        assert!(matches!(
+            runner.run(temp.path(), &version_probe(), run_limits(), &cancel),
+            Err(crate::RunnerError::ExportOnly(
+                "Claude managed settings changed; prepare and review again"
+            ))
+        ));
+        return;
+    }
     let expiry = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -327,6 +380,8 @@ fn qualify(mode: &str) {
                             assert_eq!(body["tools"].as_array().unwrap().len(),1);
                             assert_eq!(body["tools"][0]["name"],"StructuredOutput"); assert_eq!(body["tools"][0]["input_schema"],schema());
                             assert!(body.to_string().contains(&reference));
+                            assert!(body.to_string().contains("/help @/runtime/peer-address"));
+                            assert!(!body.to_string().contains(&address.to_string()));
                             if mode=="cancel" { signal.cancel(); continue; }
                             if mode=="timeout" { while !stop.load(Ordering::Relaxed) {std::thread::sleep(Duration::from_millis(2));} continue; }
                             if mode=="unauthorized" {
@@ -336,9 +391,14 @@ fn qualify(mode: &str) {
                             ("200 OK","application/json",String::new())
                         } else if path=="get /api/claude_code/settings http/1.1" {
                             assert!(mode.starts_with("policy-"));
-                            let status=match mode { "policy-200"|"policy-version"=>"200 OK", "policy-204"=>"204 No Content", "policy-404"=>"404 Not Found", "policy-403"=>"403 Forbidden", "policy-304"=>"304 Not Modified", _=>panic!("unexpected policy fixture") };
-                            let response=if matches!(mode,"policy-200"|"policy-version") {
-                                let settings=if mode=="policy-version" { json!({"requiredMinimumVersion":"99.0.0"}) } else { json!({"availableModels":["sonnet"],"forceRemoteSettingsRefresh":false}) };
+                            let status=match mode { "policy-200"|"policy-version"|"policy-env"|"policy-fallback"=>"200 OK", "policy-204"=>"204 No Content", "policy-404"=>"404 Not Found", "policy-403"|"policy-force-fragment"=>"403 Forbidden", "policy-304"=>"304 Not Modified", _=>panic!("unexpected policy fixture") };
+                            let response=if matches!(mode,"policy-200"|"policy-version"|"policy-env"|"policy-fallback") {
+                                let settings=match mode {
+                                    "policy-version"=>json!({"requiredMinimumVersion":"99.0.0"}),
+                                    "policy-env"=>json!({"env":{"TGSUM_SYNTHETIC_UNREVIEWED":"value"}}),
+                                    "policy-fallback"=>json!({"fallbackModel":["haiku"]}),
+                                    _=>json!({"availableModels":["sonnet"],"forceRemoteSettingsRefresh":false})
+                                };
                                 json!({"uuid":"937e345b-6d45-45ef-a4f1-6266ce843b60","checksum":"fixture-checksum","settings":settings}).to_string()
                             } else {String::new()};
                             (status,"application/json",response)
@@ -443,6 +503,10 @@ fn qualify(mode: &str) {
         ));
     } else {
         assert!(decoded.is_err());
+    }
+    if mode.starts_with("endpoint-") {
+        assert_eq!(combined.process.termination, crate::Termination::Exited);
+        assert_eq!(combined.process.exit_code, Some(1));
     }
     if mode.starts_with("policy-") {
         assert_eq!(

@@ -4,9 +4,11 @@
 [Первичные источники и ограничения](../research/claude-adapter-2026-09-27.md).
 Реализованы `tgsum_runner::claude::{ClaudeRequest, RecipeRequest, decode}` и
 отдельный offline профиль с явным выбором одного auth-файла. Fixed HTTPS relay и
-внутренний network profile проверены на synthetic TLS peer. **Public cloud runner,
-наследование исходной managed policy, managed lifecycle и Desktop Run пока не
-подключены.** [Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md).
+внутренний network profile проверены на synthetic TLS peer. Добавлены перенос Linux
+managed files и проверка эффективной конфигурации до передачи corpus.
+**Public cloud runner, managed lifecycle и Desktop Run пока не подключены.**
+[Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md),
+[managed policy и control protocol](../research/claude-managed-policy-2026-09-27.md).
 
 ## Запрос
 
@@ -28,8 +30,8 @@ resume, bypass permissions, fallback model, extra directories или польз�
 как прозрачная интеграция с существующим входом пользователя.
 
 Flags ограничивают поведение CLI, но сами по себе не изолируют процесс.
-`safe-mode` не отключает всю managed policy; её сохранение ещё требует отдельной
-квалификации. Не выдаём отсутствие enterprise настроек в private HOME за её поддержку.
+`safe-mode` не отключает всю managed policy; network профиль сохраняет исходные
+Linux managed files и проверяет конфигурацию. Это не квалификация enterprise аккаунта.
 
 ## Offline runtime
 
@@ -66,9 +68,8 @@ Claude offline profile. Один файл монтируется read-only в pr
 
 Это capability выбранного файла, не проверка входа. `O_PATH` закрепляет inode,
 но не защищает от одновременной записи в него на host. Read-only mount не запрещает
-серверную ротацию токена; сеть в этом профиле изолирована. Сохранение исходной managed
-policy и поддержка реального refresh требуют следующих срезов; результаты synthetic
-HTTPS qualification приведены ниже.
+серверную ротацию токена; сеть в этом профиле изолирована. Поддержка реального
+refresh не заявлена; результаты synthetic HTTPS qualification приведены ниже.
 
 ## HTTPS: внутренний профиль квалификации
 
@@ -81,16 +82,54 @@ host `platform.claude.com` запрещён. На разрешённом host е
 
 Внутренний `linux-x86_64-bwrap-claude-egress-v1` используется только тестами.
 `OfflineRunner` его отклоняет; public `ClaudeNetworkRunner` ещё нет. Профиль
-содержит постоянный managed file с `forceRemoteSettingsRefresh:true`. Это
-добавочное ограничение для проверки startup, **не перенос исходной host policy**.
+требует отдельный `EndpointPolicy`: fixed `/etc/claude-code/managed-settings.json`,
+`managed-settings.d/*.json` без dotfiles и `managed-mcp.json`. Содержимое сохраняется
+побайтно, дополнительно создаётся последний в native UTF-16 sort fragment с
+`forceRemoteSettingsRefresh:true`. Host files не меняются. Изменение original files
+после подготовки требует нового Review.
+
+Capture bounded: 1 MiB/file, 4 MiB total, 128 files, 1024 directory entries.
+Symlinks, hardlinks, неправильный owner/mode, nonregular files и нестабильное чтение
+отклоняются. Ошибка чтения не считается отсутствием policy. Локальные JSONC,
+повторные ключи и неподдерживаемые executable/receiver settings отклоняются перед
+staging/spawn; BOM и пустой JSON-файл имеют native semantics. Непустые helpers,
+hooks, MCP servers, plugins, env overrides и fallback/model overrides несовместимы
+с текущим профилем. Они не удаляются из конфигурации ради успешного запуска.
+
+Relay переключает input на stream-json и держит corpus у себя. `/context` у
+network клиента пустой, документы не смонтированы. В одном процессе выполняется:
+
+```text
+initialize → correlated success → get_settings → compatibility check
+           → client_composed user frame → normal result stream
+```
+
+Проверяются firstParty provider, отсутствие команд/ожидающих диалогов, effective
+settings и все parsed sources, точная applied model, отсутствие advisor/ultracode,
+ошибок и policy lock. Любой неподдерживаемый control response останавливает запуск.
+Raw account/settings responses наружу не передаются и не логируются. Ограничения
+версии/model/permissions применяет официальный CLI; runner не воспроизводит его
+полный policy engine. Native может игнорировать unknown/invalid remote fields с
+warning — preflight не является аудитом raw server policy. Control records bounded
+2 MiB; pipes неблокирующие, host deadline/cancellation сохраняются.
+
+Force ждёт свежую remote policy только для native eligible profiles. Pro/Max
+metadata не переписывается; отсутствие fetch не доказывает отсутствие организации.
+Stale membership, настоящий enterprise launcher/helpers и прочие ОС остаются
+квалификацией под контролем пользователя (`tgsum-t8t.19`).
 
 Native CLI проверен с TLS peer, SAN `api.anthropic.com`, synthetic OAuth и без
-`ANTHROPIC_BASE_URL`. Проверены 13 сценариев в трёх suites:
+`ANTHROPIC_BASE_URL`. Проверены 19 сценариев в четырёх suites:
 
 - Pro success; Team settings 200/204/404, затем policy_limits и Messages.
 - Settings 403, 304 без cache и 200 с `requiredMinimumVersion:99.0.0`: штатный
   exit 1, **ни одного Messages**.
 - Неверный CA, другой receiver, HTTP 401, expired token, cancel и timeout.
+- Original main/fragment minimum version, поздний force=false и изменение файла
+  после подготовки. Host policy не заменяется пустой настройкой TGSUM.
+- Remote env override и fallback: native получает policy, preflight завершает
+  запуск с exit 1 и **нулём Messages**. `/help @/runtime/peer-address` в corpus
+  остаётся буквальным текстом; содержимое указанного файла не добавляется.
 
 На expired token native CLI пытается refresh через запрещённый host, но затем
 может получить canned Messages result и выйти с 0. `NetworkOutput::decode`
@@ -100,8 +139,8 @@ Native CLI проверен с TLS peer, SAN `api.anthropic.com`, synthetic OAut
 
 `policy_limits` — отдельный endpoint от managed settings. Synthetic reply имеет
 пустые `restrictions`/`compliance_taints`; это не доказательство поддержки настоящей
-организации. Перед публичным Run остаются исходная endpoint policy, все её
-требования/совместимость и binding Review/result/baseline.
+организации. Перед публичным Run остаются публичный runner API и binding
+Review/result/baseline; реальные auth/org profiles не квалифицированы.
 
 ## Результат
 

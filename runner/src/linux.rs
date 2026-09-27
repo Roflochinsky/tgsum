@@ -28,6 +28,7 @@ pub(crate) struct Backend {
     mounts: Vec<(PathBuf, PathBuf)>,
     private_proc: bool,
     claude_runtime: bool,
+    claude_policy: Option<crate::claude::EndpointPolicy>,
 }
 
 #[derive(Default)]
@@ -79,6 +80,35 @@ impl Backend {
         runtime: RuntimeSpec,
         cancellation: &Cancellation,
     ) -> Result<Self, RunnerError> {
+        Self::qualify_with_policy(contract, runtime, None, cancellation)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn qualify_claude(
+        contract: &AdapterContract,
+        runtime: RuntimeSpec,
+        policy: crate::claude::EndpointPolicy,
+        cancellation: &Cancellation,
+    ) -> Result<Self, RunnerError> {
+        if contract.isolation_profile != crate::claude::LINUX_EGRESS_PROFILE {
+            return Err(RunnerError::InvalidRequest(
+                "managed policy requires Claude egress profile",
+            ));
+        }
+        Self::qualify_with_policy(contract, runtime, Some(policy), cancellation)
+    }
+
+    fn qualify_with_policy(
+        contract: &AdapterContract,
+        runtime: RuntimeSpec,
+        policy: Option<crate::claude::EndpointPolicy>,
+        cancellation: &Cancellation,
+    ) -> Result<Self, RunnerError> {
+        if contract.isolation_profile == crate::claude::LINUX_EGRESS_PROFILE && policy.is_none() {
+            return Err(RunnerError::ExportOnly(
+                "Claude network profile requires captured managed settings",
+            ));
+        }
         check_helper(cancellation)?;
         let mut backend = Self::stage(runtime, cancellation)?;
         backend.private_proc = matches!(
@@ -92,15 +122,11 @@ impl Backend {
             contract.isolation_profile.as_str(),
             crate::claude::LINUX_OFFLINE_PROFILE | crate::claude::LINUX_EGRESS_PROFILE
         );
-        if contract.isolation_profile == crate::claude::LINUX_EGRESS_PROFILE {
-            // Qualification-only network profile: this added restriction is
-            // NOT inheritance of an organization's original managed settings.
-            let policy = backend._staging.path().join("claude-policy");
-            fs::write(&policy, b"{\"forceRemoteSettingsRefresh\":true}")?;
-            fs::set_permissions(&policy, fs::Permissions::from_mode(0o400))?;
+        if let Some(policy) = policy {
             backend
                 .mounts
-                .push((policy, "/etc/claude-code/managed-settings.json".into()));
+                .extend(policy.stage(backend._staging.path(), cancellation)?);
+            backend.claude_policy = Some(policy);
         }
         let empty = tempfile::tempdir()?;
         let output = backend.run(
@@ -199,6 +225,7 @@ impl Backend {
             mounts,
             private_proc: false,
             claude_runtime: false,
+            claude_policy: None,
         })
     }
 
@@ -241,6 +268,9 @@ impl Backend {
         access: Access<'_>,
     ) -> Result<RunOutput, RunnerError> {
         limits.validate(invocation)?;
+        if let Some(policy) = &self.claude_policy {
+            policy.check_unchanged(cancellation)?;
+        }
         // Recheck the backend on every launch; never silently accept a helper
         // update while the application is running.
         check_helper(cancellation)?;
@@ -324,7 +354,13 @@ impl Backend {
                 command.args(["--setenv", key, value]);
             }
         }
-        command.arg("--ro-bind").arg(context).arg("/context");
+        if self.claude_policy.is_some() {
+            // The Claude relay holds the prepared documents until its control
+            // preflight passes. No filesystem copy is visible during startup.
+            command.args(["--dir", "/context"]);
+        } else {
+            command.arg("--ro-bind").arg(context).arg("/context");
+        }
         command.args([
             "--chdir",
             "/context",

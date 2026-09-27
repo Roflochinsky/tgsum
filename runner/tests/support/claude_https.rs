@@ -7,6 +7,7 @@ fn main() {
         assert!(!Path::new("/gateway/proxy.sock").exists());
         assert!(!Path::new("/home/agent/.claude/.credentials.json").exists());
     } else {
+        assert_eq!(std::fs::read_dir("/context").unwrap().count(), 0);
         let proxy = std::env::var("HTTPS_PROXY").unwrap();
         assert!(proxy.starts_with("http://127.0.0.1:"));
         for name in ["HTTP_PROXY", "https_proxy", "http_proxy"] {

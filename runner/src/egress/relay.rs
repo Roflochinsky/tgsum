@@ -89,6 +89,14 @@ fn relay(agent: Agent, args: Vec<OsString>) -> Result<i32, &'static str> {
     if !Path::new(SOCKET_PATH).exists() {
         return Err("gateway socket is absent");
     }
+    let mut args = args;
+    let preflight = if let Agent::Claude = agent {
+        let model = crate::claude::preflight::arguments(&mut args)?;
+        let corpus = crate::claude::preflight::input(io::stdin())?;
+        Some((model, corpus))
+    } else {
+        None
+    };
     std::fs::create_dir_all(agent.home()).map_err(|_| "private agent home setup failed")?;
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|_| "relay bind failed")?;
     listener
@@ -137,11 +145,58 @@ fn relay(agent: Agent, args: Vec<OsString>) -> Result<i32, &'static str> {
         };
         command.env(variable, "/runtime/provider-ca.pem");
     }
+    if preflight.is_some() {
+        command
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped());
+    }
     let mut child = command.spawn().map_err(|_| "Agent launch failed")?;
+    let control_stop = Cancellation::default();
+    let control = if let Some((model, corpus)) = preflight {
+        let stdin = child.stdin.take().expect("piped Claude stdin");
+        let stdout = child.stdout.take().expect("piped Claude stdout");
+        let stop = control_stop.clone();
+        match std::thread::Builder::new()
+            .name("tgsum-claude-preflight".into())
+            .spawn(move || crate::claude::preflight::run(stdin, stdout, corpus, model, stop))
+        {
+            Ok(handle) => Some(handle),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Claude preflight worker failed");
+            }
+        }
+    } else {
+        None
+    };
+    let mut control = control;
+    let mut exited = None;
     let mut accepted = 0;
     let result = loop {
+        if control.as_ref().is_some_and(|c| c.is_finished()) {
+            let result = control
+                .take()
+                .expect("finished control worker")
+                .join()
+                .unwrap_or(Err("Claude preflight worker failed"));
+            if let Err(reason) = result {
+                eprintln!("{reason}");
+                let _ = child.kill();
+                let _ = child.wait();
+                break Ok(1);
+            }
+        }
         match child.try_wait() {
-            Ok(Some(status)) => break Ok(status.code().unwrap_or(125)),
+            Ok(Some(status)) => {
+                if control.is_none() {
+                    break Ok(status.code().unwrap_or(125));
+                }
+                let since = exited.get_or_insert_with(Instant::now);
+                if since.elapsed() > Duration::from_secs(2) {
+                    break Err("Claude control cleanup timed out");
+                }
+            }
             Err(_) => break Err("Agent wait failed"),
             _ => {}
         }
@@ -177,6 +232,10 @@ fn relay(agent: Agent, args: Vec<OsString>) -> Result<i32, &'static str> {
         }
         std::thread::sleep(Duration::from_millis(2));
     };
+    control_stop.cancel();
+    if let Some(control) = control {
+        let _ = control.join();
+    }
     if result.is_err() {
         let _ = child.kill();
         let _ = child.wait();

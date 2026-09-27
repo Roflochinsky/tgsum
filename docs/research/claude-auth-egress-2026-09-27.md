@@ -277,3 +277,14 @@ managed hooks, локальные admin restrictions и замена модел�
 probe; первая Team fixture не знала `/policy_limits`; затем обнаружилось неверное
 предположение decoder о feedback metadata. После исправления причин все сценарии
 повторены. Реальных аккаунтов и обращений к провайдеру не было.
+
+### Следующий implemented slice: original policy и preflight
+
+[Managed-policy research и runtime evidence](claude-managed-policy-2026-09-27.md#реализованный-synthetic-runtime-spike)
+расширяют этот первоначальный TLS spike. Original Linux managed files теперь
+сохраняются с дополнительным последним force fragment. Same-process
+initialize/get_settings проверяет effective settings до передачи corpus;
+network `/context` пустой. Четыре native suites / 19 synthetic TLS сценариев
+прошли, включая remote env/fallback refusal с 0 Messages. Public network API,
+managed lifecycle и Desktop Run остаются следующими шагами, реальные аккаунты
+не квалифицированы.

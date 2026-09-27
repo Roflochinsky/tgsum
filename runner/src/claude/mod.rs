@@ -5,6 +5,12 @@
 #[cfg(target_os = "linux")]
 pub(crate) mod auth;
 #[cfg(target_os = "linux")]
+mod policy;
+#[cfg(target_os = "linux")]
+pub(crate) mod preflight;
+#[cfg(target_os = "linux")]
+pub use policy::EndpointPolicy;
+#[cfg(target_os = "linux")]
 mod network;
 #[cfg(target_os = "linux")]
 pub use network::{NetworkDecodeError, NetworkOutput};
