@@ -84,9 +84,9 @@ Reset leaves `evidence-key.bin` unchanged. Old Review and uncommitted analysis
 become stale, while saved results retain their bundle/version and evidence.
 
 Project schemas 1–3 load without a mapping; schemas 1–4 default to no custom
-terms and migrate in memory to schema 5. The next write creates a separate
-revision. Original bytes remain unchanged. Private bundle schemas 1–4 remain
-readable without inventing mapping/policies/dictionary application. Unknown
+terms and migrate in memory to the current schema 9. The next write creates a
+separate revision. Original bytes remain unchanged. Private bundle schemas 1–4
+remain readable without inventing mapping/policies/dictionary application. Unknown
 versions are rejected. Older apps must reject unsupported Project schemas
 instead of dropping private mapping or dictionary configuration on write.
 

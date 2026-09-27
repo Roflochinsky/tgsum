@@ -5,6 +5,9 @@ use tgsum_core::bridge_schedule::{
 use tgsum_core::project::{ProjectChange, ProjectSource, ProjectStore};
 use tgsum_core::snapshot::SourceScope;
 
+const LEASE_CHILD_ROOT: &str = "TGSUM_BRIDGE_LEASE_CHILD_ROOT";
+const LEASE_CHILD_RESULT: &str = "TGSUM_BRIDGE_LEASE_CHILD_RESULT";
+
 fn context<'a>(now: u64, launch_id: &'a str) -> RefreshContext<'a> {
     RefreshContext {
         now,
@@ -319,4 +322,56 @@ fn schema_eight_migrates_without_rewriting_or_accepting_refresh_state() {
     value["telegram_refresh"] = serde_json::json!({"pilot":{"cadence":"daily"}});
     std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
     assert!(store.open(&project.project_id).is_err());
+}
+
+#[test]
+fn lease_child() {
+    let Some(root) = std::env::var_os(LEASE_CHILD_ROOT) else {
+        return;
+    };
+    let result = std::env::var_os(LEASE_CHILD_RESULT).unwrap();
+    let store = ProjectStore::new(root);
+    let state = if TelegramExportLease::try_acquire(&store).unwrap().is_some() {
+        "acquired"
+    } else {
+        "busy"
+    };
+    std::fs::write(result, state).unwrap();
+}
+
+fn child_lease_result(root: &std::path::Path, id: &str) -> String {
+    let result = root.join(format!("lease-{id}.txt"));
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "lease_child", "--nocapture"])
+        .env(LEASE_CHILD_ROOT, root)
+        .env(LEASE_CHILD_RESULT, &result)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(10) {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("synthetic lease worker timed out");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert!(status.success(), "synthetic lease worker failed");
+    std::fs::read_to_string(result).unwrap()
+}
+
+#[test]
+fn export_lease_excludes_an_independent_process_and_releases_on_exit() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let lease = TelegramExportLease::try_acquire(&store).unwrap().unwrap();
+    assert_eq!(child_lease_result(root.path(), "held"), "busy");
+    drop(lease);
+    assert_eq!(child_lease_result(root.path(), "released"), "acquired");
 }

@@ -33,8 +33,8 @@ or term values. They do not sanitize arbitrary source data or caller logging.
 
 Project schema 5 adds the dictionary, empty by default. Schemas 1–4 open with
 empty terms without rewriting old bytes; a later write publishes the current
-Project schema (now 7 with [saved privacy options](privacy-controls.md)). A legacy-version
-manifest cannot activate a nonempty dictionary.
+Project schema (now 9 with [saved privacy options](privacy-controls.md)). A
+legacy-version manifest cannot activate a nonempty dictionary.
 Updates use the existing revision/CAS contract and stale any existing Review.
 
 An empty `entries` list disables the dictionary in future preparations.

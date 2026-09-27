@@ -49,9 +49,10 @@ remains an alias), `file_size` and the existing document fields. Availability
 placeholders do not become local filenames. Photos, nested/rich attachments,
 media conversion and archive extraction are outside this text packager.
 
-Project schema **6** introduced attachment selection (current schema **7** also
-persists privacy options). Versions 1–5 without choices
-migrate in memory without rewriting old bytes; only a later write creates v6.
+Project schema **6** introduced attachment selection (current schema **9** also
+persists privacy options and Telegram refresh state). Versions 1–5 without
+choices migrate in memory without rewriting old bytes; only a later write
+publishes the current schema.
 A legacy-version manifest cannot activate attachment choices.
 
 ## Filesystem boundary

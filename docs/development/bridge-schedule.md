@@ -26,8 +26,9 @@ The lock uses [`fs4`](https://docs.rs/crate/fs4/1.1.0), whose synchronous
 feature supports the project's Rust 1.88 minimum.
 
 `core/tests/bridge_schedule.rs` checks the manual default, session lock,
-single global lease, restart, unknown outcome, delay/backoff, backwards clock,
-schema migration and removal of assisted settings. These tests qualify only
+global lease across independent processes, restart, unknown outcome,
+delay/backoff, backwards clock, schema migration and removal of assisted
+settings. These tests qualify only
 local scheduling; they do not qualify UI automation or a Telegram account.
 Runtime wiring, driver terminal-outcome mapping and fake-client UI tests remain in
 `tgsum-i1w.5`/`tgsum-i1w.7` after a driver is viable.
