@@ -29,8 +29,8 @@ pub(super) struct Record {
     mime_type: Option<String>,
     #[serde(default)]
     file_size: Option<u64>,
-    #[serde(default)]
-    photo_size: Option<u64>,
+    #[serde(default, alias = "photo_size")]
+    photo_file_size: Option<u64>,
     #[serde(default, deserialize_with = "de::opt_string")]
     date_unixtime: Option<String>,
     #[serde(default, deserialize_with = "de::opt_string")]
@@ -85,7 +85,7 @@ pub(super) fn normalize(
         let text = flatten_text(&record.legacy).to_owned();
         let mut attachments = Vec::new();
         for (path, kind, size) in [
-            (record.photo, "photo", record.photo_size),
+            (record.photo, "photo", record.photo_file_size),
             (
                 record.file,
                 record.legacy.media_type.as_deref().unwrap_or("file"),

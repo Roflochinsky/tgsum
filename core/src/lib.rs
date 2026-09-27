@@ -6,6 +6,7 @@
 //! the files. Nothing leaves the machine: no network, no LLM.
 
 pub mod analysis;
+pub mod attachments;
 pub mod bridge;
 pub mod bundle;
 pub mod connector;

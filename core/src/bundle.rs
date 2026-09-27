@@ -1,7 +1,10 @@
 //! Selected, sanitized context with a private evidence index. Export only never
 //! launches an agent or advances a successful-analysis baseline.
 
+mod attachments;
 mod files;
+use attachments::{AttachmentEvidence, AttachmentWriter, SourceFiles};
+pub use attachments::{AttachmentStatus, BundleAttachment};
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -90,6 +93,10 @@ pub struct BundleManifest {
     pub messages: usize,
     pub attachment_references: usize,
     pub included_attachments: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<BundleAttachment>,
+    #[serde(default)]
+    pub attachment_choices_outside_scope: usize,
     pub privacy: PrivacySummary,
     pub files: Vec<BundleFile>,
 }
@@ -151,11 +158,23 @@ struct EvidenceEntry {
     snapshot_id: String,
     message_key: MessageKey,
     source_revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachment: Option<AttachmentEvidence>,
 }
 
 pub struct ResolvedEvidence {
     pub snapshot_id: String,
     pub message: CanonicalMessage,
+    /// For attachment evidence, the verified sanitized copy retained at Review.
+    /// Never reopens the mutable source file to resolve historical evidence.
+    pub attachment: Option<ResolvedAttachment>,
+}
+
+pub struct ResolvedAttachment {
+    pub position: usize,
+    pub source_bytes: u64,
+    pub source_sha256: String,
+    pub sanitized_document: String,
 }
 
 pub(crate) struct AnalysisBundle {
@@ -288,14 +307,18 @@ impl ProjectStore {
             messages: 0,
             attachment_references: 0,
             included_attachments: 0,
+            attachments: Vec::new(),
+            attachment_choices_outside_scope: 0,
             privacy: PrivacySummary::default(),
             files: Vec::new(),
         };
         manifest.project_title = scan.clean(&project.name, "project_title", None, None)?;
         let mut output = MarkdownWriter::new(&public, project.settings.max_tokens);
+        let mut attachment_output = AttachmentWriter::new(&public, &key);
         let mut inputs = Vec::new();
         let snapshots = self.snapshots(project_id)?;
         for source in project.sources.iter().filter(|s| s.selection.enabled) {
+            let mut source_files = SourceFiles::new(source.selection.attachments.as_ref());
             check_cancel(&cancelled)?;
             let snapshot_id = source
                 .latest_snapshot_id
@@ -410,10 +433,49 @@ impl ProjectStore {
                     block.push('\n');
                 }
                 for (position, _) in message.attachments.iter().enumerate() {
-                    let attachment = key.opaque("attachment", &(&message.key, position))?;
-                    block.push_str(&format!(
-                        "\nAttachment reference: {attachment} (file not included).\n"
-                    ));
+                    let (record, attachment) = attachment_output.write(
+                        &mut source_files,
+                        message,
+                        position,
+                        &mut scan,
+                        &cancelled,
+                    )?;
+                    match record.status {
+                        AttachmentStatus::NotSelected => block.push_str(&format!(
+                            "\nAttachment reference: {} (file not included).\n",
+                            record.id
+                        )),
+                        AttachmentStatus::Missing => block.push_str(&format!(
+                            "\nAttachment reference: {} (selected file missing).\n",
+                            record.id
+                        )),
+                        AttachmentStatus::Included => {
+                            let reference =
+                                record.evidence.expect("included attachment has evidence");
+                            block.push_str(&format!(
+                                "\nAttachment reference: {} (included: {}@{} in {}).\n",
+                                record.id,
+                                reference.id,
+                                reference.revision,
+                                record.file.expect("included artifact")
+                            ));
+                            write_evidence(
+                                &mut index,
+                                &EvidenceEntry {
+                                    reference,
+                                    snapshot_id: snapshot_id.clone(),
+                                    message_key: message.key.clone(),
+                                    source_revision: message
+                                        .metadata
+                                        .as_ref()
+                                        .ok_or_else(|| invalid("message revision is missing"))?
+                                        .revision_id
+                                        .clone(),
+                                    attachment,
+                                },
+                            )?;
+                        }
+                    }
                 }
                 manifest.attachment_references += message.attachments.len();
                 output.write_block(&block)?;
@@ -427,15 +489,12 @@ impl ProjectStore {
                         .ok_or_else(|| invalid("message revision is missing"))?
                         .revision_id
                         .clone(),
+                    attachment: None,
                 };
-                let bytes = serde_json::to_vec(&entry).map_err(invalid)?;
-                if bytes.len() as u64 >= INDEX_LINE_BYTES {
-                    return Err(invalid("evidence entry is too large"));
-                }
-                index.write_all(&bytes)?;
-                index.write_all(b"\n")?;
+                write_evidence(&mut index, &entry)?;
                 manifest.messages += 1;
             }
+            manifest.attachment_choices_outside_scope += source_files.outside_scope();
             manifest.sources.push(BundleSource {
                 id: source_ref,
                 title,
@@ -464,6 +523,9 @@ impl ProjectStore {
             return Err(invalid("no messages match the current selection"));
         }
         manifest.files = output.finish()?;
+        manifest.included_attachments = attachment_output.files.len();
+        manifest.files.extend(attachment_output.files);
+        manifest.attachments = attachment_output.records;
         index.flush()?;
         index.get_ref().sync_all()?;
         drop(index);
@@ -486,9 +548,11 @@ impl ProjectStore {
         manifest.pii = privacy.pii;
         manifest.custom_terms = privacy.custom_terms;
         manifest.pseudonym_mapping_id = privacy.reference.as_ref().map(|r| r.id().to_owned());
+        files::validate_files(&manifest.files)?;
+        attachments::validate_manifest(&manifest, 6)?;
         write_json(&public.join("manifest.json"), &manifest)?;
         let private = PrivateBundle {
-            schema_version: 5,
+            schema_version: 6,
             project_id: project_id.into(),
             project_revision: reviewed_revision,
             manifest_sha256: files::digest_file(&public.join("manifest.json"), &cancelled)?,
@@ -585,7 +649,7 @@ impl ProjectStore {
         bundle_id: &str,
         reference: &EvidenceRef,
     ) -> io::Result<ResolvedEvidence> {
-        let (directory, _, _) = self.checked_bundle(project_id, bundle_id, &|| false)?;
+        let (directory, _, manifest) = self.checked_bundle(project_id, bundle_id, &|| false)?;
         let key = EvidenceKey::load(&self.directory(project_id)?)?;
         let mut reader = BufReader::new(read_regular(&directory.join("evidence.jsonl"))?);
         loop {
@@ -612,17 +676,63 @@ impl ProjectStore {
                 .into_iter()
                 .find(|m| m.key == entry.message_key)
                 .ok_or_else(|| invalid("evidence message is missing"))?;
-            if key.reference(&message)? != *reference
-                || message
-                    .metadata
-                    .as_ref()
-                    .is_none_or(|m| m.revision_id != entry.source_revision)
+            if message
+                .metadata
+                .as_ref()
+                .is_none_or(|m| m.revision_id != entry.source_revision)
             {
                 return Err(invalid("evidence revision mismatch"));
             }
+            let attachment = if let Some(attachment) = entry.attachment {
+                use std::io::Read;
+                if message.attachments.get(attachment.position) != Some(&attachment.expected)
+                    || attachments::attachment_reference(&key, &message, &attachment)? != *reference
+                {
+                    return Err(invalid("attachment evidence revision mismatch"));
+                }
+                files::validate_files(std::slice::from_ref(&attachment.file))?;
+                let path = directory.join("context").join(&attachment.file.name);
+                if !attachment.file.name.starts_with("attachment-")
+                    || attachment.file.bytes > crate::attachments::MAX_OUTPUT_BYTES
+                    || !manifest.files.iter().any(|file| {
+                        file.name == attachment.file.name
+                            && file.bytes == attachment.file.bytes
+                            && file.sha256 == attachment.file.sha256
+                    })
+                    || !manifest.attachments.iter().any(|record| {
+                        record.evidence.as_ref() == Some(reference)
+                            && record.file.as_ref() == Some(&attachment.file.name)
+                    })
+                {
+                    return Err(invalid("attachment evidence file changed"));
+                }
+                let mut bytes = Vec::new();
+                read_regular(&path)?
+                    .take(attachment.file.bytes + 1)
+                    .read_to_end(&mut bytes)?;
+                use sha2::Digest;
+                if bytes.len() as u64 != attachment.file.bytes
+                    || format!("{:x}", sha2::Sha256::digest(&bytes)) != attachment.file.sha256
+                {
+                    return Err(invalid("attachment evidence file changed"));
+                }
+                Some(ResolvedAttachment {
+                    position: attachment.position,
+                    source_bytes: attachment.source_bytes,
+                    source_sha256: attachment.source_sha256,
+                    sanitized_document: String::from_utf8(bytes)
+                        .map_err(|_| invalid("invalid attachment evidence text"))?,
+                })
+            } else {
+                if key.reference(&message)? != *reference {
+                    return Err(invalid("evidence revision mismatch"));
+                }
+                None
+            };
             return Ok(ResolvedEvidence {
                 snapshot_id: entry.snapshot_id,
                 message,
+                attachment,
             });
         }
         Err(invalid("evidence reference does not belong to this bundle"))
@@ -658,7 +768,7 @@ impl ProjectStore {
         let directory = root.join(bundle_id);
         require_dir(&directory)?;
         let private: PrivateBundle = load_json(&directory.join("private.json"))?;
-        if !matches!(private.schema_version, 1..=5) || private.project_id != project_id {
+        if !matches!(private.schema_version, 1..=6) || private.project_id != project_id {
             return Err(invalid("private bundle identity/version mismatch"));
         }
         let project = self.read_revision(project_id, private.project_revision)?;
@@ -745,8 +855,18 @@ impl ProjectStore {
             _ => return Err(invalid("bundle sensitive-term policy mismatch")),
         }
         files::validate_files(&manifest.files)?;
+        attachments::validate_manifest(&manifest, private.schema_version)?;
         Ok((directory, private, manifest))
     }
+}
+
+fn write_evidence(index: &mut impl Write, entry: &EvidenceEntry) -> io::Result<()> {
+    let bytes = serde_json::to_vec(entry).map_err(invalid)?;
+    if bytes.len() as u64 >= INDEX_LINE_BYTES {
+        return Err(invalid("evidence entry is too large"));
+    }
+    index.write_all(&bytes)?;
+    index.write_all(b"\n")
 }
 
 struct ScanReview {

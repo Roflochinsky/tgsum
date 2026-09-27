@@ -32,8 +32,9 @@ validation return static diagnostics instead of quoting invalid fields/modes
 or term values. They do not sanitize arbitrary source data or caller logging.
 
 Project schema 5 adds the dictionary, empty by default. Schemas 1–4 open with
-empty terms without rewriting old bytes; a later write publishes a new schema 5
-revision. A legacy-version manifest cannot activate a nonempty dictionary.
+empty terms without rewriting old bytes; a later write publishes the current
+Project schema (now 6 with [attachments](attachments.md)). A legacy-version
+manifest cannot activate a nonempty dictionary.
 Updates use the existing revision/CAS contract and stale any existing Review.
 
 An empty `entries` list disables the dictionary in future preparations.
@@ -98,7 +99,7 @@ entries/aliases leaves the revision unchanged. Cancellation, budget errors and
 concurrent edits preserve the current mapping pointer; the existing immutable
 orphan-file/I/O publication limits apply as documented in [pseudonyms](pseudonyms.md).
 
-Private bundle schema 5 binds the dictionary through its exact immutable Project
+Private bundle schemas 5–6 bind the dictionary through its exact immutable Project
 revision, alongside the mapping and other policies. It does not copy the term
 list into the bundle manifest. Public `custom_terms`, present only when enabled,
 contains `rules_version: "terms/1"` and `replacements`. It never includes configured

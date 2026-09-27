@@ -692,16 +692,18 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     use tgsum_core::snapshot::SourceScope;
     let root = tempfile::tempdir().unwrap();
     let destination = tempfile::tempdir().unwrap();
+    let archive = tempfile::tempdir().unwrap();
+    std::fs::write(archive.path().join("AGENTS.md"), "Alice alice@example.test +12025550100 @Alice db.local 10.0.0.2 PRIVATE_PROJECT token=SYNTHETIC_FILE_SECRET").unwrap();
     let store = ProjectStore::new(root.path());
     let project = store.create("Synthetic infrastructure").unwrap();
     let scope = SourceScope::telegram("synthetic", "1");
-    store
+    let snapshot = store
         .snapshots(&project.project_id)
         .unwrap()
         .import_telegram(
             "initial",
             &scope,
-            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice alice@example.test +12025550100 @Alice db.local 10.0.0.2 PRIVATE_PROJECT"}]}"#),
+            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice alice@example.test +12025550100 @Alice db.local 10.0.0.2 PRIVATE_PROJECT","file":"AGENTS.md"}]}"#),
         )
         .unwrap();
     let project = store
@@ -724,20 +726,23 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     let w = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
-    let updated=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":project.revision,"change":{"kind":"custom_terms","value":{"entries":[{"value":"PRIVATE_PROJECT","boundary":"word"}]}}})).unwrap();
+    let selected=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":project.revision,"change":{"kind":"selection","value":{"source_id":"work","selection":{"attachments":{"root":std::fs::canonicalize(archive.path()).unwrap(),"files":[{"message_id":"1","position":0,"expected":snapshot.messages[0].attachments[0]}]}}}}})).unwrap();
+    let updated=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":selected["revision"],"change":{"kind":"custom_terms","value":{"entries":[{"value":"PRIVATE_PROJECT","boundary":"word"}]}}})).unwrap();
     let invalid=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":updated["revision"],"change":{"kind":"custom_terms","value":{"entries":[{"value":"PRIVATE_PROJECT","boundary":"PRIVATE_BAD_MODE"}]}}})).unwrap_err();
     assert!(!invalid.to_string().contains("PRIVATE_"));
     let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":updated["revision"],"options":{"redact_candidates":false,"pii":{"categories":["participants","emails","phones","usernames"]},"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
-    assert_eq!(review["project_revision"], project.revision + 2);
+    assert_eq!(review["project_revision"], project.revision + 3);
+    assert_eq!(review["manifest"]["included_attachments"], 1);
+    assert!(!review.to_string().contains("SYNTHETIC_FILE_SECRET"));
     assert_eq!(
         review["manifest"]["custom_terms"],
-        json!({"rules_version":"terms/1","replacements":1})
+        json!({"rules_version":"terms/1","replacements":2})
     );
     assert!(!review.to_string().contains("PRIVATE_PROJECT"));
-    assert_eq!(review["manifest"]["infrastructure"]["replacements"], 2);
+    assert_eq!(review["manifest"]["infrastructure"]["replacements"], 4);
     assert_eq!(
         review["manifest"]["pii"]["by_category"],
-        json!({"participants":2,"emails":1,"phones":1,"usernames":1})
+        json!({"participants":3,"emails":2,"phones":2,"usernames":2})
     );
     assert!(!review.to_string().contains("Alice"));
     assert!(review["preview"]
@@ -747,7 +752,11 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     assert!(!review.to_string().contains("unmentioned-private-host"));
     let stale = invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":project.revision,"outDir":destination.path()})).unwrap_err();
     assert_eq!(stale["kind"], "conflict");
-    invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":review["project_revision"],"outDir":destination.path()})).unwrap();
+    let exported = invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":review["project_revision"],"outDir":destination.path()})).unwrap();
+    let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+    assert!(!directory.join("AGENTS.md").exists());
+    let attachment = std::fs::read_to_string(directory.join("attachment-00001.md")).unwrap();
+    assert!(attachment.contains("> PERSON_0001 EMAIL_0001 PHONE_0001 USER_0001 HOST_0001 IP_0001 TERM_0001 token=[REDACTED_SECRET]"));
     let current = invoke(&w, "open_project", json!({"projectId":project.project_id})).unwrap();
     assert_eq!(current["revision"], review["project_revision"]);
     assert_eq!(current["baselines"], json!([]));

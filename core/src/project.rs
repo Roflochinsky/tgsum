@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,7 +268,7 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=5)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=6)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
@@ -277,10 +277,21 @@ impl ProjectStore {
         if project.schema_version < 5 && !project.custom_terms.is_empty() {
             return Err(invalid("legacy project cannot configure sensitive terms"));
         }
+        if project.schema_version < 6
+            && (project
+                .sources
+                .iter()
+                .any(|s| s.selection.attachments.is_some())
+                || project.analysis_run.as_ref().is_some_and(|run| {
+                    run.inputs.iter().any(|i| i.selection.attachments.is_some())
+                }))
+        {
+            return Err(invalid("legacy project cannot select attachments"));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
         // private mappings; v4 lacked custom terms. Reading migrates in memory;
-        // only a later write publishes a new v5 revision.
+        // v5 lacked attachment selection. Only a later write publishes v6.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != revision {
@@ -370,7 +381,7 @@ impl ProjectStore {
                 source_id,
                 selection,
             } => {
-                selection.filter.validate()?;
+                selection.validate()?;
                 project
                     .sources
                     .iter_mut()
@@ -595,11 +606,22 @@ fn validate_project(project: &Project) -> io::Result<()> {
         reference.validate()?;
     }
     let mut ids = BTreeSet::new();
+    let mut attachment_count = 0usize;
     for source in &project.sources {
         validate_snapshot_id(&source.source_id)?;
         validate_snapshot_id(&source.connector_id)?;
         source.scope.validate()?;
-        source.selection.filter.validate()?;
+        source.selection.validate()?;
+        attachment_count = attachment_count.saturating_add(
+            source
+                .selection
+                .attachments
+                .as_ref()
+                .map_or(0, |a| a.files.len()),
+        );
+        if attachment_count > crate::attachments::MAX_FILES {
+            return Err(invalid("Project attachment count exceeds 100"));
+        }
         if !ids.insert(&source.source_id) {
             return Err(invalid("duplicate source ID"));
         }
@@ -642,7 +664,7 @@ fn validate_project(project: &Project) -> io::Result<()> {
             validate_snapshot_id(&input.source_id)?;
             validate_snapshot_id(&input.snapshot_id)?;
             input.source.validate()?;
-            input.selection.filter.validate()?;
+            input.selection.validate()?;
             if !ids.insert(&input.source_id) {
                 return Err(invalid("duplicate analysis source"));
             }

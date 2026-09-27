@@ -42,6 +42,8 @@ pub struct SourceSelection {
     pub enabled: bool,
     pub filter: MessageFilter,
     pub only_changes: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<crate::attachments::AttachmentSelection>,
 }
 
 impl Default for SourceSelection {
@@ -50,7 +52,18 @@ impl Default for SourceSelection {
             enabled: true,
             filter: MessageFilter::default(),
             only_changes: false,
+            attachments: None,
         }
+    }
+}
+
+impl SourceSelection {
+    pub(crate) fn validate(&self) -> io::Result<()> {
+        self.filter.validate()?;
+        if let Some(attachments) = &self.attachments {
+            attachments.validate()?;
+        }
+        Ok(())
     }
 }
 

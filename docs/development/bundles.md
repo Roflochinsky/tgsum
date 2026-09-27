@@ -15,7 +15,8 @@ as successfully analyzed. Legacy one-shot Markdown export keeps its old format.
 - `export_bundle(project_id, bundle_id, expected_revision, destination,
   cancelled)` verifies the reviewed draft and copies its public allowlist.
 - `resolve_evidence(project_id, bundle_id, reference)` resolves a reference to
-  its exact native message and revision through the private index.
+  its exact native message and revision through the private index; attachment
+  evidence also returns the verified retained sanitized file.
 - `bundle_pseudonyms(project_id, bundle_id)` resolves the exact private mapping
   pinned by this bundle, when present; see [pseudonyms](pseudonyms.md).
 
@@ -39,7 +40,8 @@ cancellation and concurrent Project edits. Export requires the same reviewed
 Project revision and zero pending findings. Changing a source, date, topic,
 privacy option or Project configuration requires a new Review. UI source edits
 disable preparation until saved. Source-file changes alone require an explicit
-refresh; a bundle always represents its frozen snapshot, not the current file.
+refresh for archive JSON; a bundle represents its frozen message snapshot and
+captured attachment artifacts, not the current source files.
 
 ## Private and public data
 
@@ -53,6 +55,7 @@ projects/project-.../
     context/
       manifest.json
       context-00001.md
+      attachment-00001.md
       ...
 ```
 
@@ -70,9 +73,9 @@ version, privacy counts and file sizes/SHA-256 digests. An optional
 the plaintext map digest remain private. This field does not claim that any
 pseudonym detector ran. An optional `infrastructure` summary records actual rules
 version, selected categories and replacement counts, never configured names.
-Private bundle schema 5 pins the mapping/private policies and the immutable
-Project revision containing any dictionary. Schemas 1–4 remain readable without
-inventing applied terms. An optional
+Private bundle schema 6 additionally binds selected attachment artifacts; schema
+5 introduced the immutable Project revision containing any dictionary. Schemas
+1–5 remain readable without inventing attachment inclusion or applied terms. An optional
 `pii` summary records actual category replacements/ambiguity/unresolved counts
 without names or contact values.
 An optional `custom_terms` summary contains rules version/replacement count only;
@@ -81,9 +84,12 @@ The manifest explicitly identifies
 `export_only` as the destination. Coverage never becomes complete merely because
 all selected records were written.
 
-Attachment bytes, names and paths are not copied. Messages carry opaque
-attachment references marked as not included; the manifest distinguishes their
-count from `included_attachments: 0`. Safe attachment packaging is `tgsum-af2.6`.
+Attachments default to references only. Explicit saved choices can include
+sanitized independent text copies with generated names, separate evidence and
+visible missing status. Original names/paths and input hashes remain private.
+See [selected attachments](attachments.md) for selection, budgets, filesystem
+controls and verification limits. Source-file changes after Review never alter
+the captured artifact; a later preparation reads newly selected bytes.
 Replies link only to targets emitted in this bundle; other targets are marked
 outside-context/unresolved. Threads retain a Project-scoped opaque reference.
 

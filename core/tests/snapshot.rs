@@ -16,6 +16,30 @@ fn ids(keys: &[MessageKey]) -> Vec<&str> {
 }
 
 #[test]
+fn attachment_sizes_follow_the_official_flat_export_fields() {
+    let root = tempfile::tempdir().unwrap();
+    let store = SnapshotStore::new(root.path());
+    let snapshot = store.import_telegram("media", &SourceScope::telegram("synthetic", "1"), Cursor::new(serde_json::to_vec(&serde_json::json!({
+        "id":1,"messages":[
+            {"id":1,"photo":"photos/image.jpg","photo_file_size":1234},
+            {"id":2,"file":"files/renamed.log","file_name":"original.log","file_size":42,"mime_type":"text/plain"},
+            {"id":3,"file":"(File not included. Change data exporting settings to download.)"}
+        ]
+    })).unwrap())).unwrap();
+    assert_eq!(snapshot.messages[0].attachments[0].size, Some(1234));
+    let document = &snapshot.messages[1].attachments[0];
+    assert_eq!(document.size, Some(42));
+    assert_eq!(document.relative_path.as_deref(), Some("files/renamed.log"));
+    assert_eq!(document.original_name.as_deref(), Some("original.log"));
+    assert_eq!(document.mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(
+        snapshot.messages[2].attachments[0].availability,
+        AttachmentAvailability::Unavailable
+    );
+    assert_eq!(snapshot.messages[2].attachments[0].relative_path, None);
+}
+
+#[test]
 fn sender_name_and_id_are_selected_as_one_pair_without_borrowing_actor_fields() {
     let directory = tempfile::tempdir().unwrap();
     let store = SnapshotStore::new(directory.path());
