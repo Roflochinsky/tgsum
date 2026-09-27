@@ -147,13 +147,36 @@ request builders receive only reviewed documents without launching any CLI.
 See `core/tests/attachments.rs`, `runner/tests/attachments.rs` and the combined
 privacy fixture in `src-tauri/tests/commands.rs`.
 
-These Linux checks do not qualify Windows/macOS filesystem behavior or real
-client exports. Expanded race/collision/rollback tests are the separate
-`tgsum-af2.9` scope; real-account validation remains under user control.
+The dedicated `tgsum-af2.9` pack in `core/tests/attachment_packager.rs` adds seven
+public lifecycle regressions. All inputs, substitute targets, private artifacts
+and output directories belong to each test's TempDir:
+
+- Equal basenames and original-name metadata keep separate files/evidence.
+- A binary second file removes the already-written first file's draft.
+- Cancellation after actual attachment bytes exist removes Prepare/Export
+  staging while preserving the previous bundle, revision and baseline.
+- A source grows at cooperative checkpoints until the actual read budget is
+  reached; a finite mutation ceiling prevents an unbounded fixture.
+- After the first copy, replacing the root with a symlink cannot redirect the
+  retained directory handle; later content still comes from the original tree.
+- Replacing the next parent or leaf with a symlink aborts and discards staging.
+- Damaging a reviewed artifact blocks export and historical evidence resolution.
+
+Mutation/cancellation triggers observe an actual artifact, not a hardcoded number
+of implementation calls. Root/parent/leaf substitution cases are Unix fixtures.
+They demonstrate controlled interleavings, not an exhaustive race proof or an
+atomic source snapshot. These Linux checks do not qualify native Windows/macOS
+filesystem behavior or real client exports; real-account validation remains
+under user control.
 
 Verification on 2026-09-27: `bash scripts/check.sh quick` and full
-`bash scripts/check.sh` passed (270 tests, 27 existing environment-specific
-ignored tests). Rust 1.88.0 core tests passed (183, none ignored); the same
+`bash scripts/check.sh` passed for the implementation (270 tests, 27 existing
+environment-specific ignored tests). Rust 1.88.0 core tests passed (183, none ignored); the same
 toolchain compiled core with `cargo check -p tgsum-core --locked --target`
 for `x86_64-pc-windows-gnu` and `aarch64-apple-darwin`. Those last two checks
 establish compilation only. The FIFO subprocess is counted once in the totals.
+
+After the dedicated pack was added, quick/full gates passed again: **277 passed,
+0 failed, 27 existing environment-specific ignored**. Its seven new fixtures also
+passed on Rust 1.88.0 (`cargo +1.88.0 test -p tgsum-core --test attachment_packager
+--locked`). No production implementation change was required by this pack.
