@@ -14,7 +14,35 @@ permissions:
   contents: write
 
 jobs:
+  connectors:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate published connector schema
+        run: |
+          python -m pip install -r scripts/requirements-registry.txt
+          python scripts/check-registry-schema.py
+      - name: Install repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify core and connector contracts
+        run: cargo test --locked -p tgsum-core
+      - name: Require current review for enabled release profiles
+        run: cargo run --locked -p tgsum-core --bin connector-registry -- --release > connector-release-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connector-release-report
+          path: connector-release-report.json
+          if-no-files-found: error
+
   draft:
+    needs: connectors
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     outputs:
@@ -42,8 +70,8 @@ jobs:
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   bundle:
-    needs: draft
-    if: ${{ !failure() && !cancelled() }}
+    needs: [connectors, draft]
+    if: ${{ !failure() && !cancelled() && needs.connectors.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,8 +121,8 @@ jobs:
   # Native pacman package for Omarchy / Arch Linux (the AppImage bundles
   # graphics libraries that clash with Arch's Mesa on Wayland).
   arch:
-    needs: draft
-    if: ${{ !failure() && !cancelled() }}
+    needs: [connectors, draft]
+    if: ${{ !failure() && !cancelled() && needs.connectors.result == 'success' }}
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:

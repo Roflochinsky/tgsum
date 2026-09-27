@@ -1,0 +1,2 @@
+# Development/CI only; the Rust runtime/validator has no Python dependency.
+jsonschema==4.26.0

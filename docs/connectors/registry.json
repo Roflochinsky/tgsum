@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "enforcement": "governance_only",
+  "schema_version": 2,
+  "enforcement": "maintainer_release_checks",
   "connectors": [
     {
       "id": "telegram_full_export",
@@ -44,6 +44,25 @@
         "Linux offline runner has synthetic isolation tests and an explicit private-proc profile; see ../development/runner.md. Installed Codex 0.155.1 is qualified against a canned local Responses server without credentials or external network, with an empty tool catalog (../development/codex-adapter.md). An explicit read-only Codex auth-file mount is verified offline with synthetic auth only; a separate bounded CONNECT/SNI gateway and namespace relay pass installed-CLI local HTTPS fixtures (../development/inference-egress.md), including synthetic API-key auth, wrong CA, refresh denial, cancel and timeout. Managed result/baseline lifecycle and local HTTP 401/receiver-mismatch failure handling are verified (../development/analyses.md). Synthetic managed ChatGPT file auth success, expired JWT, stale cache, HTTP 401 and reverse receiver mismatch are checked locally without changing auth bytes or committing failed analyses. Six compiled recipes bind task/schema/validator and require exact evidence revisions plus quoted known owner/deadline values (../development/recipes.md). Desktop Prepare/Review/Run, result history and explicit recovery are implemented and exercised in the actual Tauri UI with a debug-only local synthetic backend (../development/desktop-analysis.md). Linux relay packaging metadata and fixed runtime manifest are implemented; installed Codex version qualification uses no auth/network. Real accounts, enterprise/agent-identity profiles and per-OS installer roundtrips remain unqualified. Import itself is local; the optional separate Codex adapter sends prepared context only after explicit Review/Run. This does not promote messenger connector support.",
         "Claude Code 2.1.280 now has a separate offline runtime, bounded request/decoder and six compiled recipe roundtrips with a local canned Messages server (../development/claude-adapter.md). Explicit opaque read-only auth selection now passes synthetic OAuth native tests, with Codex regression checks. Default-hostname synthetic TLS qualification now covers Pro/Team canned settings, CA, denied refresh, cancel/timeout; dirty transport rejects CLI exit 0. Linux original managed files are now preserved with a final force-refresh fragment and change detection; same-process initialize/get_settings validates effective configuration before stdin context release (../research/claude-managed-policy-2026-09-27.md). Nineteen native synthetic TLS scenarios pass. Explicit ClaudeNetworkRunner and durable Review/result/baseline binding are now implemented and covered by the same synthetic TLS suites plus mismatch/evidence/stale-Project tests. Desktop Claude Prepare/Review/Run, history and explicit recovery are implemented alongside Codex (../development/desktop-analysis.md), with per-agent receiver/auth selection and immutable tickets. Actual Tauri synthetic success/failure/cancel/restart/recovery and native hidden-file picker checks pass; installed runtime qualification uses offline version-only synthetic policy. Both Linux relay sidecars are staged. Real refresh/account, organization and other-OS qualification remain user-controlled t8t.19 backlog. No messenger support promotion.",
         "Sender normalization now selects a whole from/from_id or actor/actor_id pair, including service actions that use from. Synthetic partial/mixed-pair regressions prevent assigning a different actor ID to a sender name. Text entity target IDs are still flattened and not retained. See ../research/participant-pii-2026-09-27.md; Selected bundle preparation supports opt-in participant, email, phone and standalone username rules with documented shape limits; see ../development/pii.md. Saved presets and local preview are described in ../development/privacy-controls.md. No account/API or support-status change."
+      ],
+      "implementation": {
+        "id": "telegram_json",
+        "revision": "0.2.0:canonical-2"
+      },
+      "qualifications": [
+        {
+          "scope": "format_contract",
+          "implementation_revision": "0.2.0:canonical-2",
+          "format_id": "telegram_desktop_json",
+          "client": null,
+          "verified_at": "2026-09-27",
+          "evidence": "../development/archive-core.md",
+          "checks": [
+            "../../core/tests/connectors.rs",
+            "../../core/tests/snapshot.rs",
+            "../../core/tests/fixtures/sample-export.json"
+          ]
+        }
       ]
     },
     {
@@ -88,6 +107,25 @@
         "Linux offline runner has synthetic isolation tests and an explicit private-proc profile; see ../development/runner.md. Installed Codex 0.155.1 is qualified against a canned local Responses server without credentials or external network, with an empty tool catalog (../development/codex-adapter.md). An explicit read-only Codex auth-file mount is verified offline with synthetic auth only; a separate bounded CONNECT/SNI gateway and namespace relay pass installed-CLI local HTTPS fixtures (../development/inference-egress.md), including synthetic API-key auth, wrong CA, refresh denial, cancel and timeout. Managed result/baseline lifecycle and local HTTP 401/receiver-mismatch failure handling are verified (../development/analyses.md). Synthetic managed ChatGPT file auth success, expired JWT, stale cache, HTTP 401 and reverse receiver mismatch are checked locally without changing auth bytes or committing failed analyses. Six compiled recipes bind task/schema/validator and require exact evidence revisions plus quoted known owner/deadline values (../development/recipes.md). Desktop Prepare/Review/Run, result history and explicit recovery are implemented and exercised in the actual Tauri UI with a debug-only local synthetic backend (../development/desktop-analysis.md). Linux relay packaging metadata and fixed runtime manifest are implemented; installed Codex version qualification uses no auth/network. Real accounts, enterprise/agent-identity profiles and per-OS installer roundtrips remain unqualified. Import itself is local; the optional separate Codex adapter sends prepared context only after explicit Review/Run. This does not promote messenger connector support.",
         "Claude Code 2.1.280 now has a separate offline runtime, bounded request/decoder and six compiled recipe roundtrips with a local canned Messages server (../development/claude-adapter.md). Explicit opaque read-only auth selection now passes synthetic OAuth native tests, with Codex regression checks. Default-hostname synthetic TLS qualification now covers Pro/Team canned settings, CA, denied refresh, cancel/timeout; dirty transport rejects CLI exit 0. Linux original managed files are now preserved with a final force-refresh fragment and change detection; same-process initialize/get_settings validates effective configuration before stdin context release (../research/claude-managed-policy-2026-09-27.md). Nineteen native synthetic TLS scenarios pass. Explicit ClaudeNetworkRunner and durable Review/result/baseline binding are now implemented and covered by the same synthetic TLS suites plus mismatch/evidence/stale-Project tests. Desktop Claude Prepare/Review/Run, history and explicit recovery are implemented alongside Codex (../development/desktop-analysis.md), with per-agent receiver/auth selection and immutable tickets. Actual Tauri synthetic success/failure/cancel/restart/recovery and native hidden-file picker checks pass; installed runtime qualification uses offline version-only synthetic policy. Both Linux relay sidecars are staged. Real refresh/account, organization and other-OS qualification remain user-controlled t8t.19 backlog. No messenger support promotion.",
         "Sender normalization now selects a whole from/from_id or actor/actor_id pair, including service actions that use from. Synthetic partial/mixed-pair regressions prevent assigning a different actor ID to a sender name. Text entity target IDs are still flattened and not retained. See ../research/participant-pii-2026-09-27.md; Selected bundle preparation supports opt-in participant, email, phone and standalone username rules with documented shape limits; see ../development/pii.md. Saved presets and local preview are described in ../development/privacy-controls.md. No account/API or support-status change."
+      ],
+      "implementation": {
+        "id": "telegram_json",
+        "revision": "0.2.0:canonical-2"
+      },
+      "qualifications": [
+        {
+          "scope": "format_contract",
+          "implementation_revision": "0.2.0:canonical-2",
+          "format_id": "telegram_desktop_json",
+          "client": null,
+          "verified_at": "2026-09-27",
+          "evidence": "../development/archive-core.md",
+          "checks": [
+            "../../core/tests/connectors.rs",
+            "../../core/tests/snapshot.rs",
+            "../../core/tests/fixtures/sample-export.json"
+          ]
+        }
       ]
     },
     {
@@ -128,7 +166,9 @@
         "Real-account testing requires user control and stays in backlog; implement parser/diff/bridge contract with synthetic fixtures.",
         "Validate selectors, exact chat identity, delays, completion and active-session behavior.",
         "Assisted settings, explicit selected-native-client launch and human-confirmed JSON import are implemented; see ../development/assisted-export.md and primary-source refresh ../research/telegram-assisted-export-2026-09-27.md (Desktop v7.2.9). Launch remains needs_user_action and never signals completion. Folder and actual nested ChatExport JSON are separate references. Only synthetic public-store/mock-IPC/Linux Tauri paths are qualified; native .app/Flatpak/shortcut launch uses manual fallback. This does not enable automatic export or qualify a real client/account. Existing policy review date/support status remain unchanged; acquisition-source research is dated separately."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "telegram_client_fork",
@@ -166,7 +206,9 @@
       "open_questions": [
         "Client maintenance, GPL distribution boundary, security updates and own API credentials.",
         "No official-client branding or exemption from content-use terms."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "telegram_mtproto",
@@ -204,7 +246,9 @@
       "open_questions": [
         "Resolve policy before implementing a production connector.",
         "Validate edits/deletes and gap recovery; last_message_id alone is insufficient."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "max_open_client",
@@ -239,7 +283,9 @@
       ],
       "open_questions": [
         "Documented restrictions conflict with persistent indexed multi-source AI corpus."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "max_bot",
@@ -278,7 +324,9 @@
         "Contract-test from/to millisecond bounds and equal timestamps.",
         "Verify platform-api2 TLS trust without silently broadening system trust.",
         "Review updates semantics and reconnect gaps."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "yandex_archive",
@@ -313,7 +361,9 @@
       ],
       "open_questions": [
         "Obtain permitted fixture; verify schema, complete participants, attachments and business-account availability."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "yandex_bot",
@@ -350,7 +400,9 @@
         "Confirm event retention, edits/deletes and downstream AI/retention terms.",
         "Commit data before advancing destructive offset; one cursor owner.",
         "Verify archive/bot identity mapping and bootstrap overlap."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "vk_user",
@@ -386,7 +438,9 @@
       "open_questions": [
         "SDK proves method presence only; primary method page unavailable during review.",
         "Verify new-app user scope issuance, distribution, AI use and platform enforcement."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "teams_delegated",
@@ -423,7 +477,9 @@
       "open_questions": [
         "Verify user/tenant consent, attachment permissions, storage and AI use.",
         "Resolve public notification delivery, subscription renewal and offline gaps."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "teams_rsc",
@@ -460,7 +516,9 @@
         "Notification docs mark this RSC permission beta; verify supported API version and app installation.",
         "Validate history method and credential provisioning for desktop product.",
         "Review tenant policy, retention and AI use."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "teams_export",
@@ -496,7 +554,9 @@
       "open_questions": [
         "Keep separate from delegated desktop connector.",
         "Verify Teams licensing, application permissions and storage/AI use."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "google_chat_takeout",
@@ -532,7 +592,9 @@
       "open_questions": [
         "Work/school-origin group messages/spaces may be excluded.",
         "Verify fixtures, organization/domain coverage and attachment representation."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "google_chat_oauth",
@@ -571,7 +633,9 @@
         "Review persistent corpus/cache limits and specific AI recipient conditions.",
         "Verify account tier, OAuth verification and administrator restrictions.",
         "Space events window is 28 days: test gaps and reconciliation."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "slack_export",
@@ -608,7 +672,9 @@
         "Obtain JSON fixtures for supported export types and identify missing history.",
         "File links do not prove local attachment availability.",
         "Research built-in recurring exports for eligible workspaces."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "slack_internal_bot",
@@ -646,7 +712,9 @@
       "open_questions": [
         "Socket Mode cannot be listed in public Marketplace per current docs.",
         "Validate customer-owned app deployment, reconnect gaps, retention and AI use."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "slack_distributed_app",
@@ -685,7 +753,9 @@
         "Verify distribution/Marketplace status, rate-limit tier and event transport.",
         "1 request/minute and 15 messages may apply to commercial non-Marketplace history.",
         "Review full applicable data/AI terms before implementation."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "whatsapp_export",
@@ -721,7 +791,9 @@
       "open_questions": [
         "Fixtures across iOS/Android/locales; no assumed global message IDs.",
         "Verify media and retained history limits; user rights for chosen AI recipient."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "whatsapp_unofficial",
@@ -757,7 +829,9 @@
       "open_questions": [
         "Excluded by product decision; official personal export is the selected path.",
         "Detailed current unofficial-client policy was not verified in this pass."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "discord_package",
@@ -792,7 +866,9 @@
       ],
       "open_questions": [
         "Show own-messages-only coverage; review native IDs, attachments and data rights."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "discord_bot",
@@ -828,7 +904,9 @@
       "open_questions": [
         "Verify history methods, message-content intent approval and Gateway recovery.",
         "AI training needs Discord permission; inference/retention needs separate full-terms review."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "discord_selfbot",
@@ -863,7 +941,9 @@
       ],
       "open_questions": [
         "Platform explicitly prohibits this automation path."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "signal_desktop_backup",
@@ -899,7 +979,9 @@
       "open_questions": [
         "Verify encrypted folder format/decryption, client version, stable IDs and available history/media with permitted fixtures.",
         "Desktop repeat-backup automation has not been verified; no account restore needed for import."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "line_export",
@@ -934,7 +1016,9 @@
       ],
       "open_questions": [
         "Fixtures, locale/timezone, multiline records and ambiguous identity across snapshots."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "viber_archive",
@@ -969,7 +1053,9 @@
       ],
       "open_questions": [
         "Bot docs are not evidence of a usable personal archive; obtain official archive source and fixture first."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "viber_bot",
@@ -1005,7 +1091,9 @@
       "open_questions": [
         "Commercial bot terms and webhook architecture; not universal personal history.",
         "Different product scenario; defer."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     },
     {
       "id": "signal_android_backup",
@@ -1041,7 +1129,9 @@
       "open_questions": [
         "New folder backup and legacy single-file backup are distinct formats; verify versions/decryption and exclusions.",
         "Android schedules backup creation; transfer to a desktop inbox is a separate user-controlled flow."
-      ]
+      ],
+      "implementation": null,
+      "qualifications": []
     }
   ],
   "policy_use": "maintainer_research_not_user_authorization"

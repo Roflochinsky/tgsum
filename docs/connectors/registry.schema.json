@@ -11,10 +11,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "enforcement": {
-      "const": "governance_only"
+      "const": "maintainer_release_checks"
     },
     "connectors": {
       "type": "array",
@@ -58,7 +58,9 @@
         "owner",
         "evidence",
         "sources",
-        "open_questions"
+        "open_questions",
+        "implementation",
+        "qualifications"
       ],
       "properties": {
         "id": {
@@ -245,6 +247,118 @@
         },
         "open_questions": {
           "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "implementation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/implementation"
+            }
+          ]
+        },
+        "qualifications": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/qualification"
+          }
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]+$"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "client_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "os"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os": {
+          "enum": [
+            "linux",
+            "windows",
+            "macos"
+          ]
+        }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "implementation_revision",
+        "format_id",
+        "client",
+        "verified_at",
+        "evidence",
+        "checks"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "format_contract",
+            "synthetic_client",
+            "real_client"
+          ]
+        },
+        "implementation_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]+$"
+        },
+        "client": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/client_version"
+            }
+          ]
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string",
             "minLength": 1

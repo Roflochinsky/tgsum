@@ -63,7 +63,9 @@ official-client class, implemented history/refresh/identity/attachment behavior,
 and credential kind. They contain no credential value. The file core has no
 network/authentication runtime dependency. Descriptors are distinct from the
 dated policy/qualification registry: two acquisition profiles can share a
-normalizer. That registry's loader and release checks are a separate task.
+normalizer. The [registry loader and release checks](connector-registry.md)
+now bind explicit profiles to the compiled importer and its format revision;
+qualification scope and review dates remain separate from runtime operations.
 
 ## Verification
 

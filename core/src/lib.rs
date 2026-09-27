@@ -25,6 +25,7 @@ pub mod progress;
 pub mod project;
 pub mod pseudonyms;
 pub mod recipe;
+pub mod registry;
 pub mod sanitize;
 pub mod scope;
 pub mod snapshot;

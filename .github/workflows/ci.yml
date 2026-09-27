@@ -16,6 +16,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  connectors:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate published connector schema
+        run: |
+          python -m pip install -r scripts/requirements-registry.txt
+          python scripts/check-registry-schema.py
+      - name: Install repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate offline connector inventory
+        run: cargo run --locked -p tgsum-core --bin connector-registry -- > connector-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connector-inventory-report
+          path: connector-report.json
+          if-no-files-found: error
+
   lint:
     runs-on: ubuntu-24.04
     steps:

@@ -362,6 +362,8 @@ relay. Другие ОС сохраняют контекст в файл.
   [варианты автоматизации Telegram Desktop](docs/research/telegram-export-automation.md).
 - [Реестр способов подключения](docs/connectors/registry.json) и
   [обязательный цикл проверки API/условий](docs/connectors/review-policy.md).
+- [Проверка registry и выпуска](docs/development/connector-registry.md):
+  `cargo run --locked -p tgsum-core --bin connector-registry -- --release`.
 - [Матрица архитектуры коннекторов](docs/connectors/architecture.md),
   [roadmap](docs/plans/context-gateway-roadmap.md) и
   [граница ответственности продукта](docs/adr/0002-user-controlled-content.md).
