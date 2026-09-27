@@ -680,3 +680,7 @@ fn project_review_and_export_commands_enforce_privacy_scope_and_revision() {
         "conflict"
     );
 }
+
+#[cfg(all(feature = "analysis-fixtures", debug_assertions))]
+#[path = "commands/project_e2e.rs"]
+mod project_e2e;

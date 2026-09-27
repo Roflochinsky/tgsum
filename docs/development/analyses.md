@@ -1,9 +1,11 @@
 # Журнал анализа и commit результата
 
-Код: `core::analysis`, `runner::codex::AnalysisJob`, срез `tgsum-hzm.7`.
+Код: `core::analysis`, `runner::{codex,claude}::AnalysisJob`, срезы `hzm.7`/`hzm.8`.
 Backend со [встроенными recipes](recipes.md) подключён к
 [desktop Review/Run и восстановлению](desktop-analysis.md). Реальная
 квалификация аккаунтов остаётся отдельной задачей под контролем пользователя.
+Повторный import, изменение scope/evidence и baseline проверяет
+[сквозной IPC suite](project-e2e.md).
 
 ## Порядок операций
 
