@@ -1,6 +1,7 @@
 // Persistent Project scope editor. Archive parsing and filtering stay in Rust.
 import { mountAnalysis } from './analysis.js'
 import { mountPrivacy } from './privacy.js'
+import { mountAssisted } from './assisted.js'
 import { recentProjects, rememberProject } from './onboarding.js'
 
 export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, selection, index, toast }) {
@@ -20,6 +21,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     startJob, endJob, show, toast, navigate, changed: syncSteps })
   const privacy = mountPrivacy({ invoke, act, project: () => current, update,
     invalidate: invalidateReview, navigate, startJob, endJob, show })
+  const assisted = mountAssisted({ invoke, act, project: () => current, update,
+    invalidate: invalidateReview, imported: async (updated) => { current = updated; await render() },
+    startJob, endJob, show, toast })
 
   function invalidateReview() {
     review = null
@@ -154,6 +158,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       all.addEventListener('change', syncTopics)
       syncTopics()
       await privacy.sourceFiles(card, source)
+      assisted.source(card, source, preview?.title || source.scope.conversation_id)
       if (epoch !== renderEpoch) return
     }
     await analysis.reset()

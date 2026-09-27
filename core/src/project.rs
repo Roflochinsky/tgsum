@@ -5,7 +5,7 @@
 //! sessions. Revision creation uses no-clobber publication for optimistic writes:
 //! a stale editor must reload instead of overwriting another editor's changes.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 7;
+const SCHEMA_VERSION: u32 = 8;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +113,9 @@ pub struct Project {
         skip_serializing_if = "crate::privacy::BundleOptions::is_default"
     )]
     pub privacy_options: crate::privacy::BundleOptions,
+    /// Private acquisition preferences keyed by the connected source ID.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub assisted_exports: BTreeMap<String, crate::assisted::AssistedExportSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +127,10 @@ pub enum ProjectChange {
     Settings(ProjectSettings),
     CustomTerms(crate::custom_terms::CustomTerms),
     Privacy(crate::privacy::PrivacyProfile),
+    AssistedExport {
+        source_id: String,
+        settings: Option<crate::assisted::AssistedExportSettings>,
+    },
     Selection {
         source_id: String,
         selection: SourceSelection,
@@ -219,6 +226,7 @@ impl ProjectStore {
             pseudonyms: None,
             custom_terms: Default::default(),
             privacy_options: Default::default(),
+            assisted_exports: Default::default(),
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -275,7 +283,7 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=7)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=8)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
@@ -298,11 +306,14 @@ impl ProjectStore {
         if project.schema_version < 7 && !project.privacy_options.is_default() {
             return Err(invalid("legacy project cannot configure privacy options"));
         }
+        if project.schema_version < 8 && !project.assisted_exports.is_empty() {
+            return Err(invalid("legacy project cannot configure assisted exports"));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
         // private mappings; v4 lacked custom terms. Reading migrates in memory;
         // v5 lacked attachment selection; v6 lacked saved privacy options.
-        // Only a later write publishes v7.
+        // v7 lacked assisted export plans. Only a later write publishes v8.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != revision {
@@ -374,6 +385,9 @@ impl ProjectStore {
                     .iter_mut()
                     .find(|s| s.source_id == source.source_id)
                 {
+                    if old.scope != source.scope || old.connector_id != source.connector_id {
+                        project.assisted_exports.remove(&source.source_id);
+                    }
                     *old = source;
                 } else {
                     project.sources.push(source);
@@ -385,9 +399,23 @@ impl ProjectStore {
                 }
                 project.sources.retain(|s| s.source_id != id);
                 project.baselines.retain(|b| b.source_id != id);
+                project.assisted_exports.remove(&id);
             }
             ProjectChange::Settings(settings) => project.settings = settings,
             ProjectChange::CustomTerms(terms) => project.custom_terms = terms,
+            ProjectChange::AssistedExport {
+                source_id,
+                settings,
+            } => {
+                if !project.sources.iter().any(|s| s.source_id == source_id) {
+                    return Err(invalid("source not connected to this project"));
+                }
+                if let Some(settings) = settings {
+                    project.assisted_exports.insert(source_id, settings);
+                } else {
+                    project.assisted_exports.remove(&source_id);
+                }
+            }
             ProjectChange::Privacy(profile) => {
                 profile.validate()?;
                 project.settings.privacy_preset = profile.preset.id().into();
@@ -653,6 +681,18 @@ fn validate_project(project: &Project) -> io::Result<()> {
         if let Some(id) = &source.latest_snapshot_id {
             validate_snapshot_id(id)?;
         }
+    }
+    for (id, settings) in &project.assisted_exports {
+        if !project.sources.iter().any(|s| {
+            s.source_id == *id
+                && s.connector_id == "telegram_json"
+                && s.scope.platform == "telegram"
+        }) {
+            return Err(invalid(
+                "assisted export requires a connected Telegram JSON source",
+            ));
+        }
+        settings.validate()?;
     }
     let mut baseline_ids = BTreeSet::new();
     for baseline in &project.baselines {

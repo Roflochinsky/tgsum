@@ -3,6 +3,9 @@
 
 use std::path::PathBuf;
 
+#[path = "commands/assisted.rs"]
+mod assisted;
+
 use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};

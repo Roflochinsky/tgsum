@@ -243,6 +243,12 @@ main { flex: 1; min-height: 0; }
 .privacy-settings textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font: 13px/1.5 var(--mono); resize: vertical; }
 .privacy-settings label, .attachment-root { display: block; }
 .privacy-settings, .attachment-selector { margin: 16px 0; }
+.assisted-export { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.assisted-export summary { cursor: pointer; font-weight: 600; }
+.assisted-export ol { padding-left: 22px; line-height: 1.6; }
+.assisted-export p { overflow-wrap: anywhere; }
+.assisted-export label:not(.project-check) { margin: 12px 0; }
+.assisted-export input[readonly] { min-width: 0; width: 100%; box-sizing: border-box; }
 .privacy-settings { padding: 20px; }
 .privacy-settings h3 { margin-top: 0; }
 .privacy-settings label.project-check { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 8px 0; }

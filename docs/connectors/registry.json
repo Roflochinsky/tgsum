@@ -99,7 +99,7 @@
       "priority": "P0",
       "credential_type": "session_managed_by_installed_official_client",
       "authorization_scope": "Telegram session can access the account",
-      "selected_scope": "helper requests only selected chat; app-enforced",
+      "selected_scope": "human selects account/chat in Desktop; TGSUM validates configured conversation ID during explicit JSON import",
       "capabilities": {
         "history": "available",
         "delta": "reimport",
@@ -126,7 +126,8 @@
       "open_questions": [
         "Controlled PoC on the installed unmodified official client; no session storage or process-memory access.",
         "Real-account testing requires user control and stays in backlog; implement parser/diff/bridge contract with synthetic fixtures.",
-        "Validate selectors, exact chat identity, delays, completion and active-session behavior."
+        "Validate selectors, exact chat identity, delays, completion and active-session behavior.",
+        "Assisted settings, explicit selected-native-client launch and human-confirmed JSON import are implemented; see ../development/assisted-export.md and primary-source refresh ../research/telegram-assisted-export-2026-09-27.md (Desktop v7.2.9). Launch remains needs_user_action and never signals completion. Folder and actual nested ChatExport JSON are separate references. Only synthetic public-store/mock-IPC/Linux Tauri paths are qualified; native .app/Flatpak/shortcut launch uses manual fallback. This does not enable automatic export or qualify a real client/account. Existing policy review date/support status remain unchanged; acquisition-source research is dated separately."
       ]
     },
     {

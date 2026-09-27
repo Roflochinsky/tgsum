@@ -5,6 +5,7 @@
 //! throttled `progress` events and stop early when the user cancels.
 
 pub mod analysis;
+mod assisted;
 mod desktop;
 #[cfg(target_os = "linux")]
 mod launcher;
@@ -589,6 +590,9 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             project_source_status,
             preview_project_source,
             refresh_project_source,
+            assisted::pick_assisted_path,
+            assisted::launch_assisted_client,
+            assisted::import_assisted_export,
             prepare_project_bundle,
             privacy::privacy_presets,
             privacy::attachment_catalog,

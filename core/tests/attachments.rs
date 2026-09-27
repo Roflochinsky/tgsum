@@ -268,11 +268,11 @@ fn version_five_projects_migrate_without_activating_or_rewriting_attachment_choi
     let bytes = serde_json::to_vec(&legacy).unwrap();
     fs::write(&revision, &bytes).unwrap();
     let opened = store.open(&project.project_id).unwrap();
-    assert_eq!(opened.schema_version, 7);
+    assert_eq!(opened.schema_version, 8);
     assert!(opened.sources[0].selection.attachments.is_none());
     assert_eq!(fs::read(&revision).unwrap(), bytes);
     let selected = select(&store, &opened, archive.path());
-    assert_eq!(selected.schema_version, 7);
+    assert_eq!(selected.schema_version, 8);
     assert_eq!(fs::read(&revision).unwrap(), bytes);
     let selected_revision = private
         .path()
