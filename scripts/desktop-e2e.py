@@ -301,6 +301,26 @@ def exercise(ui, root, report, report_dir):
     assert next(s for s in rejected["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == forum_snapshot
     assert not ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-confirm]") + ").checked")
 
+    # Losing a selected file and receiving a truncated JSON are separate
+    # failures. Neither is a completed client export or a reason to advance
+    # either connected source; the person must confirm each retry again.
+    for failure in ["missing", "truncated"]:
+        if failure == "missing":
+            direct_archive.unlink()
+        else:
+            direct_archive.write_text('{"id":111,"messages":[', encoding="utf-8")
+        ui.click(direct_card + " [data-assisted-confirm]")
+        ui.click(direct_card + " [data-assisted-import]")
+        ui.stage("source")
+        assert "Предыдущий snapshot сохранён" in ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-status]") + ").textContent")
+        assert not ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-confirm]") + ").checked")
+        failed = ui.invoke("open_project", {"projectId": pid})
+        assert failed["revision"] == project["revision"], failure
+        assert next(s for s in failed["sources"] if s["source_id"] == direct["source_id"])["latest_snapshot_id"] == direct_snapshot
+        assert next(s for s in failed["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == forum_snapshot
+        assert failed["analysis_run"] == old_analysis
+    passed("missing and truncated assisted JSON require a new confirmation and preserve both snapshots")
+
     correct = json.loads((root / "full.json").read_text(encoding="utf-8"))["chats"]["list"][0]
     correct["messages"][1]["text"] = "Changed in direct chat"
     correct["messages"].pop(0)  # absent in this snapshot, not a deletion claim
