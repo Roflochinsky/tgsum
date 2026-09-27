@@ -49,6 +49,19 @@ jobs:
             connector-review.md
           if-no-files-found: error
 
+  telegram-uia:
+    name: Telegram UIA synthetic transport
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Telegram UIA probe fake-tree checks
+        shell: powershell
+        run: .\scripts\test-telegram-uia-probe.ps1
+      - name: Telegram UIA synthetic native-window transport
+        shell: powershell
+        run: .\scripts\test-telegram-uia-native.ps1
+
   lint:
     runs-on: ubuntu-24.04
     steps:
@@ -81,14 +94,6 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: bash scripts/check.sh test
-      - name: Telegram UIA probe synthetic checks
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: .\scripts\test-telegram-uia-probe.ps1
-      - name: Telegram UIA synthetic native-window transport
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: .\scripts\test-telegram-uia-native.ps1
       - name: Telegram AX probe synthetic checks
         if: runner.os == 'macOS'
         run: |
