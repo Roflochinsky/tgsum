@@ -13,6 +13,7 @@ mod de;
 pub mod extract;
 pub mod format;
 pub mod index;
+pub mod infrastructure;
 pub mod model;
 pub mod output;
 pub mod progress;

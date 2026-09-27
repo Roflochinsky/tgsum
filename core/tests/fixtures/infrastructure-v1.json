@@ -1,0 +1,492 @@
+{
+  "schema_version": 1,
+  "rules_version": "infrastructure/1",
+  "cases": [
+    {
+      "id": "ipv4",
+      "categories": [
+        "ip"
+      ],
+      "input": "192.0.2.1",
+      "expected": "IP_0001",
+      "findings": 1
+    },
+    {
+      "id": "ipv4_port",
+      "categories": [
+        "ip"
+      ],
+      "input": "10.2.3.4:5432",
+      "expected": "IP_0001:5432",
+      "findings": 1
+    },
+    {
+      "id": "ipv6",
+      "categories": [
+        "ip"
+      ],
+      "input": "[2001:db8::1]:443",
+      "expected": "[IP_0001]:443",
+      "findings": 1
+    },
+    {
+      "id": "ipv6_alias",
+      "categories": [
+        "ip"
+      ],
+      "input": "2001:0db8:0:0:0:0:0:1 2001:db8::1",
+      "expected": "IP_0001 IP_0001",
+      "findings": 2
+    },
+    {
+      "id": "ipv6_zone",
+      "categories": [
+        "ip"
+      ],
+      "input": "[fe80::1%eth0]",
+      "expected": "[IP_0001]",
+      "findings": 1
+    },
+    {
+      "id": "invalid_zone",
+      "categories": [
+        "ip"
+      ],
+      "input": "[fe80::1%eth0!]",
+      "expected": "[fe80::1%eth0!]",
+      "findings": 0
+    },
+    {
+      "id": "invalid_ipv4",
+      "categories": [
+        "ip"
+      ],
+      "input": "999.2.3.4",
+      "expected": "999.2.3.4",
+      "findings": 0
+    },
+    {
+      "id": "octal_ipv4",
+      "categories": [
+        "ip"
+      ],
+      "input": "192.168.001.2",
+      "expected": "192.168.001.2",
+      "findings": 0
+    },
+    {
+      "id": "version",
+      "categories": [
+        "ip"
+      ],
+      "input": "v1.2.3.4.5",
+      "expected": "v1.2.3.4.5",
+      "findings": 0
+    },
+    {
+      "id": "dns_embedded_ip",
+      "categories": [
+        "ip"
+      ],
+      "input": "192.0.2.1.example",
+      "expected": "192.0.2.1.example",
+      "findings": 0
+    },
+    {
+      "id": "dns_boundary",
+      "categories": [
+        "host"
+      ],
+      "input": "notlocalhost.example local.example",
+      "expected": "notlocalhost.example local.example",
+      "findings": 0
+    },
+    {
+      "id": "public_url",
+      "categories": [
+        "ip"
+      ],
+      "input": "https://EXAMPLE.com:443/a/../192.0.2.1?q=/home/user",
+      "expected": "https://EXAMPLE.com:443/a/../192.0.2.1?q=/home/user",
+      "findings": 0
+    },
+    {
+      "id": "malformed_url",
+      "categories": [
+        "ip"
+      ],
+      "input": "http://[2001:db8::1/path",
+      "expected": "http://[2001:db8::1/path",
+      "findings": 0
+    },
+    {
+      "id": "internal_url",
+      "categories": [
+        "url"
+      ],
+      "input": "https://DB.INTERNAL:443/a",
+      "expected": "URL_0001",
+      "findings": 1
+    },
+    {
+      "id": "internal_url_alias",
+      "categories": [
+        "url"
+      ],
+      "input": "https://DB.INTERNAL:443/a https://db.internal/a",
+      "expected": "URL_0001 URL_0001",
+      "findings": 2
+    },
+    {
+      "id": "private_ip_url",
+      "categories": [
+        "url"
+      ],
+      "input": "http://10.2.3.4:8080/a",
+      "expected": "URL_0001",
+      "findings": 1
+    },
+    {
+      "id": "numeric_url",
+      "categories": [
+        "url"
+      ],
+      "input": "http://0x7f000001/a",
+      "expected": "URL_0001",
+      "findings": 1
+    },
+    {
+      "id": "public_ip_url",
+      "categories": [
+        "url"
+      ],
+      "input": "https://8.8.8.8/a",
+      "expected": "https://8.8.8.8/a",
+      "findings": 0
+    },
+    {
+      "id": "url_punctuation",
+      "categories": [
+        "url"
+      ],
+      "input": "(http://db.local/a).",
+      "expected": "(URL_0001).",
+      "findings": 1
+    },
+    {
+      "id": "public_url_path",
+      "categories": [
+        "path"
+      ],
+      "input": "https://example.com/home/alice",
+      "expected": "https://example.com/home/alice",
+      "findings": 0
+    },
+    {
+      "id": "unknown_corp_url",
+      "categories": [
+        "url"
+      ],
+      "input": "https://prod.corp/a",
+      "expected": "https://prod.corp/a",
+      "findings": 0
+    },
+    {
+      "id": "localhost",
+      "categories": [
+        "host"
+      ],
+      "input": "localhost",
+      "expected": "HOST_0001",
+      "findings": 1
+    },
+    {
+      "id": "mdns",
+      "categories": [
+        "host"
+      ],
+      "input": "DB.LOCAL db.local",
+      "expected": "HOST_0001 HOST_0001",
+      "findings": 2
+    },
+    {
+      "id": "home_arpa",
+      "categories": [
+        "host"
+      ],
+      "input": "host.home.arpa",
+      "expected": "HOST_0001",
+      "findings": 1
+    },
+    {
+      "id": "internal_host",
+      "categories": [
+        "host"
+      ],
+      "input": "host.internal",
+      "expected": "HOST_0001",
+      "findings": 1
+    },
+    {
+      "id": "host_context",
+      "categories": [
+        "host"
+      ],
+      "input": "host=PROD-db-03",
+      "expected": "host=HOST_0001",
+      "findings": 1
+    },
+    {
+      "id": "public_host_context",
+      "categories": [
+        "host"
+      ],
+      "input": "server=public.example",
+      "expected": "server=HOST_0001",
+      "findings": 1
+    },
+    {
+      "id": "ordinary_words",
+      "categories": [
+        "host"
+      ],
+      "input": "internal local production server",
+      "expected": "internal local production server",
+      "findings": 0
+    },
+    {
+      "id": "domain_context",
+      "categories": [
+        "domain"
+      ],
+      "input": "domain=CORP.EXAMPLE",
+      "expected": "domain=DOMAIN_0001",
+      "findings": 1
+    },
+    {
+      "id": "username_context",
+      "categories": [
+        "username"
+      ],
+      "input": "username=Deploy",
+      "expected": "username=USER_0001",
+      "findings": 1
+    },
+    {
+      "id": "ssh_user",
+      "categories": [
+        "username"
+      ],
+      "input": "ssh deploy@prod.local",
+      "expected": "ssh USER_0001@prod.local",
+      "findings": 1
+    },
+    {
+      "id": "email_not_login",
+      "categories": [
+        "username"
+      ],
+      "input": "deploy@prod.local",
+      "expected": "deploy@prod.local",
+      "findings": 0
+    },
+    {
+      "id": "email_host_guard",
+      "categories": [
+        "host"
+      ],
+      "input": "deploy@prod.local",
+      "expected": "deploy@prod.local",
+      "findings": 0
+    },
+    {
+      "id": "posix_path",
+      "categories": [
+        "path"
+      ],
+      "input": "/home/alice/project.log",
+      "expected": "PATH_0001",
+      "findings": 1
+    },
+    {
+      "id": "quoted_posix",
+      "categories": [
+        "path"
+      ],
+      "input": "\"/home/alice/My Notes.txt\"",
+      "expected": "\"PATH_0001\"",
+      "findings": 1
+    },
+    {
+      "id": "custom_path_context",
+      "categories": [
+        "path"
+      ],
+      "input": "file=/customer/project.log",
+      "expected": "file=PATH_0001",
+      "findings": 1
+    },
+    {
+      "id": "tilde_path",
+      "categories": [
+        "path"
+      ],
+      "input": "~/private/settings.toml",
+      "expected": "PATH_0001",
+      "findings": 1
+    },
+    {
+      "id": "windows_drive",
+      "categories": [
+        "path"
+      ],
+      "input": "C:\\Users\\Alice\\log.txt",
+      "expected": "PATH_0001",
+      "findings": 1
+    },
+    {
+      "id": "windows_alias",
+      "categories": [
+        "path"
+      ],
+      "input": "C:\\Users\\Alice\\log.txt c:/Users/Alice/log.txt",
+      "expected": "PATH_0001 PATH_0001",
+      "findings": 2
+    },
+    {
+      "id": "unc_path",
+      "categories": [
+        "path"
+      ],
+      "input": "\\\\server\\Share\\log.txt",
+      "expected": "PATH_0001",
+      "findings": 1
+    },
+    {
+      "id": "device_path",
+      "categories": [
+        "path"
+      ],
+      "input": "\\\\?\\C:\\Users\\Alice\\log.txt",
+      "expected": "\\\\?\\C:\\Users\\Alice\\log.txt",
+      "findings": 0
+    },
+    {
+      "id": "relative_path",
+      "categories": [
+        "path"
+      ],
+      "input": "src/app/main.rs",
+      "expected": "src/app/main.rs",
+      "findings": 0
+    },
+    {
+      "id": "drive_relative",
+      "categories": [
+        "path"
+      ],
+      "input": "C:local.txt",
+      "expected": "C:local.txt",
+      "findings": 0
+    },
+    {
+      "id": "http_route",
+      "categories": [
+        "path"
+      ],
+      "input": "/api/v1/messages",
+      "expected": "/api/v1/messages",
+      "findings": 0
+    },
+    {
+      "id": "aws_arn",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "arn:aws:lambda:us-east-1:123456789012:function:Demo:live",
+      "expected": "RESOURCE_0001",
+      "findings": 1
+    },
+    {
+      "id": "aws_s3",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "arn:aws:s3:::synthetic-bucket",
+      "expected": "RESOURCE_0001",
+      "findings": 1
+    },
+    {
+      "id": "aws_wildcard",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "arn:aws:s3:::*",
+      "expected": "arn:aws:s3:::*",
+      "findings": 0
+    },
+    {
+      "id": "aws_invalid_account",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "arn:aws:iam::1234:role/demo",
+      "expected": "arn:aws:iam::1234:role/demo",
+      "findings": 0
+    },
+    {
+      "id": "azure_resource",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/Demo/providers/Microsoft.Compute/virtualMachines/VM1",
+      "expected": "RESOURCE_0001",
+      "findings": 1
+    },
+    {
+      "id": "azure_tenant",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "/providers/Microsoft.Management/managementGroups/Demo",
+      "expected": "RESOURCE_0001",
+      "findings": 1
+    },
+    {
+      "id": "azure_invalid",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "/subscriptions/not-a-guid/resourceGroups/Demo",
+      "expected": "/subscriptions/not-a-guid/resourceGroups/Demo",
+      "findings": 0
+    },
+    {
+      "id": "gcp_resource",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "//pubsub.googleapis.com/projects/synthetic/topics/Demo",
+      "expected": "RESOURCE_0001",
+      "findings": 1
+    },
+    {
+      "id": "gcp_suffix_trap",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "//pubsub.googleapis.com.evil/projects/synthetic",
+      "expected": "//pubsub.googleapis.com.evil/projects/synthetic",
+      "findings": 0
+    },
+    {
+      "id": "gcp_http_public",
+      "categories": [
+        "cloud_resource"
+      ],
+      "input": "https://pubsub.googleapis.com/v1/projects/synthetic/topics/Demo",
+      "expected": "https://pubsub.googleapis.com/v1/projects/synthetic/topics/Demo",
+      "findings": 0
+    }
+  ]
+}
