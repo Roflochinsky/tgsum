@@ -16,6 +16,44 @@ fn ids(keys: &[MessageKey]) -> Vec<&str> {
 }
 
 #[test]
+fn sender_name_and_id_are_selected_as_one_pair_without_borrowing_actor_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = SnapshotStore::new(directory.path());
+    let data = serde_json::json!({"id": 1, "messages": [
+        {"id":1,"from":"Alice","actor":"Unrelated","actor_id":"user2"},
+        {"id":2,"from_id":"user1","actor":"Unrelated","actor_id":"user2"},
+        {"id":3,"from":"Alice","from_id":"user1","actor":"Unrelated","actor_id":"user2"},
+        {"id":4,"type":"service","actor":"Bob","actor_id":"user2","action":"create_group"},
+        {"id":5,"type":"service","from":"Alice","from_id":"user1","action":"proximity_reached","to":"Bob","to_id":"user2"},
+        {"id":6,"text":"No sender"}
+    ]});
+    let snapshot = store
+        .import_telegram(
+            "paired",
+            &SourceScope::telegram("synthetic", "1"),
+            Cursor::new(serde_json::to_vec(&data).unwrap()),
+        )
+        .unwrap();
+    let pairs: Vec<_> = snapshot
+        .messages
+        .iter()
+        .map(|message| (message.sender_name.as_deref(), message.sender_id.as_deref()))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            (Some("Alice"), None),
+            (None, Some("user1")),
+            (Some("Alice"), Some("user1")),
+            (Some("Bob"), Some("user2")),
+            (Some("Alice"), Some("user1")),
+            (None, None),
+        ]
+    );
+    assert_eq!(snapshot, store.load("paired").unwrap());
+}
+
+#[test]
 fn persistent_snapshots_diff_native_identities_and_preserve_provenance() {
     let dir = tempfile::tempdir().unwrap();
     let store = SnapshotStore::new(dir.path());

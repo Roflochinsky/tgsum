@@ -111,6 +111,15 @@ pub(super) fn normalize(
                 });
             }
         }
+        // The official writer emits a paired name/ID. Never combine a partial
+        // `from` pair with an unrelated `actor` pair in a malformed archive.
+        // Some service actions also use `from`, so type alone cannot choose it.
+        let (sender_name, sender_id) =
+            if record.legacy.from.is_some() || record.legacy.from_id.is_some() {
+                (record.legacy.from, record.legacy.from_id)
+            } else {
+                (record.legacy.actor, record.legacy.actor_id)
+            };
         messages.push(MessageObservation::native_present(CanonicalMessage {
             thread_id: topics.remove(&record.id),
             key: MessageKey {
@@ -119,8 +128,8 @@ pub(super) fn normalize(
             },
             timestamp: record.legacy.date,
             timestamp_unix: record.date_unixtime,
-            sender_id: record.legacy.from_id.or(record.legacy.actor_id),
-            sender_name: record.legacy.from.or(record.legacy.actor),
+            sender_id,
+            sender_name,
             text,
             reply_to: record.reply_to_message_id,
             edited_at: record.edited,
