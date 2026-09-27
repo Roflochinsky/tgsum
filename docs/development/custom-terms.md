@@ -2,8 +2,8 @@
 
 Backend contract for `tgsum-af2.4`, 2026-09-27. A Project can retain an explicit
 dictionary of company names, project names, domains, repositories or other text.
-The existing bundle Review shows the replaced text. The desktop dictionary
-editor and preset controls are a separate task, `tgsum-af2.7`.
+The bundle Review shows the replaced text. The desktop dictionary
+editor and presets are described in [privacy controls](privacy-controls.md).
 
 ## Configure and retain
 
@@ -33,7 +33,7 @@ or term values. They do not sanitize arbitrary source data or caller logging.
 
 Project schema 5 adds the dictionary, empty by default. Schemas 1–4 open with
 empty terms without rewriting old bytes; a later write publishes the current
-Project schema (now 6 with [attachments](attachments.md)). A legacy-version
+Project schema (now 7 with [saved privacy options](privacy-controls.md)). A legacy-version
 manifest cannot activate a nonempty dictionary.
 Updates use the existing revision/CAS contract and stale any existing Review.
 
@@ -99,7 +99,7 @@ entries/aliases leaves the revision unchanged. Cancellation, budget errors and
 concurrent edits preserve the current mapping pointer; the existing immutable
 orphan-file/I/O publication limits apply as documented in [pseudonyms](pseudonyms.md).
 
-Private bundle schemas 5–6 bind the dictionary through its exact immutable Project
+Private bundle schemas 5–7 bind the dictionary through its exact immutable Project
 revision, alongside the mapping and other policies. It does not copy the term
 list into the bundle manifest. Public `custom_terms`, present only when enabled,
 contains `rules_version: "terms/1"` and `replacements`. It never includes configured

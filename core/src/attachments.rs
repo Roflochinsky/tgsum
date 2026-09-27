@@ -1,6 +1,9 @@
 //! Explicit local attachment choices and bounded, handle-relative text reads.
 //! No directory discovery, client profile access, URL fetching or extraction.
 
+mod catalog;
+pub use catalog::{AttachmentCandidate, AttachmentCatalog};
+
 use std::collections::BTreeSet;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};

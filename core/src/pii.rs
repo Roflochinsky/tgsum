@@ -31,7 +31,7 @@ pub enum PiiCategory {
     Usernames,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PiiPolicy {
     pub categories: BTreeSet<PiiCategory>,
@@ -201,11 +201,18 @@ impl PiiDetector {
         sender: Option<&CanonicalMessage>,
         scope: Option<&SourceScope>,
         mapping: &mut MappingDraft,
+        keep_values: &BTreeSet<String>,
     ) -> io::Result<PiiText> {
         if value.len() > MAX_FIELD_BYTES {
             return Err(invalid("PII field exceeds limit"));
         }
         if let Some(message) = sender.filter(|_| self.participants_enabled()) {
+            if keep_values.contains(value) {
+                return Ok(PiiText {
+                    text: value.into(),
+                    findings: Vec::new(),
+                });
+            }
             let owner = match participant_identity(message)? {
                 Some(identity) => Owner::Known(
                     mapping
@@ -236,7 +243,7 @@ impl PiiDetector {
             replacements.extend(contacts::usernames(value, scope, mapping)?);
         }
         let Some(matcher) = &self.matcher else {
-            return apply_sorted(value, replacements);
+            return apply_sorted(value, replacements, keep_values);
         };
         let protected = protected_spans(value)?;
         for (attempt, found) in matcher.find_overlapping_iter(value).enumerate() {
@@ -258,11 +265,15 @@ impl PiiDetector {
                 self.owners[found.pattern().as_usize()].clone(),
             ));
         }
-        apply_sorted(value, replacements)
+        apply_sorted(value, replacements, keep_values)
     }
 }
 
-fn apply_sorted(value: &str, mut replacements: Vec<Replacement>) -> io::Result<PiiText> {
+fn apply_sorted(
+    value: &str,
+    mut replacements: Vec<Replacement>,
+    keep_values: &BTreeSet<String>,
+) -> io::Result<PiiText> {
     // Filter boundaries/containers before selecting longest valid matches.
     // Otherwise an invalid longer alias could hide a valid shorter one.
     replacements.sort_unstable_by_key(|(r, _, _)| (r.start, std::cmp::Reverse(r.end)));
@@ -274,7 +285,8 @@ fn apply_sorted(value: &str, mut replacements: Vec<Replacement>) -> io::Result<P
                 return false;
             }
             end = range.end;
-            true
+            // An excluded whole match also shields its contained shorter aliases.
+            !keep_values.contains(&value[range.clone()])
         }),
     )
 }

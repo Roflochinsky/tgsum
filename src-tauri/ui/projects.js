@@ -1,5 +1,6 @@
 // Persistent Project scope editor. Archive parsing and filtering stay in Rust.
 import { mountAnalysis } from './analysis.js'
+import { mountPrivacy } from './privacy.js'
 import { recentProjects, rememberProject } from './onboarding.js'
 
 export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, selection, index, toast }) {
@@ -17,6 +18,17 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   const analysis = mountAnalysis({ invoke, act, project: () => current, bundle: () => review,
     reload: async () => { current = await invoke('open_project', { projectId: current.project_id }); await render() },
     startJob, endJob, show, toast, navigate, changed: syncSteps })
+  const privacy = mountPrivacy({ invoke, act, project: () => current, update,
+    invalidate: invalidateReview, navigate, startJob, endJob, show })
+
+  function invalidateReview() {
+    review = null
+    privacyVisible = false
+    privacy.clearReview()
+    analysis.invalidate()
+    analysis.availability()
+    syncSteps()
+  }
 
   function syncSteps() {
     const enabled = { source: !!current, privacy: privacyVisible,
@@ -48,9 +60,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       // Keep draft scope/model/options on failure. A conflict requires an
       // explicit reload, which is the only error path that discards form edits.
       if (e?.kind === 'conflict' && current) {
-        review = null
-        await analysis.invalidate()
-        analysis.availability()
+        invalidateReview()
         $('#project-conflict').hidden = false
       }
     } finally {
@@ -80,10 +90,10 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       ? `<button type="button" class="btn btn-ghost" data-project="${esc(entry.project.project_id)}">${esc(entry.project.name)}</button>`
       : `<div class="alert">Проект недоступен: ${esc(entry.project_id)} — ${esc(entry.message)}</div>`).join('')
     $('#project-list-empty').hidden = entries.length > 0
-    await render()
+    await render({ discardPrivacy: true })
   }
 
-  async function render() {
+  async function render({ discardPrivacy = false } = {}) {
     const epoch = ++renderEpoch
     $('#project-detail').hidden = !current
     $('#project-home').hidden = !!current
@@ -92,8 +102,10 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     step = 'source'
     privacyVisible = false
     review = null
+    privacy.clearReview()
     await analysis.invalidate()
     if (!current) return
+    await privacy.load({ discard: discardPrivacy })
     rememberProject(current.project_id)
     exportedDirectory = null
     $('#project-review').hidden = true
@@ -141,6 +153,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       const syncTopics = () => { for (const input of card.querySelectorAll('[name="topic"]')) input.disabled = all.checked }
       all.addEventListener('change', syncTopics)
       syncTopics()
+      await privacy.sourceFiles(card, source)
+      if (epoch !== renderEpoch) return
     }
     await analysis.reset()
     syncSteps()
@@ -154,19 +168,22 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   }
 
   async function prepareReview() {
-    await analysis.invalidate()
-    review = null
+    if (!$('#project-unsaved').hidden) throw new Error('Сохраните выбор источников перед подготовкой контекста')
+    invalidateReview()
+    await privacy.persist()
     $('#btn-project-export').disabled = true
     $('#project-export-result').hidden = true
     $('#btn-project-open-export').hidden = true
     exportedDirectory = null
     startJob('bundle', 'Проверка и подготовка выбранного контекста')
+    let prepared
     try {
-      review = await invoke('prepare_project_bundle', { projectId: current.project_id, expectedRevision: current.revision,
-        options: { redact_candidates: $('#project-redact-candidates').checked } })
+      prepared = await invoke('prepare_project_bundle', { projectId: current.project_id, expectedRevision: current.revision })
+      // Publishing pseudonym mappings may advance the Project revision.
+      current = await invoke('open_project', { projectId: current.project_id })
     } finally { endJob(); show('projects') }
-    const m = review.manifest
-    $('#project-review-summary').textContent = `Источников: ${m.sources.length} · сообщений: ${m.messages} · вложений включено: ${m.included_attachments} · ссылок на невключённые вложения: ${m.attachment_references}`
+    const m = prepared.manifest
+    $('#project-review-summary').textContent = `Источников: ${m.sources.length} · сообщений: ${m.messages} · вложений включено: ${m.included_attachments} · ссылок на невключённые вложения: ${m.attachment_references - m.included_attachments}`
     const coverage = { complete: 'полнота подтверждена для архивного диапазона', partial: 'неполная история', own_messages_only: 'только собственные сообщения', future_only: 'только новые события', unknown: 'полнота не подтверждена' }
     $('#project-review-sources').replaceChildren(...m.sources.map((source) => {
       const li = document.createElement('li')
@@ -176,9 +193,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       li.textContent = `${source.title}: ${source.stats.selected} сообщений · ${topics}${source.only_changes ? ' · новые и изменённые' : ''}${dates}${unknown} · ${coverage[source.coverage]}${source.known_gaps ? ` · пропусков: ${source.known_gaps}` : ''}`
       return li
     }))
-    $('#project-review-privacy').textContent = `Скрыто значений: ${m.privacy.redacted}. Требуют решения: ${m.privacy.needs_review}.${m.privacy.needs_review ? ' Включите скрытие подозрительных значений и обновите проверку.' : ''}`
-    const fields = { project_title: 'Название проекта', source_title: 'Название источника', platform: 'Платформа', sender: 'Отправитель', timestamp: 'Дата', edited_at: 'Дата изменения', service_action: 'Событие', service_title: 'Название события', text: 'Сообщение' }
-    $('#project-review-findings').replaceChildren(...review.findings.map((finding) => {
+    privacy.summary(m)
+    const fields = { project_title: 'Название проекта', source_title: 'Название источника', platform: 'Платформа', sender: 'Отправитель', timestamp: 'Дата', edited_at: 'Дата изменения', service_action: 'Событие', service_title: 'Название события', text: 'Сообщение', attachment_text: 'Текст вложения' }
+    $('#project-review-findings').replaceChildren(...prepared.findings.map((finding) => {
       const li = document.createElement('li')
       const label = document.createElement('strong')
       label.textContent = `${fields[finding.field] || finding.field} · ${finding.rule === 'jwt_candidate' ? 'похожее на JWT значение' : 'возможный ключ'}: `
@@ -187,10 +204,13 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       li.append(label, excerpt)
       return li
     }))
-    $('#project-review-omitted').hidden = review.omitted_findings === 0
-    $('#project-review-omitted').textContent = `Ещё находок: ${review.omitted_findings}. Скрытие подозрительных значений применяется ко всему выбранному контексту.`
-    $('#project-review-preview').textContent = review.preview
-    $('#project-review-truncated').hidden = !review.preview_truncated
+    $('#project-review-omitted').hidden = prepared.omitted_findings === 0
+    $('#project-review-omitted').textContent = `Ещё находок: ${prepared.omitted_findings}. Скрытие подозрительных значений применяется ко всему выбранному контексту.`
+    $('#project-review-preview').textContent = prepared.preview
+    $('#project-review-truncated').hidden = !prepared.preview_truncated
+    await privacy.showReview(prepared)
+    // Enable recipient selection only after the complete local Review rendered.
+    review = prepared
     $('#project-review').hidden = false
     privacyVisible = true
     $('#btn-project-export').disabled = m.privacy.needs_review > 0
@@ -201,20 +221,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
 
   $('#btn-project-review').addEventListener('click', () => act(prepareReview))
   $('#btn-project-review-again').addEventListener('click', () => act(prepareReview))
-  $('#project-redact-candidates').addEventListener('change', () => {
-    review = null
-    analysis.invalidate()
-    analysis.availability()
-    $('#btn-project-export').disabled = true
-    $('#project-review-privacy').textContent = 'Настройка изменена. Обновите проверку перед сохранением.'
-    syncSteps()
-  })
   $('#project-sources').addEventListener('input', () => {
-    review = null
-    privacyVisible = false
-    analysis.invalidate()
-    analysis.availability()
-    $('#project-review').hidden = true
+    invalidateReview()
     $('#btn-project-review').disabled = true
     $('#project-unsaved').hidden = false
   })
@@ -262,7 +270,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   })
   $('#project-list').addEventListener('click', (e) => {
     const button = e.target.closest('[data-project]')
-    if (button) act(async () => { current = await invoke('open_project', { projectId: button.dataset.project }); await render() })
+    if (button) act(async () => { current = await invoke('open_project', { projectId: button.dataset.project }); await render({ discardPrivacy: true }) })
   })
   $('#rename-project-form').addEventListener('submit', (e) => {
     e.preventDefault()
@@ -285,7 +293,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     const f = form.elements
     act(async () => {
       await update({ kind: 'selection', value: { source_id: form.dataset.source, selection: {
+        ...current.sources.find((s) => s.source_id === form.dataset.source).selection,
         enabled: f.enabled.checked, only_changes: f.only_changes.checked,
+        attachments: privacy.selection(form),
         filter: { topic_ids: f.all_topics.checked ? null : [...form.querySelectorAll('[name="topic"]:checked')].map((input) => input.value),
           dates: f.from.value || f.through.value ? { from: f.from.value || null, through: f.through.value || null, basis: f.basis.value } : null,
           include_unknown_dates: f.include_unknown_dates.checked, include_service: f.include_service.checked }
@@ -330,7 +340,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
           const source = { source_id: sourceId, connector_id: 'telegram_json',
             scope: { platform: 'telegram', account_local_id: account, conversation_id: chatId },
             archive_path: index().path, latest_snapshot_id: existing?.latest_snapshot_id || null,
-            selection: { enabled: true, only_changes: existing?.selection.only_changes || false,
+            selection: { ...existing?.selection, enabled: true, only_changes: existing?.selection.only_changes || false,
               filter: { ...(existing?.selection.filter || {}), topic_ids: topicIds } } }
           await update({ kind: 'source', value: source })
           await refresh(sourceId)

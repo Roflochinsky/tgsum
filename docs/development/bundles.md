@@ -33,7 +33,8 @@ stages, protecting their generated replacements. It defaults to empty.
 New mapping entries/aliases publish one Project revision at the end
 of successful preparation. Always use the returned `project_revision` for
 export/analysis, reloading Project state when it changes. No-op preparation
-does not advance the revision. The desktop preset UI is a separate task.
+does not advance the revision. The desktop saves category presets/options in
+the Project and calls `prepare_saved_bundle`; see [privacy controls](privacy-controls.md).
 
 Preparation rejects missing snapshots, scope mismatches, an empty selection,
 cancellation and concurrent Project edits. Export requires the same reviewed
@@ -73,7 +74,8 @@ version, privacy counts and file sizes/SHA-256 digests. An optional
 the plaintext map digest remain private. This field does not claim that any
 pseudonym detector ran. An optional `infrastructure` summary records actual rules
 version, selected categories and replacement counts, never configured names.
-Private bundle schema 6 additionally binds selected attachment artifacts; schema
+Private bundle schema 7 adds literal exceptions and evidence document pointers;
+schema 6 binds selected attachment artifacts; schema
 5 introduced the immutable Project revision containing any dictionary. Schemas
 1–5 remain readable without inventing attachment inclusion or applied terms. An optional
 `pii` summary records actual category replacements/ambiguity/unresolved counts
@@ -133,8 +135,9 @@ See [sanitization](sanitization.md): absence of findings does not prove anonymit
 or absence of credentials. Expanded secret rules are `secrets/2` and private
 mapping persistence is implemented. Optional infrastructure and participant,
 email, phone and standalone username rules are connected to the backend pipeline.
-Saved custom terms also run in this pipeline. Preset controls remain work in the
-Privacy epic.
+Saved custom terms also run in this pipeline. [Privacy controls](privacy-controls.md)
+provide presets, exact exceptions, selected files and explicit bounded local
+before/after comparison without adding originals to agent requests.
 
 ## Filesystem and resource behavior
 

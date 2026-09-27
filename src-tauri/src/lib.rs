@@ -8,6 +8,7 @@ pub mod analysis;
 mod desktop;
 #[cfg(target_os = "linux")]
 mod launcher;
+mod privacy;
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -178,16 +179,18 @@ async fn prepare_project_bundle(
     store: State<'_, ProjectStore>,
     project_id: String,
     expected_revision: u64,
-    options: BundleOptions,
+    options: Option<BundleOptions>,
 ) -> Result<BundleReview, CmdError> {
     let store = store.inner().clone();
     let cancel = jobs.start();
     run_blocking(move || {
-        Ok(
-            store.prepare_bundle(&project_id, expected_revision, options, || {
-                cancel.load(Ordering::Relaxed)
-            })?,
-        )
+        let cancelled = || cancel.load(Ordering::Relaxed);
+        Ok(match options {
+            Some(options) => {
+                store.prepare_bundle(&project_id, expected_revision, options, cancelled)?
+            }
+            None => store.prepare_saved_bundle(&project_id, expected_revision, cancelled)?,
+        })
     })
     .await
 }
@@ -587,6 +590,11 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             preview_project_source,
             refresh_project_source,
             prepare_project_bundle,
+            privacy::privacy_presets,
+            privacy::attachment_catalog,
+            privacy::review_items,
+            privacy::preview_evidence,
+            privacy::pick_attachment_root,
             export_project_bundle,
             analysis::analysis_catalog,
             analysis::pick_analysis_file,

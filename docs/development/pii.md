@@ -2,8 +2,8 @@
 
 Backend contract for `tgsum-af2.3`, 2026-09-27. Known senders, their observed
 display aliases and supported contact shapes use private Project mappings.
-Desktop preset controls remain
-`tgsum-af2.7`. This does not change acquisition or use real accounts.
+Desktop preset controls are described in [privacy controls](privacy-controls.md)
+(`tgsum-af2.7`). This does not change acquisition or use real accounts.
 
 ## Interface and identity
 

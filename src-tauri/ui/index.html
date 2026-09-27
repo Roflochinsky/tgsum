@@ -83,6 +83,25 @@
           <button id="btn-project-add-source" type="button" class="btn btn-primary">Подключить чаты из архива…</button>
           <p id="project-empty" class="hint">Выберите локальный JSON, затем отметьте чаты или темы проекта.</p>
           <div id="project-sources"></div>
+          <form id="privacy-settings" class="card privacy-settings" aria-labelledby="privacy-settings-title">
+            <h3 id="privacy-settings-title">Очистка контекста</h3>
+            <p class="hint">Секреты проверяются всегда. Выберите дополнительные категории; настройки сохраняются в этом проекте.</p>
+            <label>Набор категорий<select id="privacy-preset" class="select"><option value="secrets">Только секреты</option><option value="people">Секреты и персональные данные</option><option value="work">Рабочий контекст</option><option value="custom">Свой набор</option></select></label>
+            <div class="privacy-grid"><fieldset><legend>Персональные данные</legend><div id="privacy-pii"></div></fieldset><fieldset><legend>Инфраструктура</legend><div id="privacy-infrastructure"></div></fieldset></div>
+            <label class="project-check"><input id="project-redact-candidates" type="checkbox"> Скрывать также подозрительные значения</label>
+            <details><summary>Словарь и исключения</summary>
+              <div class="privacy-grid">
+                <label>Внутренние домены<textarea id="privacy-domains" rows="3" spellcheck="false" placeholder="company.example"></textarea></label>
+                <label>Дополнительные имена серверов<textarea id="privacy-hosts" rows="3" spellcheck="false" placeholder="build-server"></textarea></label>
+                <label>Чувствительные слова и названия<textarea id="privacy-terms" rows="4" spellcheck="false" placeholder="Название клиента&#10;Project Apollo"></textarea></label>
+                <label>Чувствительные подстроки<textarea id="privacy-substrings" rows="4" spellcheck="false"></textarea></label>
+              </div>
+              <label>Оставлять эти значения в PII и инфраструктуре<textarea id="privacy-exceptions" rows="3" spellcheck="false"></textarea></label>
+              <p class="hint">По одному значению в строке. Словарь и исключения учитывают регистр. Исключение действует на целое найденное значение; секреты и чувствительные слова всё равно очищаются.</p>
+            </details>
+            <p id="privacy-saved-state" class="hint" role="status"></p>
+            <button type="submit" class="btn btn-ghost">Сохранить настройки очистки</button>
+          </form>
           <p id="project-unsaved" class="hint" hidden>Сохраните изменения выбора перед подготовкой контекста.</p>
           <button id="btn-project-review" type="button" class="btn btn-primary">Проверить и подготовить контекст</button>
           </section>
@@ -94,11 +113,20 @@
             <p id="project-review-privacy"></p>
             <ul id="project-review-findings" class="project-review-findings"></ul>
             <p id="project-review-omitted" class="hint" hidden></p>
-            <label class="project-check"><input id="project-redact-candidates" type="checkbox"> Скрыть также подозрительные значения</label>
+            <button id="btn-privacy-settings" type="button" class="btn btn-ghost">Изменить настройки очистки</button>
             <p class="hint">Проверяются известные форматы секретов. Имена и другие чувствительные сведения могут остаться в тексте.</p>
             <button id="btn-project-review-again" type="button" class="btn btn-ghost">Обновить проверку</button>
             <p id="project-review-truncated" class="hint" hidden>Показано начало контекста. Проверка секретов выполнена для всех выбранных сообщений.</p>
             <pre id="project-review-preview" tabindex="0" aria-label="Подготовленный контекст"></pre>
+            <details id="privacy-file-list"><summary>Файлы подготовленного контекста</summary><ul id="privacy-reviewed-files"></ul><p id="privacy-file-gaps" class="hint"></p></details>
+            <section id="privacy-comparison" aria-labelledby="privacy-comparison-title">
+              <h4 id="privacy-comparison-title">Сравнить до и после</h4>
+              <p class="hint">Оригинал показывается только здесь, на этом компьютере. Агент получает очищенный контекст.</p>
+              <label>Сообщение или файл<select id="privacy-review-item" class="select"></select></label>
+              <div class="project-actions"><button id="privacy-page-prev" type="button" class="btn btn-ghost">Предыдущие</button><span id="privacy-review-page" class="hint"></span><button id="privacy-page-next" type="button" class="btn btn-ghost">Следующие</button><button id="privacy-compare" type="button" class="btn btn-ghost">Показать оригинал и результат</button></div>
+              <p id="privacy-comparison-status" class="hint" role="status"></p>
+              <div id="privacy-comparison-panes" class="privacy-grid" hidden><div><h5>До очистки</h5><pre id="privacy-before" tabindex="0"></pre></div><div><h5>После очистки</h5><pre id="privacy-after" tabindex="0"></pre></div></div>
+            </section>
             <button id="btn-project-destination" type="button" class="btn btn-primary" disabled>Далее · выбрать получателя</button>
           </section>
           <section data-project-panel="analyze" id="project-analysis" class="card project-review" aria-labelledby="analysis-title">

@@ -46,7 +46,7 @@ impl InfrastructureCategory {
 
 /// Configuration contains private names; serialize only into private settings.
 /// All categories are off by default. Bare company domains require explicit scope.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct InfrastructurePolicy {
     pub categories: BTreeSet<InfrastructureCategory>,
@@ -88,6 +88,10 @@ pub struct InfrastructureScan<'a> {
 }
 
 impl InfrastructureScan<'_> {
+    pub(crate) fn exclude(&mut self, values: &BTreeSet<String>) {
+        self.matches
+            .retain(|m| !values.contains(&self.text[m.range.clone()]));
+    }
     pub fn inputs(&self) -> Vec<PseudonymInput<'_>> {
         self.matches
             .iter()

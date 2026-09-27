@@ -19,6 +19,7 @@ pub mod infrastructure;
 pub mod model;
 pub mod output;
 pub mod pii;
+pub mod privacy;
 pub mod progress;
 pub mod project;
 pub mod pseudonyms;

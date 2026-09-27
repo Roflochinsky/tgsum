@@ -765,3 +765,98 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
         "PRIVATE_PROJECT"
     );
 }
+
+#[test]
+fn saved_privacy_and_local_comparison_commands_use_current_review_and_selected_files() {
+    use tgsum_core::{
+        project::{ProjectChange, ProjectSource, ProjectStore},
+        snapshot::SourceScope,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let archive = root.path().join("archive");
+    std::fs::create_dir(&archive).unwrap();
+    std::fs::write(
+        archive.join("note.log"),
+        "alice@example.test password=SYNTHETIC_PRIVATE_FILE",
+    )
+    .unwrap();
+    let store = ProjectStore::new(root.path().join("projects"));
+    let project = store.create("Saved privacy IPC").unwrap();
+    let scope = SourceScope::telegram("synthetic", "1");
+    store
+        .snapshots(&project.project_id)
+        .unwrap()
+        .import_telegram(
+            "initial",
+            &scope,
+            std::io::Cursor::new(
+                br#"{"id":1,"messages":[{"id":1,"text":"alice@example.test","file":"note.log"}]}"#,
+            ),
+        )
+        .unwrap();
+    let project = store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(ProjectSource {
+                source_id: "work".into(),
+                connector_id: "telegram_json".into(),
+                scope,
+                archive_path: None,
+                latest_snapshot_id: Some("initial".into()),
+                selection: Default::default(),
+            }),
+        )
+        .unwrap();
+    let app = tgsum_app::app(command_builder().manage(store))
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let w = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let presets = invoke(&w, "privacy_presets", json!({})).unwrap();
+    assert_eq!(presets.as_array().unwrap().len(), 4);
+    let people = presets
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["id"] == "people")
+        .unwrap();
+    let catalog=invoke(&w,"attachment_catalog",json!({"projectId":project.project_id,"expectedRevision":project.revision,"sourceId":"work","offset":0})).unwrap();
+    assert_eq!(catalog["total"], 1);
+    assert_eq!(catalog["items"][0]["eligible"], true);
+    let selected=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":project.revision,"change":{"kind":"selection","value":{"source_id":"work","selection":{"attachments":{"root":std::fs::canonicalize(&archive).unwrap(),"files":[catalog["items"][0]["choice"]]}}}}})).unwrap();
+    let saved=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":selected["revision"],"change":{"kind":"privacy","value":{"preset":"people","options":people["options"],"custom_terms":{"entries":[]}}}})).unwrap();
+    let review = invoke(
+        &w,
+        "prepare_project_bundle",
+        json!({"projectId":project.project_id,"expectedRevision":saved["revision"]}),
+    )
+    .unwrap();
+    assert_eq!(review["manifest"]["included_attachments"], 1);
+    assert_eq!(review["manifest"]["pii"]["by_category"]["emails"], 2);
+    assert!(!review.to_string().contains("SYNTHETIC_PRIVATE_FILE"));
+    let args = json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":review["project_revision"],"offset":0});
+    let items = invoke(&w, "review_items", args.clone()).unwrap();
+    let attachment = items["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["kind"] == "attachment")
+        .unwrap();
+    let preview=invoke(&w,"preview_evidence",json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":review["project_revision"],"reference":attachment["reference"]})).unwrap();
+    assert_eq!(preview["before_state"], "verified_file");
+    assert!(preview["before"]
+        .as_str()
+        .unwrap()
+        .contains("SYNTHETIC_PRIVATE_FILE"));
+    assert!(preview["after"]
+        .as_str()
+        .unwrap()
+        .contains("EMAIL_0001 password=[REDACTED_SECRET]"));
+    invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":review["project_revision"],"change":{"kind":"privacy","value":{"preset":"secrets","options":{},"custom_terms":{"entries":[]}}}})).unwrap();
+    assert_eq!(
+        invoke(&w, "review_items", args).unwrap_err()["kind"],
+        "conflict"
+    );
+}

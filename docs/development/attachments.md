@@ -5,7 +5,8 @@ Backend contract for `tgsum-af2.6`, 2026-09-27. Primary-source review:
 The importer still records references without opening files. Bundle preparation
 can now include explicitly selected local text files. No messenger client,
 account, URL fetch, archive extractor or script interpreter is involved.
-Desktop selection/preset controls belong to `tgsum-af2.7`.
+Desktop selection/preset controls and explicit local comparison are described
+in [privacy controls](privacy-controls.md) (`tgsum-af2.7`).
 
 ## Selection and source scope
 
@@ -44,7 +45,8 @@ remains an alias), `file_size` and the existing document fields. Availability
 placeholders do not become local filenames. Photos, nested/rich attachments,
 media conversion and archive extraction are outside this text packager.
 
-Project schema **6** adds attachment selection. Versions 1–5 without choices
+Project schema **6** introduced attachment selection (current schema **7** also
+persists privacy options). Versions 1–5 without choices
 migrate in memory without rewriting old bytes; only a later write creates v6.
 A legacy-version manifest cannot activate attachment choices.
 
@@ -121,7 +123,8 @@ and position; its revision binds the canonical message revision, attachment
 metadata and actual input size/hash through the Project's keyed evidence codec.
 Different copied bytes change the revision even when the JSON snapshot did not.
 The private JSONL index binds this evidence to the parent snapshot and reviewed
-sanitized artifact. Private bundle schema **6** recognizes those bindings;
+sanitized artifact. Private bundle schema **6** introduced those bindings;
+current schema **7** also supports local comparison pointers and exceptions;
 schemas 1–5 remain readable without inventing included files.
 
 `resolve_evidence` returns the immutable parent message and, for file evidence,

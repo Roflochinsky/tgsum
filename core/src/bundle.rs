@@ -3,8 +3,10 @@
 
 mod attachments;
 mod files;
+mod preview;
 use attachments::{AttachmentEvidence, AttachmentWriter, SourceFiles};
 pub use attachments::{AttachmentStatus, BundleAttachment};
+pub use preview::{BeforeState, EvidencePreview, ReviewItem, ReviewItems};
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::custom_terms::{CustomTermsSummary, TermDetector};
 use crate::infrastructure::{InfrastructureCategory, InfrastructureDetector, InfrastructurePolicy};
 use crate::pii::{PiiDetector, PiiPolicy, PiiSummary};
+pub use crate::privacy::BundleOptions;
 use crate::project::{AnalysisInput, Project, ProjectStore};
 use crate::pseudonyms::{MappingDraft, MappingRef};
 use crate::sanitize::{sanitize, FindingAction, ReviewPolicy, SecretRule, RULES_VERSION};
@@ -30,16 +33,6 @@ use files::{
 const PREVIEW_BYTES: usize = 24 * 1024;
 const INDEX_LINE_BYTES: u64 = 4 * 1024 * 1024;
 const REVIEW_FINDINGS: usize = 20;
-
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct BundleOptions {
-    pub redact_candidates: bool,
-    /// Private policy; names must never be copied into the public manifest.
-    #[serde(default)]
-    pub infrastructure: InfrastructurePolicy,
-    #[serde(default)]
-    pub pii: PiiPolicy,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,6 +143,8 @@ struct PrivateBundle {
     infrastructure_policy: Option<InfrastructurePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pii_policy: Option<PiiPolicy>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    keep_values: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -160,6 +155,8 @@ struct EvidenceEntry {
     source_revision: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachment: Option<AttachmentEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    document: Option<String>,
 }
 
 pub struct ResolvedEvidence {
@@ -185,6 +182,22 @@ pub(crate) struct AnalysisBundle {
 }
 
 impl ProjectStore {
+    /// Use the private policy saved with this exact Project revision.
+    pub fn prepare_saved_bundle(
+        &self,
+        project_id: &str,
+        expected_revision: u64,
+        cancelled: impl Fn() -> bool,
+    ) -> io::Result<BundleReview> {
+        let project = self.open(project_id)?;
+        check_revision(project.revision, expected_revision)?;
+        self.prepare_bundle(
+            project_id,
+            expected_revision,
+            project.privacy_options,
+            cancelled,
+        )
+    }
     pub(crate) fn analysis_bundle(
         &self,
         project_id: &str,
@@ -457,7 +470,7 @@ impl ProjectStore {
                                 record.id,
                                 reference.id,
                                 reference.revision,
-                                record.file.expect("included artifact")
+                                record.file.as_deref().expect("included artifact")
                             ));
                             write_evidence(
                                 &mut index,
@@ -472,13 +485,14 @@ impl ProjectStore {
                                         .revision_id
                                         .clone(),
                                     attachment,
+                                    document: record.file.clone(),
                                 },
                             )?;
                         }
                     }
                 }
                 manifest.attachment_references += message.attachments.len();
-                output.write_block(&block)?;
+                let document = output.write_block(&block)?;
                 let entry = EvidenceEntry {
                     reference: reference.clone(),
                     snapshot_id: snapshot_id.clone(),
@@ -490,6 +504,7 @@ impl ProjectStore {
                         .revision_id
                         .clone(),
                     attachment: None,
+                    document: Some(document),
                 };
                 write_evidence(&mut index, &entry)?;
                 manifest.messages += 1;
@@ -549,10 +564,10 @@ impl ProjectStore {
         manifest.custom_terms = privacy.custom_terms;
         manifest.pseudonym_mapping_id = privacy.reference.as_ref().map(|r| r.id().to_owned());
         files::validate_files(&manifest.files)?;
-        attachments::validate_manifest(&manifest, 6)?;
+        attachments::validate_manifest(&manifest, 7)?;
         write_json(&public.join("manifest.json"), &manifest)?;
         let private = PrivateBundle {
-            schema_version: 6,
+            schema_version: 7,
             project_id: project_id.into(),
             project_revision: reviewed_revision,
             manifest_sha256: files::digest_file(&public.join("manifest.json"), &cancelled)?,
@@ -561,6 +576,7 @@ impl ProjectStore {
             pseudonyms: privacy.reference.clone(),
             infrastructure_policy: privacy.policy,
             pii_policy: privacy.pii_policy,
+            keep_values: privacy.keep_values,
         };
         write_json(&staging.path().join("private.json"), &private)?;
         let (preview, preview_truncated) = files::preview(&public, &manifest.files, PREVIEW_BYTES)?;
@@ -768,8 +784,12 @@ impl ProjectStore {
         let directory = root.join(bundle_id);
         require_dir(&directory)?;
         let private: PrivateBundle = load_json(&directory.join("private.json"))?;
-        if !matches!(private.schema_version, 1..=6) || private.project_id != project_id {
+        if !matches!(private.schema_version, 1..=7) || private.project_id != project_id {
             return Err(invalid("private bundle identity/version mismatch"));
+        }
+        crate::privacy::validate_keep_values(&private.keep_values)?;
+        if private.schema_version < 7 && !private.keep_values.is_empty() {
+            return Err(invalid("legacy bundle cannot apply privacy exceptions"));
         }
         let project = self.read_revision(project_id, private.project_revision)?;
         if private.pseudonyms != project.pseudonyms {
@@ -877,6 +897,7 @@ struct ScanReview {
     pii: Option<PiiReview>,
     custom_terms: Option<CustomTermsReview>,
     mapping: Option<MappingDraft>,
+    keep_values: std::collections::BTreeSet<String>,
 }
 
 struct InfrastructureReview {
@@ -905,10 +926,12 @@ struct PreparedPrivacy {
     pii: Option<PiiSummary>,
     pii_policy: Option<PiiPolicy>,
     custom_terms: Option<CustomTermsSummary>,
+    keep_values: Vec<String>,
 }
 
 impl ScanReview {
     fn new(options: BundleOptions, store: &ProjectStore, project: &Project) -> io::Result<Self> {
+        options.validate()?;
         let detector = InfrastructureDetector::new(options.infrastructure.clone())?;
         let mapping = if options.infrastructure.categories.is_empty()
             && options.pii.categories.is_empty()
@@ -963,6 +986,7 @@ impl ScanReview {
             pii,
             custom_terms,
             mapping,
+            keep_values: options.keep_values.into_iter().collect(),
         })
     }
 
@@ -1033,6 +1057,7 @@ impl ScanReview {
             pii,
             pii_policy,
             custom_terms: self.custom_terms.map(|c| c.summary),
+            keep_values: self.keep_values.into_iter().collect(),
         })
     }
 
@@ -1075,7 +1100,9 @@ impl ScanReview {
         let mut pii_shifts = Vec::new();
         if let Some(pii) = &mut self.pii {
             let mapping = self.mapping.as_mut().expect("PII enables mapping");
-            let output = pii.detector.replace(&text, sender, scope, mapping)?;
+            let output = pii
+                .detector
+                .replace(&text, sender, scope, mapping, &self.keep_values)?;
             pii.summary.record(&output.findings);
             text = output.text;
             pii_shifts = output.findings;
@@ -1086,7 +1113,8 @@ impl ScanReview {
                 .mapping
                 .as_mut()
                 .expect("infrastructure enables mapping");
-            let scan = infrastructure.detector.scan(&text)?;
+            let mut scan = infrastructure.detector.scan(&text)?;
+            scan.exclude(&self.keep_values);
             mapping.allocate(&scan.inputs())?;
             let output = scan.apply(mapping.mapping())?;
             for finding in &output.findings {

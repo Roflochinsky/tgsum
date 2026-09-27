@@ -3,8 +3,8 @@
 Core and bundle integration for `tgsum-af2.2`, 2026-09-27. Recognition, independent
 category selection and stable Project pseudonyms are connected to Prepare,
 Review and Export through `BundleOptions.infrastructure`, including the Tauri
-backend command. Categories default to off. Desktop preset controls remain
-`tgsum-af2.7`; the existing screen does not yet enable these categories. Legacy
+backend command. Categories default to off. Desktop presets and independent
+category controls are described in [privacy controls](privacy-controls.md). Legacy
 one-shot export is unchanged. This adds no messenger acquisition capability.
 
 ## Interface

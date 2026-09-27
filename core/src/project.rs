@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +108,11 @@ pub struct Project {
         skip_serializing_if = "crate::custom_terms::CustomTerms::is_empty"
     )]
     pub custom_terms: crate::custom_terms::CustomTerms,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::privacy::BundleOptions::is_default"
+    )]
+    pub privacy_options: crate::privacy::BundleOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +123,7 @@ pub enum ProjectChange {
     RemoveSource(String),
     Settings(ProjectSettings),
     CustomTerms(crate::custom_terms::CustomTerms),
+    Privacy(crate::privacy::PrivacyProfile),
     Selection {
         source_id: String,
         selection: SourceSelection,
@@ -212,6 +218,7 @@ impl ProjectStore {
             baselines: Vec::new(),
             pseudonyms: None,
             custom_terms: Default::default(),
+            privacy_options: Default::default(),
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -268,7 +275,7 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=6)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=7)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
@@ -288,10 +295,14 @@ impl ProjectStore {
         {
             return Err(invalid("legacy project cannot select attachments"));
         }
+        if project.schema_version < 7 && !project.privacy_options.is_default() {
+            return Err(invalid("legacy project cannot configure privacy options"));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
         // private mappings; v4 lacked custom terms. Reading migrates in memory;
-        // v5 lacked attachment selection. Only a later write publishes v6.
+        // v5 lacked attachment selection; v6 lacked saved privacy options.
+        // Only a later write publishes v7.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != revision {
@@ -377,6 +388,12 @@ impl ProjectStore {
             }
             ProjectChange::Settings(settings) => project.settings = settings,
             ProjectChange::CustomTerms(terms) => project.custom_terms = terms,
+            ProjectChange::Privacy(profile) => {
+                profile.validate()?;
+                project.settings.privacy_preset = profile.preset.id().into();
+                project.privacy_options = profile.options;
+                project.custom_terms = profile.custom_terms;
+            }
             ProjectChange::Selection {
                 source_id,
                 selection,
@@ -602,6 +619,7 @@ fn validate_project(project: &Project) -> io::Result<()> {
     validate_snapshot_id(&project.project_id)?;
     validate_name(&project.name)?;
     project.custom_terms.validate()?;
+    project.privacy_options.validate()?;
     if let Some(reference) = &project.pseudonyms {
         reference.validate()?;
     }

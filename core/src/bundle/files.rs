@@ -271,7 +271,7 @@ impl MarkdownWriter {
         }
     }
 
-    pub(super) fn write_block(&mut self, block: &str) -> io::Result<()> {
+    pub(super) fn write_block(&mut self, block: &str) -> io::Result<String> {
         let tokens = crate::est_tokens(block);
         if self.file.is_some()
             && self
@@ -294,7 +294,7 @@ impl MarkdownWriter {
             .expect("context file opened")
             .write_all(block.as_bytes())?;
         self.tokens = self.tokens.saturating_add(tokens);
-        Ok(())
+        Ok(format!("context-{:05}.md", self.files.len() + 1))
     }
 
     fn finish_file(&mut self) -> io::Result<()> {

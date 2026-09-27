@@ -24,16 +24,18 @@ projects/project-<random>/
 
 ## Persistence and recovery
 
-Manifests have `schema_version: 6`, adding explicit local
-[attachment selection](attachments.md) to the v5
+Manifests have `schema_version: 7`, adding saved
+[privacy options](privacy-controls.md) to v6 local
+[attachment selection](attachments.md) and the v5
 [sensitive-term dictionary](custom-terms.md), v4
 [pseudonym mapping reference](pseudonyms.md), v3 durable result reference
 and scope/baseline ledger introduced in v2. Version 1 opens in memory with default
 selections and no baseline. Version 2 keeps its legacy runs without inventing
 result files. Versions 1–3 without a mapping keep it absent; versions 1–4 default
-to an empty dictionary; versions 1–5 default to no attachment selection. Reading leaves
+to an empty dictionary; versions 1–5 default to no attachment selection;
+versions 1–6 default to secrets-only options. Reading leaves
 original bytes unchanged; the next update publishes
-a separate v6 revision. Unknown versions are rejected before interpreting their
+a separate v7 revision. Unknown versions are rejected before interpreting their
 fields. The managed [analysis lifecycle](analyses.md) publishes result provenance
 and all baselines in one revision after validating/storing the result.
 
@@ -81,12 +83,14 @@ a separately prepared, sanitized context bundle.
 | `project_source_status` | `projectId`, `sourceId` → availability |
 | `preview_project_source` | `projectId`, `sourceId` → selection counts, topics, coverage, baseline ID |
 | `refresh_project_source` | `projectId`, `sourceId`, `expectedRevision` → Project with new snapshot |
-| `prepare_project_bundle` | `projectId`, `expectedRevision`, `options` → local Review |
+| `prepare_project_bundle` | `projectId`, `expectedRevision`, optional `options` override → local Review |
 | `export_project_bundle` | `projectId`, `bundleId`, `expectedRevision`, `outDir` → exported directory/files |
 
 Command arguments use Tauri camelCase. Project fields use the Rust snake_case
 schema. Changes use `{kind, value}`: `rename`, `source` (upsert), `remove_source`,
-`settings`, `record_snapshot`, `selection`, `begin_analysis`, `finish_analysis`.
+`settings`, `custom_terms`, `privacy`, `record_snapshot`, `selection`, `begin_analysis`, `finish_analysis`.
+Local comparison, presets and file catalog commands are described in
+[privacy controls](privacy-controls.md).
 Errors are `failed`, `conflict` or `cancelled`.
 The default settings select `export_only`, `summary`, and the `secrets` preset;
 these are configuration references, not a claim that a runner or sanitizer has

@@ -237,6 +237,20 @@ main { flex: 1; min-height: 0; }
 .project-review { padding: 20px; margin-top: 20px; }
 .project-review label.project-check { flex-direction: row; align-items: center; gap: 8px; }
 .project-review pre { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--border); padding: 16px; border-radius: 8px; font: 13px/1.55 var(--mono); user-select: text; -webkit-user-select: text; }
+.privacy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+.privacy-grid > * { min-width: 0; }
+.privacy-settings fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.privacy-settings textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font: 13px/1.5 var(--mono); resize: vertical; }
+.privacy-settings label, .attachment-root { display: block; }
+.privacy-settings, .attachment-selector { margin: 16px 0; }
+.privacy-settings { padding: 20px; }
+.privacy-settings h3 { margin-top: 0; }
+.privacy-settings label.project-check { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 8px 0; }
+.privacy-settings > label:not(.project-check) { display: flex; }
+.attachment-items { max-height: 320px; overflow: auto; padding: 8px 0; }
+.attachment-items label { overflow-wrap: anywhere; }
+.privacy-settings details { margin: 12px 0; }
+@media (max-width: 720px) { .privacy-grid { grid-template-columns: 1fr; } }
 .project-review li, #project-export-result { overflow-wrap: anywhere; }
 @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
