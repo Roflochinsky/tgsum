@@ -103,3 +103,13 @@ or architecture, native picker automation, installer acceptance or real accounts
 
 Tool selection, upstream version/CI evidence and platform limitations are in
 [the dated research](../research/desktop-e2e-platforms-2026-09-27.md).
+
+## Source access extension
+
+[CI 36308526932](https://github.com/Roflochinsky/tgsum/actions/runs/36308526932),
+source **1de3f5d8371c1a2c0376bff8d0095efa1ba5bdde**, 2026-09-27: all ten stages
+passed in the three desktop E2E jobs. Downloaded reports confirm clean checkouts
+and the same WebView versions listed above. Added checks cover source access
+details, literal rendering of account labels, unavailable OAuth methods and
+the recipient shown before Run. Native pickers and agents remain synthetic.
+This records the desktop jobs; the overall CI outcome is tracked in Beads.
