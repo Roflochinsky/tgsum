@@ -23,13 +23,34 @@ struct Case {
 
 #[test]
 fn versioned_synthetic_corpus_measures_detection_and_confidence_without_report_leaks() {
-    let corpus: Corpus = serde_json::from_str(include_str!("fixtures/secrets-v2.json")).unwrap();
+    let fixture = include_str!("fixtures/secrets-v2.json");
+    let aws_id = regex::Regex::new(r"(?:AKIA|ASIA)[A-Z0-9]{16}").unwrap();
+    assert!(
+        !aws_id.is_match(fixture),
+        "fixture contains a committed AWS-shaped ID"
+    );
+    let corpus: Corpus = serde_json::from_str(fixture).unwrap();
     assert_eq!(corpus.schema_version, 1);
     assert!(corpus.description.starts_with("Synthetic"));
     let mut ids = std::collections::HashSet::new();
     let mut covered = std::collections::BTreeSet::new();
     let (mut tp, mut fp, mut tn, mut missed, mut high, mut medium) = (0, 0, 0, 0, 0, 0);
-    for case in corpus.cases {
+    for mut case in corpus.cases {
+        let aws_id = match case.id.as_str() {
+            "aws-id-candidate" => Some(("__SYNTHETIC_AWS_ID__", "AK")),
+            "aws-temporary-id-candidate" => Some(("__SYNTHETIC_AWS_TEMP_ID__", "AS")),
+            _ => None,
+        };
+        if let Some((marker, prefix)) = aws_id {
+            // Keep provider-shaped synthetic values in the runtime corpus
+            // without committing contiguous token-looking IDs to git.
+            assert_eq!(case.input, marker);
+            assert_eq!(case.value.as_deref(), Some(marker));
+            let synthetic = [prefix, "IA", "TGSUM", "TEST", "0000001"].concat();
+            assert_eq!(synthetic.len(), 20);
+            case.input = synthetic.clone();
+            case.value = Some(synthetic);
+        }
         assert!(ids.insert(case.id.clone()), "duplicate corpus ID");
         let result = sanitize(&case.input, ReviewPolicy::KeepForReview).unwrap();
         let detected = !result.report.findings.is_empty();
