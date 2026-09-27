@@ -24,13 +24,15 @@ projects/project-<random>/
 
 ## Persistence and recovery
 
-Manifests have `schema_version: 4`, adding an optional private
-[pseudonym mapping reference](pseudonyms.md) to the v3 durable result reference
+Manifests have `schema_version: 5`, adding a private
+[sensitive-term dictionary](custom-terms.md) to the v4
+[pseudonym mapping reference](pseudonyms.md), v3 durable result reference
 and scope/baseline ledger introduced in v2. Version 1 opens in memory with default
 selections and no baseline. Version 2 keeps its legacy runs without inventing
-result files. Versions 1–3 without a mapping keep it absent. Reading leaves
+result files. Versions 1–3 without a mapping keep it absent; versions 1–4 default
+to an empty dictionary. Reading leaves
 original bytes unchanged; the next update publishes
-a separate v4 revision. Unknown versions are rejected before interpreting their
+a separate v5 revision. Unknown versions are rejected before interpreting their
 fields. The managed [analysis lifecycle](analyses.md) publishes result provenance
 and all baselines in one revision after validating/storing the result.
 

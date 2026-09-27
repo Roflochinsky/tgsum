@@ -9,6 +9,7 @@ pub mod analysis;
 pub mod bridge;
 pub mod bundle;
 pub mod connector;
+pub mod custom_terms;
 mod de;
 pub mod extract;
 pub mod format;

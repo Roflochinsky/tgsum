@@ -4,8 +4,8 @@ Implemented storage contract for `tgsum-af2.5`, 2026-09-27. The core can allocat
 retain, resolve and reset labels. Infrastructure rules now use this mapping
 during opted-in bundle preparation; see [infrastructure](infrastructure.md).
 Known [participant and contact replacement](pii.md) also uses the shared draft.
-Custom-term detectors and Privacy preset/reset controls remain work in the
-Privacy epic. Creating a mapping alone does not replace strings: replacement
+[Saved custom terms](custom-terms.md) use the same draft; Privacy preset/reset
+controls remain work in the Privacy epic. Creating a mapping alone does not replace strings: replacement
 requires an enabled detector. Legacy one-shot export is unchanged.
 
 ## Interface and identity
@@ -45,11 +45,11 @@ therefore insufficient for historical resolution; use the bundle/version binding
 
 ```text
 projects/project-.../
-  revisions/00000000000000000004.json   # schema 4, optional MappingRef
+  revisions/00000000000000000004.json   # schema 5, optional MappingRef + terms
   pseudonyms/
     map-<128-bit random ID>.json       # immutable full mapping generation
   bundles/bundle-.../
-    private.json                      # schema 4, exact MappingRef + private policies
+    private.json                      # schema 5, exact MappingRef + Project/policy binding
     context/manifest.json             # optional opaque pseudonym_mapping_id
 ```
 
@@ -83,12 +83,12 @@ or substitute the current one. An unrelated legacy unbound bundle still resolves
 Reset leaves `evidence-key.bin` unchanged. Old Review and uncommitted analysis
 become stale, while saved results retain their bundle/version and evidence.
 
-Project schemas 1–3 load without a mapping and migrate in memory to schema 4;
-the next write creates a separate revision. Original bytes remain unchanged.
-Private bundle schemas 1–3 remain readable without inventing a mapping or
-infrastructure/PII policy. Unknown
-versions are rejected. Older apps that accept only Project schemas through 3
-must reject a schema 4 project instead of dropping its mapping on write.
+Project schemas 1–3 load without a mapping; schemas 1–4 default to no custom
+terms and migrate in memory to schema 5. The next write creates a separate
+revision. Original bytes remain unchanged. Private bundle schemas 1–4 remain
+readable without inventing mapping/policies/dictionary application. Unknown
+versions are rejected. Older apps must reject unsupported Project schemas
+instead of dropping private mapping or dictionary configuration on write.
 
 ## Limits and access
 
@@ -125,7 +125,7 @@ claimed. No messenger/agent credentials are read and no network is used.
 `core/tests/pseudonyms.rs` exercises restart, reordering/scope extension, aliases,
 independent Projects/categories, concurrent writers/retry, reset/history, size
 limits, corruption, format/owner validation and Unix permissions/symlinks through
-the public ProjectStore interface. Project migration tests cover schemas 1–3;
+the public ProjectStore interface. Project migration tests cover schemas 1–4;
 bundle/analysis tests cover private export exclusion, legacy bundles, preserved
 results/evidence and stale exports/commits. Fixtures are synthetic.
 

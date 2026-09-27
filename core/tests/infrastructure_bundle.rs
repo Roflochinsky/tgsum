@@ -191,7 +191,7 @@ fn policy_names_mapping_digest_and_high_confidence_secrets_stay_out_of_exports()
         .unwrap(),
     )
     .unwrap();
-    assert_eq!(private["schema_version"], 4);
+    assert_eq!(private["schema_version"], 5);
     assert_eq!(
         private["infrastructure_policy"]["internal_domains"][0],
         "private.example"

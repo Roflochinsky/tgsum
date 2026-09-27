@@ -16,7 +16,9 @@ independent opt-ins are:
 
 Tauri's `prepare_project_bundle` accepts the same options. Secrets remain a
 separate mandatory stage. The processing order is secrets → PII →
-selected infrastructure rules. Legacy one-shot Markdown export is unchanged.
+selected infrastructure rules → saved [custom terms](custom-terms.md).
+Generated PII labels are protected from the term stage. Legacy one-shot Markdown
+export is unchanged.
 Enabling only contacts does not discover or replace participants, including when
 a Project already retains PERSON mappings. Participant sender fields use their
 native identity before contact-shape rules. Prose contacts are indivisible for
@@ -149,7 +151,8 @@ from flattened text and no network identity lookup runs.
 
 ## Mapping, Review and export
 
-Participants, contacts and infrastructure share one private `MappingDraft`. Discovery and
+Participants, contacts, infrastructure and custom terms share one private
+`MappingDraft`. Discovery and
 replacement allocate in memory; preparation stages one immutable map and commits
 one Project revision only after bundle files, preview and cancellation checks.
 Repeated preparation without new entries/aliases leaves the revision unchanged.
@@ -161,7 +164,8 @@ the bundle is discarded. A late failure can leave an unreferenced immutable map.
 An I/O error during Project publication requires reloading state, as documented
 in [mapping persistence](pseudonyms.md). No automatic orphan cleanup is added.
 
-Private bundle schema 4 pins `pii_policy` and the exact mapping; schemas 1–3 remain
+Private bundle schema 5 retains the `pii_policy`/mapping binding introduced in
+schema 4 and additionally binds any Project dictionary; schemas 1–4 remain
 readable. Public `manifest.pii` records rules version `pii/1`, enabled categories,
 total/per-category replacements, ambiguous and unresolved counts (including
 unscoped usernames). It contains no

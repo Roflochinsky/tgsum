@@ -701,7 +701,7 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
         .import_telegram(
             "initial",
             &scope,
-            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice alice@example.test +12025550100 @Alice db.local 10.0.0.2"}]}"#),
+            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice alice@example.test +12025550100 @Alice db.local 10.0.0.2 PRIVATE_PROJECT"}]}"#),
         )
         .unwrap();
     let project = store
@@ -724,8 +724,16 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     let w = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
-    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":project.revision,"options":{"redact_candidates":false,"pii":{"categories":["participants","emails","phones","usernames"]},"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
-    assert_eq!(review["project_revision"], project.revision + 1);
+    let updated=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":project.revision,"change":{"kind":"custom_terms","value":{"entries":[{"value":"PRIVATE_PROJECT","boundary":"word"}]}}})).unwrap();
+    let invalid=invoke(&w,"update_project",json!({"projectId":project.project_id,"expectedRevision":updated["revision"],"change":{"kind":"custom_terms","value":{"entries":[{"value":"PRIVATE_PROJECT","boundary":"PRIVATE_BAD_MODE"}]}}})).unwrap_err();
+    assert!(!invalid.to_string().contains("PRIVATE_"));
+    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":updated["revision"],"options":{"redact_candidates":false,"pii":{"categories":["participants","emails","phones","usernames"]},"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
+    assert_eq!(review["project_revision"], project.revision + 2);
+    assert_eq!(
+        review["manifest"]["custom_terms"],
+        json!({"rules_version":"terms/1","replacements":1})
+    );
+    assert!(!review.to_string().contains("PRIVATE_PROJECT"));
     assert_eq!(review["manifest"]["infrastructure"]["replacements"], 2);
     assert_eq!(
         review["manifest"]["pii"]["by_category"],
@@ -735,7 +743,7 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     assert!(review["preview"]
         .as_str()
         .unwrap()
-        .contains("EMAIL_0001 PHONE_0001 USER_0001 HOST_0001 IP_0001"));
+        .contains("EMAIL_0001 PHONE_0001 USER_0001 HOST_0001 IP_0001 TERM_0001"));
     assert!(!review.to_string().contains("unmentioned-private-host"));
     let stale = invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":project.revision,"outDir":destination.path()})).unwrap_err();
     assert_eq!(stale["kind"], "conflict");
@@ -743,4 +751,8 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     let current = invoke(&w, "open_project", json!({"projectId":project.project_id})).unwrap();
     assert_eq!(current["revision"], review["project_revision"]);
     assert_eq!(current["baselines"], json!([]));
+    assert_eq!(
+        current["custom_terms"]["entries"][0]["value"],
+        "PRIVATE_PROJECT"
+    );
 }

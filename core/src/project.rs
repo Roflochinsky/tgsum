@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +102,12 @@ pub struct Project {
     /// Private immutable mapping reference. Old project schemas have no mapping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pseudonyms: Option<crate::pseudonyms::MappingRef>,
+    /// Explicit local privacy policy, never copied into a public bundle.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::custom_terms::CustomTerms::is_empty"
+    )]
+    pub custom_terms: crate::custom_terms::CustomTerms,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +117,7 @@ pub enum ProjectChange {
     Source(ProjectSource),
     RemoveSource(String),
     Settings(ProjectSettings),
+    CustomTerms(crate::custom_terms::CustomTerms),
     Selection {
         source_id: String,
         selection: SourceSelection,
@@ -204,6 +211,7 @@ impl ProjectStore {
             analysis_run: None,
             baselines: Vec::new(),
             pseudonyms: None,
+            custom_terms: Default::default(),
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -260,16 +268,19 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=4)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=5)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
         }
         let mut project: Project = serde_json::from_value(value).map_err(invalid)?;
+        if project.schema_version < 5 && !project.custom_terms.is_empty() {
+            return Err(invalid("legacy project cannot configure sensitive terms"));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
-        // private mappings. Reading migrates in memory; only a later write
-        // publishes a new v4 revision.
+        // private mappings; v4 lacked custom terms. Reading migrates in memory;
+        // only a later write publishes a new v5 revision.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != revision {
@@ -354,6 +365,7 @@ impl ProjectStore {
                 project.baselines.retain(|b| b.source_id != id);
             }
             ProjectChange::Settings(settings) => project.settings = settings,
+            ProjectChange::CustomTerms(terms) => project.custom_terms = terms,
             ProjectChange::Selection {
                 source_id,
                 selection,
@@ -578,6 +590,7 @@ fn validate_project(project: &Project) -> io::Result<()> {
     }
     validate_snapshot_id(&project.project_id)?;
     validate_name(&project.name)?;
+    project.custom_terms.validate()?;
     if let Some(reference) = &project.pseudonyms {
         reference.validate()?;
     }

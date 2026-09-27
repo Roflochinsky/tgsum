@@ -27,6 +27,8 @@ are retained for local review or hidden alongside high-confidence findings.
 categories and private names; see [infrastructure](infrastructure.md). Secrets
 run first. `BundleOptions.pii.categories` independently enables `participants`,
 `emails`, `phones` and `usernames` before infrastructure; see [PII](pii.md).
+The saved Project [custom-term dictionary](custom-terms.md) runs after those
+stages, protecting their generated replacements. It defaults to empty.
 New mapping entries/aliases publish one Project revision at the end
 of successful preparation. Always use the returned `project_revision` for
 export/analysis, reloading Project state when it changes. No-op preparation
@@ -58,7 +60,7 @@ Only `context`'s manifest and its named Markdown files are exported. The private
 index, key, configuration, native identifiers, raw paths, exporter provenance,
 credentials references and unselected message contents are excluded by schema.
 Text fields such as project/source titles, names, timestamps, service metadata
-and message bodies pass through secrets, selected PII and infrastructure rules before
+and message bodies pass through secrets, selected PII/infrastructure and saved custom terms before
 emission.
 
 The public manifest records sanitized titles, opaque source IDs, coverage level,
@@ -68,10 +70,13 @@ version, privacy counts and file sizes/SHA-256 digests. An optional
 the plaintext map digest remain private. This field does not claim that any
 pseudonym detector ran. An optional `infrastructure` summary records actual rules
 version, selected categories and replacement counts, never configured names.
-Private bundle schema 4 pins the full mapping reference and private policies;
-schemas 1–3 remain readable without inventing policy or mapping. An optional
+Private bundle schema 5 pins the mapping/private policies and the immutable
+Project revision containing any dictionary. Schemas 1–4 remain readable without
+inventing applied terms. An optional
 `pii` summary records actual category replacements/ambiguity/unresolved counts
 without names or contact values.
+An optional `custom_terms` summary contains rules version/replacement count only;
+the dictionary and its digest are not public metadata.
 The manifest explicitly identifies
 `export_only` as the destination. Coverage never becomes complete merely because
 all selected records were written.
@@ -122,7 +127,8 @@ See [sanitization](sanitization.md): absence of findings does not prove anonymit
 or absence of credentials. Expanded secret rules are `secrets/2` and private
 mapping persistence is implemented. Optional infrastructure and participant,
 email, phone and standalone username rules are connected to the backend pipeline.
-Custom terms and preset controls remain work in the Privacy epic.
+Saved custom terms also run in this pipeline. Preset controls remain work in the
+Privacy epic.
 
 ## Filesystem and resource behavior
 

@@ -57,7 +57,7 @@ map; it is never selected by directory order. As with other Project mutations,
 an I/O error during revision publication can happen after that revision becomes
 visible; reread the Project after an error. Retention/cleanup is separate work.
 
-Private bundle schema 4 pins the exact mapping and private infrastructure/PII
+Private bundle schema 5 pins the exact mapping and private infrastructure/PII
 policies; schema 3 infrastructure bundles remain readable.
 The public manifest exposes only the random mapping ID, rules version, enabled
 categories, replacement total and counts per category. It never serializes the

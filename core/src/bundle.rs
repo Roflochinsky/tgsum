@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::custom_terms::{CustomTermsSummary, TermDetector};
 use crate::infrastructure::{InfrastructureCategory, InfrastructureDetector, InfrastructurePolicy};
 use crate::pii::{PiiDetector, PiiPolicy, PiiSummary};
 use crate::project::{AnalysisInput, Project, ProjectStore};
@@ -80,6 +81,8 @@ pub struct BundleManifest {
     pub infrastructure: Option<InfrastructureSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pii: Option<PiiSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_terms: Option<CustomTermsSummary>,
     pub sanitizer_version: String,
     pub destination: String,
     pub project_title: String,
@@ -277,6 +280,7 @@ impl ProjectStore {
             pseudonym_mapping_id: project.pseudonyms.as_ref().map(|r| r.id().to_owned()),
             infrastructure: None,
             pii: None,
+            custom_terms: None,
             sanitizer_version: RULES_VERSION.into(),
             destination: "export_only".into(),
             project_title: String::new(),
@@ -480,10 +484,11 @@ impl ProjectStore {
         manifest.privacy = privacy.summary;
         manifest.infrastructure = privacy.infrastructure;
         manifest.pii = privacy.pii;
+        manifest.custom_terms = privacy.custom_terms;
         manifest.pseudonym_mapping_id = privacy.reference.as_ref().map(|r| r.id().to_owned());
         write_json(&public.join("manifest.json"), &manifest)?;
         let private = PrivateBundle {
-            schema_version: 4,
+            schema_version: 5,
             project_id: project_id.into(),
             project_revision: reviewed_revision,
             manifest_sha256: files::digest_file(&public.join("manifest.json"), &cancelled)?,
@@ -653,7 +658,7 @@ impl ProjectStore {
         let directory = root.join(bundle_id);
         require_dir(&directory)?;
         let private: PrivateBundle = load_json(&directory.join("private.json"))?;
-        if !matches!(private.schema_version, 1..=4) || private.project_id != project_id {
+        if !matches!(private.schema_version, 1..=5) || private.project_id != project_id {
             return Err(invalid("private bundle identity/version mismatch"));
         }
         let project = self.read_revision(project_id, private.project_revision)?;
@@ -728,6 +733,17 @@ impl ProjectStore {
             }
             _ => return Err(invalid("bundle PII policy mismatch")),
         }
+        match (&manifest.custom_terms, project.custom_terms.is_empty()) {
+            (None, true) => {}
+            (Some(summary), false) if private.schema_version >= 5 => {
+                if summary.rules_version != crate::custom_terms::RULES_VERSION
+                    || (summary.replacements > 0 && private.pseudonyms.is_none())
+                {
+                    return Err(invalid("bundle sensitive-term metadata mismatch"));
+                }
+            }
+            _ => return Err(invalid("bundle sensitive-term policy mismatch")),
+        }
         files::validate_files(&manifest.files)?;
         Ok((directory, private, manifest))
     }
@@ -739,6 +755,7 @@ struct ScanReview {
     findings: Vec<ReviewFinding>,
     infrastructure: Option<InfrastructureReview>,
     pii: Option<PiiReview>,
+    custom_terms: Option<CustomTermsReview>,
     mapping: Option<MappingDraft>,
 }
 
@@ -754,6 +771,11 @@ struct PiiReview {
     summary: PiiSummary,
 }
 
+struct CustomTermsReview {
+    detector: TermDetector,
+    summary: CustomTermsSummary,
+}
+
 struct PreparedPrivacy {
     summary: PrivacySummary,
     findings: Vec<ReviewFinding>,
@@ -762,20 +784,23 @@ struct PreparedPrivacy {
     policy: Option<InfrastructurePolicy>,
     pii: Option<PiiSummary>,
     pii_policy: Option<PiiPolicy>,
+    custom_terms: Option<CustomTermsSummary>,
 }
 
 impl ScanReview {
     fn new(options: BundleOptions, store: &ProjectStore, project: &Project) -> io::Result<Self> {
         let detector = InfrastructureDetector::new(options.infrastructure.clone())?;
-        let mapping =
-            if options.infrastructure.categories.is_empty() && options.pii.categories.is_empty() {
-                if let Some(reference) = &project.pseudonyms {
-                    store.load_pseudonyms(&project.project_id, reference)?;
-                }
-                None
-            } else {
-                Some(store.draft_pseudonyms(project)?)
-            };
+        let mapping = if options.infrastructure.categories.is_empty()
+            && options.pii.categories.is_empty()
+            && project.custom_terms.is_empty()
+        {
+            if let Some(reference) = &project.pseudonyms {
+                store.load_pseudonyms(&project.project_id, reference)?;
+            }
+            None
+        } else {
+            Some(store.draft_pseudonyms(project)?)
+        };
         let infrastructure = if options.infrastructure.categories.is_empty() {
             None
         } else {
@@ -795,6 +820,17 @@ impl ScanReview {
             detector: PiiDetector::new(options.pii.clone()),
             policy: options.pii,
         });
+        let custom_terms = if project.custom_terms.is_empty() {
+            None
+        } else {
+            Some(CustomTermsReview {
+                detector: TermDetector::new(project.custom_terms.clone())?,
+                summary: CustomTermsSummary {
+                    rules_version: crate::custom_terms::RULES_VERSION.into(),
+                    replacements: 0,
+                },
+            })
+        };
         Ok(Self {
             policy: if options.redact_candidates {
                 ReviewPolicy::RedactCandidates
@@ -805,6 +841,7 @@ impl ScanReview {
             findings: Vec::new(),
             infrastructure,
             pii,
+            custom_terms,
             mapping,
         })
     }
@@ -875,6 +912,7 @@ impl ScanReview {
             policy,
             pii,
             pii_policy,
+            custom_terms: self.custom_terms.map(|c| c.summary),
         })
     }
 
@@ -942,6 +980,36 @@ impl ScanReview {
             text = output.text;
             shifts = output.findings;
         }
+        let mut term_shifts = Vec::new();
+        if let Some(terms) = &mut self.custom_terms {
+            let mut generated: Vec<_> = result
+                .report
+                .findings
+                .iter()
+                .filter(|f| f.action == FindingAction::Redacted)
+                .map(|f| f.output.clone())
+                .collect();
+            project_generated(&mut generated, &pii_shifts, |f| (&f.input, &f.output));
+            project_generated(&mut generated, &shifts, |f| (&f.input, &f.output));
+            generated.sort_unstable_by_key(|r| r.start);
+            let mut merged = Vec::<Range<usize>>::new();
+            for range in generated.into_iter().filter(|r| !r.is_empty()) {
+                match merged.last_mut() {
+                    Some(previous) if previous.end >= range.start => {
+                        previous.end = previous.end.max(range.end)
+                    }
+                    _ => merged.push(range),
+                }
+            }
+            let output = terms.detector.replace(
+                &text,
+                &merged,
+                self.mapping.as_mut().expect("terms enable mapping"),
+            )?;
+            terms.summary.replacements += output.findings.len();
+            text = output.text;
+            term_shifts = output.findings;
+        }
         for finding in result
             .report
             .findings
@@ -956,6 +1024,7 @@ impl ScanReview {
             let position =
                 transformed_position(&pii_shifts, finding.output.start, |f| (&f.input, &f.output));
             let position = transformed_position(&shifts, position, |f| (&f.input, &f.output));
+            let position = transformed_position(&term_shifts, position, |f| (&f.input, &f.output));
             let start = text[..position]
                 .char_indices()
                 .rev()
@@ -979,6 +1048,20 @@ impl ScanReview {
         }
         Ok(text)
     }
+}
+
+fn project_generated<T>(
+    generated: &mut Vec<Range<usize>>,
+    findings: &[T],
+    ranges: impl Fn(&T) -> (&Range<usize>, &Range<usize>),
+) {
+    // Replaced intervals can collapse while projecting; the new generated
+    // output interval added below still shields their replacement in full.
+    for range in generated.iter_mut() {
+        range.start = transformed_position(findings, range.start, &ranges);
+        range.end = transformed_position(findings, range.end, &ranges);
+    }
+    generated.extend(findings.iter().map(|f| ranges(f).1.clone()));
 }
 
 fn transformed_position<T>(
