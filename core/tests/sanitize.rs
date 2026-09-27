@@ -275,3 +275,20 @@ fn too_many_findings_fail_instead_of_returning_partially_sanitized_text() {
     assert!(error.to_string().contains("findings limit"));
     assert!(!error.to_string().contains("SYNTHETIC"));
 }
+
+#[test]
+fn cookie_pairs_preserve_attributes_and_utf8_ranges_without_merging_neighbors() {
+    let input = "Лог: Cookie: sid=FIRST_SYNTHETIC; session=SECOND_SYNTHETIC==; theme=dark\nSet-Cookie: __Host-session=THIRD_SYNTHETIC; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Secure";
+    let result = sanitize(input, ReviewPolicy::KeepForReview).unwrap();
+    assert_eq!(result.text, "Лог: Cookie: sid=[REDACTED_SECRET]; session=[REDACTED_SECRET]; theme=dark\nSet-Cookie: __Host-session=[REDACTED_SECRET]; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Secure");
+    assert_eq!((result.report.redacted, result.report.needs_review), (3, 0));
+    for (finding, value) in result.report.findings.iter().zip([
+        "FIRST_SYNTHETIC",
+        "SECOND_SYNTHETIC==",
+        "THIRD_SYNTHETIC",
+    ]) {
+        assert_eq!(&input[finding.input.clone()], value);
+        assert_eq!(&result.text[finding.output.clone()], REPLACEMENT);
+        assert_eq!(finding.rule, SecretRule::CookieValue);
+    }
+}

@@ -1,4 +1,4 @@
-//! Deterministic, local minimum-secret rules. No credential validation, network,
+//! Deterministic local secret rules. No credential validation, network,
 //! or filesystem access. Findings carry offsets and categories, never originals.
 //! Uncertain candidates require review unless explicitly selected for redaction.
 
@@ -11,7 +11,7 @@ use base64::Engine;
 use regex::Regex;
 use serde::Serialize;
 
-pub const RULES_VERSION: &str = "minimum-secrets/1";
+pub const RULES_VERSION: &str = "secrets/2";
 pub const REPLACEMENT: &str = "[REDACTED_SECRET]";
 /// Fail explicitly on an oversized field; never publish a truncated scan.
 pub const MAX_FIELD_BYTES: usize = 16 * 1024 * 1024;
@@ -24,6 +24,11 @@ pub enum SecretRule {
     IncompletePrivateKey,
     Authorization,
     GithubToken,
+    ProviderToken,
+    ProviderTokenCandidate,
+    TelegramBotToken,
+    CookieValue,
+    ContextualEntropy,
     CredentialAssignment,
     UrlCredentials,
     JwtCandidate,
@@ -87,6 +92,12 @@ struct Rules {
     private_key: Regex,
     authorization: Regex,
     github: Regex,
+    provider: Regex,
+    provider_candidate: Regex,
+    telegram_path: Regex,
+    telegram_candidate: Regex,
+    cookie: Regex,
+    entropy_context: Regex,
     assignment: Regex,
     url: Regex,
     jwt: Regex,
@@ -97,12 +108,26 @@ fn rules() -> &'static Rules {
     RULES.get_or_init(|| {
         let regex = |pattern| Regex::new(pattern).expect("built-in secret rule must compile");
         Rules {
-            private_key: regex(r"-----BEGIN (?P<label>(?:RSA |DSA |EC |ENCRYPTED |OPENSSH )?PRIVATE KEY)-----"),
+            private_key: regex(r"-----BEGIN (?P<label>(?:RSA |DSA |EC |ENCRYPTED |OPENSSH )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----"),
             authorization: regex(r#"(?im)(?:^|[\s{"'`])(?:proxy-)?authorization["']?[ \t]*[:=][ \t]*["']?(?:bearer|basic)[ \t]+(?P<value>[A-Za-z0-9._~+/-]+=*)"#),
             // Prefix recognition, not a promise that every match is a valid key.
             // ghs_ is opaque and can contain a long JWT, including dots.
             github: regex(r"\b(?:ghs_[A-Za-z0-9._-]{36,}|(?:gh[pour]_|github_pat_)[A-Za-z0-9._-]{20,})"),
-            assignment: regex(r#"(?im)(?:^|[^A-Za-z0-9_])["']?(?P<name>(?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret|access[_-]?key|session[_-]?id|key))["']?[ \t]*[:=][ \t]*(?:"(?P<double>(?:\\[^\r\n]|[^"\\\r\n])+\\?)"?|'(?P<single>(?:\\[^\r\n]|[^'\\\r\n])+\\?)'?|(?P<bare>[^\s,;&`"'<>}{\[\]]+))"#),
+            // Prefixes from primary docs; suffix bounds are local heuristics,
+            // not validity checks. Match rotated Slack tokens including xoxe.
+            provider: regex(concat!(
+                r"\b(?:gl(?:pat|oas|dt|rt|rtr|cbt|ptt|ft|imt|agent|wt|soat|ffct)-|",
+                r"xox[bp]-|xapp-|xwfp-|xoxe(?:\.xox[bp])?-|",
+                r"sk-ant-(?:api03|api01|admin01|oat01)-)[A-Za-z0-9_-]{20,}"
+            )),
+            provider_candidate: regex(r"\b(?:(?:sk-|AIza)[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[A-Z0-9]{16,})"),
+            telegram_path: regex(r"(?i:https://api\.telegram\.org/)(?:file/)?bot(?P<value>[0-9]+:[A-Za-z0-9_-]+)"),
+            telegram_candidate: regex(r"\b[0-9]{5,}:[A-Za-z0-9_-]{20,}"),
+            cookie: regex(r"(?im)(?:^|[ \t])(?P<kind>set-cookie|cookie)[ \t]*:[ \t]*(?P<pairs>[^\r\n]+)"),
+            entropy_context: regex(r"(?i)\b(?:key|token|secret|password)[ \t]+(?:is[ \t]+)?(?P<value>[A-Za-z0-9_+/=-]{20,})"),
+            // Quoted .env/DSN values can span lines or contain doubled quotes.
+            // An unfinished quoted credential hides the remaining field.
+            assignment: regex(r#"(?im)(?:^|[^A-Za-z0-9_])["']?(?P<name>(?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret|access[_-]?key|(?:access|refresh|session|id)[_-]?token|session[_-]?id|key))["']?[ \t]*[:=][ \t]*(?:"(?P<double>(?:\\[\s\S]|""|[^"\\])+\\?)"?|'(?P<single>(?:\\[\s\S]|''|[^'\\])+\\?)'?|(?P<bare>[^\s,;&`"'<>}{\[\]]+))"#),
             url: regex(r#"[A-Za-z][A-Za-z0-9+.-]*://(?P<authority>[^\s/?#<>"'`\\]+)"#),
             jwt: regex(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*){2,}"),
         }
@@ -165,12 +190,89 @@ pub fn sanitize(text: &str, policy: ReviewPolicy) -> io::Result<SanitizedText> {
     for token in rules.github.find_iter(text) {
         add(SecretRule::GithubToken, Confidence::High, token.range())?;
     }
+    for (pattern, rule, confidence) in [
+        (&rules.provider, SecretRule::ProviderToken, Confidence::High),
+        (
+            &rules.provider_candidate,
+            SecretRule::ProviderTokenCandidate,
+            Confidence::Medium,
+        ),
+        (
+            &rules.telegram_candidate,
+            SecretRule::TelegramBotToken,
+            Confidence::Medium,
+        ),
+    ] {
+        for token in pattern.find_iter(text) {
+            add(rule, confidence, token.range())?;
+        }
+    }
+    for capture in rules.telegram_path.captures_iter(text) {
+        add(
+            SecretRule::TelegramBotToken,
+            Confidence::High,
+            capture.name("value").expect("bot token").range(),
+        )?;
+    }
+    for capture in rules.cookie.captures_iter(text) {
+        let pairs = capture.name("pairs").expect("cookie pairs");
+        let mut offset = pairs.start();
+        for segment in pairs.as_str().split_inclusive(';') {
+            let pair = segment.trim_end_matches(';');
+            if let Some((name, value)) = pair.split_once('=') {
+                let start = offset + name.len() + 1 + value.len() - value.trim_start().len();
+                let value = value.trim();
+                let (start, value) =
+                    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+                        (start + 1, &value[1..value.len() - 1])
+                    } else {
+                        (start, value)
+                    };
+                if !value.is_empty() && !placeholder(value) {
+                    let confidence = if sensitive_cookie_name(name.trim()) {
+                        Some(Confidence::High)
+                    } else if entropy_candidate(value) {
+                        Some(Confidence::Medium)
+                    } else {
+                        None
+                    };
+                    if let Some(confidence) = confidence {
+                        add(
+                            SecretRule::CookieValue,
+                            confidence,
+                            start..start + value.len(),
+                        )?;
+                    }
+                }
+            }
+            // Set-Cookie has ONE pair; following fields are attributes.
+            if capture["kind"].eq_ignore_ascii_case("set-cookie") {
+                break;
+            }
+            offset += segment.len();
+        }
+    }
+    for capture in rules.entropy_context.captures_iter(text) {
+        let value = capture.name("value").expect("contextual candidate");
+        if entropy_candidate(value.as_str()) && !placeholder(value.as_str()) {
+            add(
+                SecretRule::ContextualEntropy,
+                Confidence::Medium,
+                value.range(),
+            )?;
+        }
+    }
     for capture in rules.assignment.captures_iter(text) {
         let value = ["double", "single", "bare"]
             .iter()
             .find_map(|name| capture.name(name))
             .expect("one assignment value");
         if placeholder(value.as_str())
+            || (capture.name("bare").is_some()
+                && matches!(
+                    value.as_str().to_ascii_lowercase().as_str(),
+                    "null" | "none" | "true" | "false"
+                ))
             || (capture.name("bare").is_some()
                 && value.as_str() == "$"
                 && text[value.end()..].starts_with('{'))
@@ -291,10 +393,55 @@ fn placeholder(value: &str) -> bool {
         || (value.starts_with("${") && value.ends_with('}'))
         || value.starts_with("{{")
         || (value.starts_with('<') && value.ends_with('>'))
-        || matches!(
-            value.to_ascii_lowercase().as_str(),
-            "null" | "none" | "true" | "false"
-        )
+}
+
+fn sensitive_cookie_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let name = lower
+        .strip_prefix("__secure-")
+        .or_else(|| lower.strip_prefix("__host-"))
+        .unwrap_or(&lower);
+    matches!(
+        name,
+        "session"
+            | "sid"
+            | "sessionid"
+            | "session_id"
+            | "jsessionid"
+            | "phpsessid"
+            | "connect.sid"
+            | "_gitlab_session"
+            | "auth"
+            | "auth_token"
+            | "access_token"
+            | "csrf"
+            | "csrftoken"
+            | "xsrf-token"
+    )
+}
+
+/// A review heuristic, never credential validation. Only callers with an
+/// explicit local label/header use it; arbitrary hashes are not scanned.
+fn entropy_candidate(value: &str) -> bool {
+    if value.len() < 20 {
+        return false;
+    }
+    let mut counts = [0_usize; 128];
+    for byte in value.bytes() {
+        if !byte.is_ascii_alphanumeric() && !b"_+/=-".contains(&byte) {
+            return false;
+        }
+        counts[usize::from(byte)] += 1;
+    }
+    let entropy = counts
+        .iter()
+        .filter(|&&n| n > 0)
+        .map(|&n| {
+            let p = n as f64 / value.len() as f64;
+            -p * p.log2()
+        })
+        .sum::<f64>();
+    entropy >= 3.5
 }
 
 fn is_jwt_candidate(token: &str) -> bool {

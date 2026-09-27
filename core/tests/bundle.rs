@@ -92,6 +92,72 @@ fn exported_text(directory: &Path) -> String {
 }
 
 #[test]
+fn expanded_rules_hide_provider_tokens_and_block_unreviewed_candidates() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = setup(&store);
+    let high = "glpat-SYNTHETIC_NotARealToken_12345";
+    let medium = "sk-SYNTHETIC_NotARealToken_12345";
+    let archive = DATA.replace("same token=SYNTHETIC_BODY", &format!("{high} {medium}"));
+    let mut source = project.sources[0].clone();
+    store
+        .snapshots(&project.project_id)
+        .unwrap()
+        .import_telegram("expanded", &source.scope, Cursor::new(archive))
+        .unwrap();
+    source.latest_snapshot_id = Some("expanded".into());
+    let project = store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(source),
+        )
+        .unwrap();
+    let review = prepare(&store, &project);
+    assert_eq!(review.manifest.sanitizer_version, "secrets/2");
+    assert_eq!(review.manifest.privacy.needs_review, 2);
+    assert!(!review.preview.contains(high));
+    assert!(review.preview.contains(medium));
+    assert!(store
+        .export_bundle(
+            &project.project_id,
+            &review.bundle_id,
+            project.revision,
+            destination.path(),
+            || false,
+        )
+        .is_err());
+    let reviewed = store
+        .prepare_bundle(
+            &project.project_id,
+            project.revision,
+            BundleOptions {
+                redact_candidates: true,
+            },
+            || false,
+        )
+        .unwrap();
+    assert_eq!(reviewed.manifest.privacy.needs_review, 0);
+    let exported = store
+        .export_bundle(
+            &project.project_id,
+            &reviewed.bundle_id,
+            project.revision,
+            destination.path(),
+            || false,
+        )
+        .unwrap();
+    let text = exported_text(&exported.directory);
+    assert!(!text.contains(high) && !text.contains(medium));
+    assert!(store
+        .open(&project.project_id)
+        .unwrap()
+        .baselines
+        .is_empty());
+}
+
+#[test]
 fn selected_sanitized_bundle_preserves_distinct_evidence_and_private_mapping() {
     let root = tempfile::tempdir().unwrap();
     let destination = tempfile::tempdir().unwrap();
