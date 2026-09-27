@@ -4,9 +4,10 @@
 [Первичные источники и ограничения](../research/claude-adapter-2026-09-27.md).
 Реализованы `tgsum_runner::claude::{ClaudeRequest, RecipeRequest, decode}` и
 отдельный offline профиль с явным выбором одного auth-файла. Fixed HTTPS relay и
-внутренний network profile проверены на synthetic TLS peer. Добавлены перенос Linux
+network profile проверены на synthetic TLS peer. Добавлены перенос Linux
 managed files и проверка эффективной конфигурации до передачи corpus.
-**Public cloud runner, managed lifecycle и Desktop Run пока не подключены.**
+`ClaudeNetworkRunner` и durable `AnalysisJob` реализованы в библиотеке.
+**Desktop Review/Run пока не подключены.**
 [Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md),
 [managed policy и control protocol](../research/claude-managed-policy-2026-09-27.md).
 
@@ -71,7 +72,7 @@ Claude offline profile. Один файл монтируется read-only в pr
 серверную ротацию токена; сеть в этом профиле изолирована. Поддержка реального
 refresh не заявлена; результаты synthetic HTTPS qualification приведены ниже.
 
-## HTTPS: внутренний профиль квалификации
+## HTTPS: отдельный профиль запуска
 
 `tgsum-claude-relay` запускает только `/runtime/claude` с очищенным env, private
 HOME, фиксированными proxy variables, пустым NO_PROXY и необязательным публичным
@@ -80,8 +81,12 @@ CA через `NODE_EXTRA_CA_CERTS`. Auth берётся из выбранног
 host `platform.claude.com` запрещён. На разрешённом host есть не только inference,
 но и metadata/policy: TLS pass-through не различает HTTP paths.
 
-Внутренний `linux-x86_64-bwrap-claude-egress-v1` используется только тестами.
-`OfflineRunner` его отклоняет; public `ClaudeNetworkRunner` ещё нет. Профиль
+`linux-x86_64-bwrap-claude-egress-v1` доступен через явный `ClaudeNetworkRunner`.
+`OfflineRunner` его отклоняет. `qualify` принимает выбранные relay/native executable,
+отдельные runtime files и `EndpointPolicy`; проверка версии выполняется offline,
+без auth/corpus. `info.authentication` остаётся Unknown. `run` принимает только
+подготовленный `ClaudeRequest`, выбранный auth и limits/cancel. Receiver фиксирован:
+`api.anthropic.com`; произвольные URLs и auth discovery отсутствуют. Профиль
 требует отдельный `EndpointPolicy`: fixed `/etc/claude-code/managed-settings.json`,
 `managed-settings.d/*.json` без dotfiles и `managed-mcp.json`. Содержимое сохраняется
 побайтно, дополнительно создаётся последний в native UTF-16 sort fragment с
@@ -139,8 +144,29 @@ Native CLI проверен с TLS peer, SAN `api.anthropic.com`, synthetic OAut
 
 `policy_limits` — отдельный endpoint от managed settings. Synthetic reply имеет
 пустые `restrictions`/`compliance_taints`; это не доказательство поддержки настоящей
-организации. Перед публичным Run остаются публичный runner API и binding
-Review/result/baseline; реальные auth/org profiles не квалифицированы.
+организации. Desktop Run и реальные auth/org profiles не квалифицированы.
+
+## Review, result и baseline
+
+`AnalysisJob::new` связывает durable `RunTicket` с prepared bundle/revision,
+agent/version/profile, точной model и receiver `api.anthropic.com`. Перед запуском
+снова проверяются Project revision и pending ticket. `RecipeRequest::job` дополнительно
+сверяет compiled recipe ID/version; `run_recipe` использует её штатный schema/evidence
+validator. Произвольные recipe metadata не добавляются после выполнения.
+
+`run_analysis` сначала проверяет binding, затем выполняет runner. Только clean
+transport + успешный protocol + typed result + evidence validator позволяют сохранить
+результат. Публикация результата предшествует атомарному commit baseline в core.
+Failure/cancel/timeout/preflight refusal сохраняются без продвижения baseline.
+Если Project изменился во время inference, валидированный artifact остаётся для
+явного recovery; baseline изменённого Project не трогается. Debug/errors не выводят
+содержимое анализа. Низкоуровневый `run` сам по себе ничего не сохраняет.
+
+В 19 native synthetic TLS сценариях дополнительно проверены public qualification,
+execution с локальным gateway fixture и durable completion: успех коммитит baseline,
+ошибки оставляют Project прежним. Unit fixtures отдельно проверяют mismatch
+recipe/model/receiver/version/profile/bundle, отменённый ticket, bad evidence,
+dirty transport и изменение Project между inference и commit.
 
 ## Результат
 
@@ -214,6 +240,6 @@ production TLS или server-managed policy. Fake CLI независимо пр�
 успех, ошибки, timeout/cancel. Другая версия/профиль не получает fallback вне sandbox.
 Игнорируемые process tests нужно запускать явно; обычный gate не доказывает их прохождение.
 
-До завершения auth/egress/review срезов Claude остаётся Export only в приложении.
+До подключения Desktop Review/Run Claude остаётся Export only в приложении.
 Реальные аккаунты и OS/enterprise qualification — `tgsum-t8t.19` под контролем
 пользователя. Offline fixture не заменяет эту приёмку.

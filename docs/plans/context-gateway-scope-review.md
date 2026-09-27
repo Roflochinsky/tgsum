@@ -56,7 +56,9 @@ auth-файла; native CLI прочитал синтетический OAuth б
 проверяют 19 Claude сценариев, включая запрет refresh, настройки Team, CA,
 cancel/timeout, original managed files и same-process settings preflight.
 Документы передаются только после проверки настроек, network `/context` пустой.
-Public network runner, реальный refresh lifecycle, managed result и Desktop Claude Run остаются в работе; задача не
+Public network runner и durable Review/result/baseline реализованы; negative
+fixtures не меняют baseline, stale Project сохраняет artifact для recovery.
+Desktop Claude Run остаётся в работе, реальный refresh — в qualification backlog; задача не
 закрыта. [Контракт Claude](../development/claude-adapter.md). Состав и состояния
 12 эпиков / 106 задач не изменены. Эпик и полная цель открыты.
 

@@ -289,3 +289,14 @@ raw server document. Не утверждать обратного; примен�
 runner, durable lifecycle и Desktop integration ещё не подключены. Реальные
 plan/org transitions, refresh/revoke и enterprise/OS qualification остаются
 `tgsum-t8t.19` (user control required); synthetic spike не закрывает их.
+
+### Продолжение: библиотечный runner и durable completion
+
+После preflight spike добавлены `ClaudeNetworkRunner`, `AnalysisJob` и
+`RecipeRequest::job/run_recipe`. Те же 19 native synthetic TLS сценариев
+теперь проверяют public qualification, execution с canned gateway и durable
+completion. Успех сохраняет результат и коммитит baseline; ошибки/cancel не
+меняют Project. Offline unit cases проверяют binding receiver/model/version/
+profile/bundle/recipe, rejected evidence и stale Project: validated artifact
+остаётся для явного recovery, baseline не продвигается. Desktop wiring и
+реальные аккаунты по-прежнему не квалифицированы.

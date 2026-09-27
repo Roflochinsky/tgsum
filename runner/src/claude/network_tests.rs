@@ -1,7 +1,7 @@
-//! Qualification tests only: no public Claude cloud runner until policy/lifecycle review.
+//! Native synthetic qualification of network runner and durable lifecycle.
 use super::*;
-use crate::egress::{Destination, InferenceGateway, Limits, CLAUDE_RELAY_VERSION};
-use crate::{linux, AdapterContract, Cancellation, PreparedContext, RuntimeFile, RuntimeSpec};
+use crate::egress::{Destination, InferenceGateway, Limits};
+use crate::{Cancellation, PreparedContext, RuntimeFile};
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -22,7 +22,9 @@ use tgsum_core::{
 };
 
 struct Context {
-    _root: tempfile::TempDir,
+    root: tempfile::TempDir,
+    project: String,
+    bundle: String,
     context: PreparedContext,
 }
 fn context() -> Context {
@@ -65,7 +67,9 @@ fn context() -> Context {
     )
     .unwrap();
     Context {
-        _root: root,
+        root,
+        project: project.project_id,
+        bundle: bundle.bundle_id,
         context,
     }
 }
@@ -74,7 +78,195 @@ fn schema() -> Value {
     json!({"type":"object","properties":{"summary":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}}},"required":["summary","evidence"],"additionalProperties":false})
 }
 
-fn runtime(directory: &Path, cancel: &Cancellation) -> linux::Backend {
+#[test]
+fn review_binds_agent_version_model_receiver_profile_bundle_and_recipe() {
+    let fixture = context();
+    let cancel = Cancellation::default();
+    let request = RecipeRequest::prepare(
+        &fixture.context,
+        "claude-sonnet-4-6",
+        tgsum_core::recipe::Recipe::Summary,
+        &cancel,
+    )
+    .unwrap();
+    let store = ProjectStore::new(fixture.root.path());
+    let project = store.open(&fixture.project).unwrap();
+    for field in [
+        "agent",
+        "version",
+        "model",
+        "receiver",
+        "profile",
+        "bundle",
+        "recipe",
+        "recipe-version",
+        "valid",
+    ] {
+        let mut spec = review_spec(request.request().model());
+        spec.recipe = request.recipe().id().into();
+        spec.recipe_version = tgsum_core::recipe::RECIPE_VERSION;
+        match field {
+            "agent" => spec.agent = "codex".into(),
+            "version" => spec.agent_version = "0.0.0".into(),
+            "model" => spec.model = "unreviewed".into(),
+            "receiver" => spec.destination = "other.test".into(),
+            "profile" => spec.isolation_profile = LINUX_OFFLINE_PROFILE.into(),
+            "recipe" => spec.recipe = "other".into(),
+            "recipe-version" => spec.recipe_version += 1,
+            _ => {}
+        }
+        let bundle = if field == "bundle" {
+            store
+                .prepare_bundle(
+                    &fixture.project,
+                    project.revision,
+                    BundleOptions {
+                        redact_candidates: true,
+                    },
+                    || false,
+                )
+                .unwrap()
+                .bundle_id
+        } else {
+            fixture.bundle.clone()
+        };
+        let ticket = store
+            .begin_analysis(&fixture.project, &bundle, project.revision, spec, || false)
+            .unwrap();
+        if field == "valid" {
+            let job = request.job(&ticket).unwrap();
+            let info = crate::QualifiedAdapter {
+                id: "claude".into(),
+                version_output: String::from_utf8(VERSION_STDOUT.to_vec()).unwrap(),
+                isolation_profile: LINUX_EGRESS_PROFILE,
+                authentication: crate::AuthAvailability::Unknown,
+            };
+            job.check(&info, &cancel).unwrap();
+            store.cancel_analysis(&ticket).unwrap();
+            assert!(job.check(&info, &cancel).is_err());
+        } else {
+            assert!(request.job(&ticket).is_err(), "{field}");
+        }
+    }
+    assert_eq!(store.open(&fixture.project).unwrap(), project);
+}
+
+#[test]
+fn result_rejection_and_stale_project_never_advance_the_baseline() {
+    use tgsum_core::analysis::Completion;
+    for mode in [
+        "destination",
+        "evidence",
+        "dirty-transport",
+        "cancel",
+        "stale",
+    ] {
+        let fixture = context();
+        let cancel = Cancellation::default();
+        let request = ClaudeRequest::prepare(
+            &fixture.context,
+            "claude-sonnet-4-6",
+            "Synthetic",
+            &schema(),
+            &cancel,
+        )
+        .unwrap();
+        let store = ProjectStore::new(fixture.root.path());
+        let project = store.open(&fixture.project).unwrap();
+        let ticket = store
+            .begin_analysis(
+                &fixture.project,
+                &fixture.bundle,
+                project.revision,
+                review_spec(request.model()),
+                || false,
+            )
+            .unwrap();
+        let input: Value = serde_json::from_slice(&request.invocation().unwrap().stdin).unwrap();
+        let reference = input["untrusted_documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|d| d["text"].as_str().unwrap().lines())
+            .find_map(|line| line.strip_prefix("## Evidence "))
+            .unwrap();
+        let output =
+            include_str!("../../tests/fixtures/claude-success.jsonl").replace("m1@r1", reference);
+        let mut output = NetworkOutput {
+            process: crate::RunOutput {
+                termination: crate::Termination::Exited,
+                exit_code: Some(0),
+                stdout: output.into_bytes(),
+                stderr: vec![],
+            },
+            gateway: crate::egress::Report {
+                completed: 1,
+                admitted_bytes: 1,
+                ..Default::default()
+            },
+            destination: Destination::Anthropic,
+        };
+        let expected = match mode {
+            "destination" => {
+                output.destination = Destination::OpenAiApi;
+                project
+            }
+            "dirty-transport" => {
+                output
+                    .gateway
+                    .failures
+                    .push(crate::egress::Failure::ConnectRequest);
+                project
+            }
+            "cancel" => {
+                cancel.cancel();
+                project
+            }
+            "stale" => store
+                .update(
+                    &fixture.project,
+                    project.revision,
+                    ProjectChange::Rename("Changed during inference".into()),
+                )
+                .unwrap(),
+            _ => project,
+        };
+        let result = AnalysisJob::new(&request, &ticket).unwrap().finish(
+            output,
+            &cancel,
+            |answer: &Value| {
+                if mode == "evidence" {
+                    return Err(std::io::Error::other("not in selected scope"));
+                }
+                assert_eq!(answer["evidence"], json!([reference]));
+                let (id, revision) = reference.split_once('@').unwrap();
+                Ok(vec![tgsum_core::bundle::EvidenceRef {
+                    id: id.into(),
+                    revision: revision.into(),
+                }])
+            },
+        );
+        assert!(result.is_err(), "{mode}");
+        assert_eq!(store.open(&fixture.project).unwrap(), expected);
+        let saved = store
+            .read_analysis(&fixture.project, &ticket.request().run_id)
+            .unwrap();
+        assert!(saved.committed_revision.is_none());
+        if mode == "stale" {
+            assert!(
+                matches!(saved.completion, Some(Completion::Validated { .. })),
+                "validated artifact retained for explicit recovery"
+            );
+        } else {
+            assert!(matches!(
+                saved.completion,
+                Some(Completion::Failed { .. } | Completion::Cancelled)
+            ));
+        }
+    }
+}
+
+fn runtime(directory: &Path, cancel: &Cancellation) -> ClaudeNetworkRunner {
     let mut files: Vec<_> = [
         "librt.so.1",
         "libc.so.6",
@@ -106,13 +298,6 @@ fn runtime(directory: &Path, cancel: &Cancellation) -> linux::Backend {
             ),
             "/runtime/installed-claude",
         ),
-        (
-            PathBuf::from(
-                std::env::var_os("TGSUM_CLAUDE_HTTPS_FIXTURE_BINARY")
-                    .expect("explicit HTTPS fixture"),
-            ),
-            "/runtime/claude",
-        ),
         (directory.join("ca.pem"), "/runtime/provider-ca.pem"),
         (directory.join("peer-address"), "/runtime/peer-address"),
     ] {
@@ -121,21 +306,14 @@ fn runtime(directory: &Path, cancel: &Cancellation) -> linux::Backend {
             guest: guest.into(),
         });
     }
-    let mut expected = format!("{CLAUDE_RELAY_VERSION}\n").into_bytes();
-    expected.extend_from_slice(VERSION_STDOUT);
-    linux::Backend::qualify_claude(
-        &AdapterContract {
-            id: "claude".into(),
-            isolation_profile: LINUX_EGRESS_PROFILE.into(),
-            version_probe: version_probe(),
-            expected_version_output: expected,
-        },
-        RuntimeSpec {
-            executable: std::env::var_os("TGSUM_CLAUDE_RELAY_TEST_BINARY")
-                .expect("explicit Claude relay")
-                .into(),
-            files,
-        },
+    ClaudeNetworkRunner::qualify(
+        std::env::var_os("TGSUM_CLAUDE_RELAY_TEST_BINARY")
+            .expect("explicit Claude relay")
+            .into(),
+        std::env::var_os("TGSUM_CLAUDE_HTTPS_FIXTURE_BINARY")
+            .expect("explicit HTTPS fixture")
+            .into(),
+        files,
         EndpointPolicy::fixture(&directory.join("endpoint"), cancel).unwrap(),
         cancel,
     )
@@ -318,13 +496,28 @@ fn qualify(mode: &str) {
     if mode == "endpoint-changed" {
         fs::write(temp.path().join("endpoint/managed-settings.json"), "{}").unwrap();
         assert!(matches!(
-            runner.run(temp.path(), &version_probe(), run_limits(), &cancel),
+            runner
+                .backend
+                .run(temp.path(), &version_probe(), run_limits(), &cancel),
             Err(crate::RunnerError::ExportOnly(
                 "Claude managed settings changed; prepare and review again"
             ))
         ));
         return;
     }
+    let store = ProjectStore::new(context.root.path());
+    let project = store.open(&context.project).unwrap();
+    let ticket = store
+        .begin_analysis(
+            &context.project,
+            &context.bundle,
+            project.revision,
+            review_spec(request_data.model()),
+            || false,
+        )
+        .unwrap();
+    let job = AnalysisJob::new(&request_data, &ticket).unwrap();
+    job.check(runner.info(), &cancel).unwrap();
     let expiry = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -415,23 +608,24 @@ fn qualify(mode: &str) {
             }
             paths
         });
-        let output = runner.run_with_access(
-            request_data.context().directory(),
-            request_data.invocation().unwrap(),
+        let output = runner.run_with_gateway(
+            &request_data,
+            &auth,
             RunLimits {
                 timeout: Duration::from_secs(if mode == "timeout" { 3 } else { 15 }),
                 ..run_limits()
             },
             &cancel,
-            linux::Access {
-                auth: Some(linux::Auth::Claude(&auth)),
-                gateway: Some(&gateway),
-            },
+            gateway,
         );
         stopped.store(true, Ordering::Relaxed);
         (output.unwrap(), server.join().unwrap())
     });
-    let report = gateway.finish();
+    let NetworkOutput {
+        process: output,
+        gateway: report,
+        destination,
+    } = output;
     assert!(!gateway_path.exists());
     eprintln!(
         "Claude {mode}: exit={:?}, termination={:?}, gateway={report:?}",
@@ -486,6 +680,7 @@ fn qualify(mode: &str) {
     let combined = NetworkOutput {
         process: output,
         gateway: report,
+        destination,
     };
     let decoded = combined.decode::<Value>("claude-sonnet-4-6", |answer| {
         answer["evidence"] == json!([reference])
@@ -518,5 +713,57 @@ fn qualify(mode: &str) {
             assert_eq!(combined.process.termination, crate::Termination::Exited);
             assert_eq!(combined.process.exit_code, Some(1));
         }
+    }
+    let completed = job.finish(combined, &cancel, |answer: &Value| {
+        let refs = answer["evidence"]
+            .as_array()
+            .ok_or_else(|| std::io::Error::other("evidence missing"))?;
+        refs.iter()
+            .map(|reference| {
+                let (id, revision) = reference
+                    .as_str()
+                    .and_then(|r| r.split_once('@'))
+                    .ok_or_else(|| std::io::Error::other("invalid evidence"))?;
+                let reference = tgsum_core::bundle::EvidenceRef {
+                    id: id.into(),
+                    revision: revision.into(),
+                };
+                store.resolve_evidence(&context.project, &context.bundle, &reference)?;
+                Ok(reference)
+            })
+            .collect()
+    });
+    let saved = store
+        .read_analysis(&context.project, &ticket.request().run_id)
+        .unwrap();
+    if good {
+        let completed = completed.unwrap();
+        assert_eq!(saved.committed_revision, Some(completed.committed_revision));
+        assert_eq!(
+            store.open(&context.project).unwrap().baselines[0].analysis_id,
+            completed.run_id
+        );
+    } else {
+        assert!(completed.is_err());
+        assert!(matches!(
+            saved.completion,
+            Some(
+                tgsum_core::analysis::Completion::Failed { .. }
+                    | tgsum_core::analysis::Completion::Cancelled
+            )
+        ));
+        assert_eq!(store.open(&context.project).unwrap(), project);
+    }
+}
+
+fn review_spec(model: &str) -> tgsum_core::analysis::AnalysisSpec {
+    tgsum_core::analysis::AnalysisSpec {
+        agent: "claude".into(),
+        agent_version: VERSION.into(),
+        isolation_profile: LINUX_EGRESS_PROFILE.into(),
+        destination: "api.anthropic.com".into(),
+        model: model.into(),
+        recipe: "synthetic-summary".into(),
+        recipe_version: 1,
     }
 }

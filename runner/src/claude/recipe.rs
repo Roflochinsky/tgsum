@@ -47,4 +47,37 @@ impl<'a> RecipeRequest<'a> {
             self.validate(value).is_ok()
         })
     }
+    #[cfg(target_os = "linux")]
+    pub fn job(
+        &'a self,
+        ticket: &'a tgsum_core::analysis::RunTicket,
+    ) -> Result<super::AnalysisJob<'a>, super::AnalysisError> {
+        let spec = &ticket.request().spec;
+        if spec.recipe != self.recipe.id()
+            || spec.recipe_version != tgsum_core::recipe::RECIPE_VERSION
+        {
+            return Err(super::AnalysisError::Binding);
+        }
+        super::AnalysisJob::new(&self.request, ticket)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl super::ClaudeNetworkRunner {
+    pub fn run_recipe(
+        &self,
+        request: &RecipeRequest<'_>,
+        ticket: &tgsum_core::analysis::RunTicket,
+        auth: &super::SelectedAuthFile,
+        cancel: &Cancellation,
+    ) -> Result<super::CompletedAnalysis<tgsum_core::recipe::RecipeOutput>, super::AnalysisError>
+    {
+        self.run_analysis(
+            request.job(ticket)?,
+            auth,
+            super::run_limits(),
+            cancel,
+            |value| request.validate(value),
+        )
+    }
 }

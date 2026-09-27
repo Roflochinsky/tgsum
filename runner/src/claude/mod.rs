@@ -1,6 +1,6 @@
-//! Reviewed Claude Code print protocol. Preparation/decoding and the offline
-//! runtime do not authorize inference. Selected auth is qualified offline;
-//! the desktop remains Export only until network/lifecycle qualification.
+//! Reviewed Claude Code print protocol. Network execution is an explicit
+//! capability, with selected auth, original policy and durable Review binding.
+//! Desktop wiring and real account qualification are separate work.
 
 #[cfg(target_os = "linux")]
 pub(crate) mod auth;
@@ -13,7 +13,11 @@ pub use policy::EndpointPolicy;
 #[cfg(target_os = "linux")]
 mod network;
 #[cfg(target_os = "linux")]
-pub use network::{NetworkDecodeError, NetworkOutput};
+pub use network::{ClaudeNetworkRunner, NetworkDecodeError, NetworkOutput};
+#[cfg(target_os = "linux")]
+mod lifecycle;
+#[cfg(target_os = "linux")]
+pub use lifecycle::{AnalysisError, AnalysisJob, CompletedAnalysis};
 #[cfg(all(test, target_os = "linux"))]
 mod network_tests;
 mod recipe;
@@ -35,9 +39,9 @@ pub const VERSION_STDOUT: &[u8] = b"2.1.280 (Claude Code)\n";
 /// Private read-only procfs, only null/urandom devices, empty HOME and fixed
 /// traffic-disable variables. Optional selected auth; no host network/shell/settings.
 pub const LINUX_OFFLINE_PROFILE: &str = "linux-x86_64-bwrap-claude-offline-v1";
-// Internal qualification profile; no public ClaudeNetworkRunner yet.
+/// Explicit first-party egress with original policy and preflight.
 #[cfg(target_os = "linux")]
-pub(crate) const LINUX_EGRESS_PROFILE: &str = "linux-x86_64-bwrap-claude-egress-v1";
+pub const LINUX_EGRESS_PROFILE: &str = "linux-x86_64-bwrap-claude-egress-v1";
 #[cfg(target_os = "linux")]
 pub(crate) const RUNTIME_ENV: [(&str, &str); 4] = [
     ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),

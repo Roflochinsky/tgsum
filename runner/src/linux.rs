@@ -83,7 +83,6 @@ impl Backend {
         Self::qualify_with_policy(contract, runtime, None, cancellation)
     }
 
-    #[cfg(test)]
     pub(crate) fn qualify_claude(
         contract: &AdapterContract,
         runtime: RuntimeSpec,
