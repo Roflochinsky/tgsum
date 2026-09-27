@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 #[path = "commands/assisted.rs"]
 mod assisted;
+#[path = "commands/source_access.rs"]
+mod source_access;
 
 use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};

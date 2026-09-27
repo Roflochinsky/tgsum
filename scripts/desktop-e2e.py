@@ -133,12 +133,14 @@ def exercise(ui, root, report, report_dir):
     ui.stage("source")
     passed("isolated onboarding and Project creation via controls")
 
+    assert "прочитает выбранный JSON" in ui.evaluate("document.querySelector('#source-import-boundary').textContent")
     ui.click("#btn-project-add-source")
     ui.wait("document.body.dataset.screen==='select'")
     ui.click('[data-key="c:111"]')
     ui.click('[data-chev="222"]')
     ui.click('[data-key="t:222:100"]')
-    ui.value("#project-account-label", "synthetic")
+    account_label = 'synthetic <img src=x onerror="window.__scopeExecuted=true">'
+    ui.value("#project-account-label", account_label)
     ui.click("#btn-next")
     ui.stage("source")
     project = ui.invoke("list_projects")[0]["project"]
@@ -147,6 +149,19 @@ def exercise(ui, root, report, report_dir):
     forum = next(s for s in project["sources"] if s["scope"]["conversation_id"] == "222")
     assert forum["selection"]["filter"]["topic_ids"] == ["100"]
     card = '[data-source="' + forum["source_id"] + '"]'
+    assert ui.evaluate("document.querySelectorAll('.source-access[data-access=local_archive]').length") == 2
+    ui.click(card + " .source-access-details summary")
+    access = ui.evaluate("document.querySelector(" + json.dumps(card + " .source-access") + ").innerText")
+    assert account_label in access and "ID 222" in access
+    for fact in ["JSON целиком", "локальная копия чата хранит исходные", "не получает сессию",
+                 "вручную", "Автовыгрузка не включена", "Полнота истории не подтверждена",
+                 "Автоматического скачивания нет"]:
+        assert fact in access, fact
+    assert ui.evaluate("document.querySelector('.source-access img')===null && !window.__scopeExecuted")
+    assert "вручную" in ui.evaluate("document.querySelector(" + json.dumps(card + " .assisted-export summary") + ").textContent")
+    ui.screenshot(report_dir / "source-access.png")
+    ui.click(card + " .source-access-details summary")
+    passed("source access distinguishes whole-file read, stored chat, context scope and manual refresh")
     ui.value(card + " [name=from]", "2026-06-20")
     ui.value(card + " [name=through]", "2026-06-20")
     assert ui.evaluate("document.querySelector('#btn-project-review').disabled")
@@ -165,6 +180,7 @@ def exercise(ui, root, report, report_dir):
     ui.click("#btn-project-destination")
     ui.stage("analyze")
     ui.value("#analysis-agent", "export")
+    assert "получатель: локальная папка" in ui.evaluate("document.querySelector('#analysis-status').textContent")
     ui.click("#btn-project-export")
     ui.stage("result")
     assert "Контекст сохранён" in ui.evaluate("document.querySelector('#project-export-result').textContent")
@@ -183,6 +199,7 @@ def exercise(ui, root, report, report_dir):
         ui.click("#btn-analysis-prepare")
         ui.stage("review")
         assert "synthetic-" + agent in ui.evaluate("document.querySelector('#analysis-review-summary').textContent")
+        assert "локальный тестовый стенд" in ui.evaluate("document.querySelector('#analysis-review-destination').textContent")
         ui.click("#btn-analysis-run")
         ui.stage("result")
         assert "Готово" in ui.evaluate("document.querySelector('#analysis-result-status').textContent")
@@ -206,6 +223,24 @@ def exercise(ui, root, report, report_dir):
     ui.stage("source")
     assert ui.evaluate("document.querySelector(" + json.dumps(card + " [name=from]") + ").value") == "2026-06-20"
     passed("single JSON refresh preserves saved scope, invalidates Review and reopens Project")
+
+    # A persisted future connector is metadata only, not an OAuth authorization.
+    # Set up that unavailable source via real IPC, then exercise its rendered UI.
+    future = ui.invoke("create_project", {"name": "Unimplemented connector fixture"})
+    ui.invoke("update_project", {"projectId": future["project_id"], "expectedRevision": future["revision"],
+        "change": {"kind": "source", "value": {"source_id": "future", "connector_id": "teams_graph",
+            "scope": {"platform": "teams", "account_local_id": "synthetic", "conversation_id": "111"},
+            "archive_path": None, "latest_snapshot_id": None}}})
+    ui.click("#btn-projects")
+    ui.idle()
+    ui.click('[data-project="' + future["project_id"] + '"]')
+    ui.stage("source")
+    assert "Права доступа не подтверждены" in ui.evaluate("document.querySelector('.source-access[data-access=unverified]').textContent")
+    assert ui.evaluate("document.querySelector('[data-refresh]').disabled && document.querySelector('[data-relink]').disabled")
+    assert ui.evaluate("document.querySelector('.assisted-export')===null")
+    assert "teams" in ui.evaluate("document.querySelector('.project-source').textContent")
+    ui.screenshot(report_dir / "unverified-source.png")
+    passed("unimplemented OAuth source has no inferred grant or Telegram refresh controls")
 
     ui.click("#btn-projects-back")
     ui.click("#dropzone")

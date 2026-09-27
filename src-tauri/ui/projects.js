@@ -3,6 +3,7 @@ import { mountAnalysis } from './analysis.js'
 import { mountPrivacy } from './privacy.js'
 import { mountAssisted } from './assisted.js'
 import { recentProjects, rememberProject } from './onboarding.js'
+import { renderSourceAccess } from './source-access.js'
 
 export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, selection, index, toast }) {
   const $ = (s) => document.querySelector(s)
@@ -117,6 +118,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#btn-project-review').disabled = !current.sources.some((s) => s.selection.enabled)
     $('#project-name').value = current.name
     $('#project-empty').hidden = current.sources.length > 0
+    const access = await invoke('project_source_accesses', { projectId: current.project_id, expectedRevision: current.revision })
+    if (epoch !== renderEpoch) return
     $('#project-sources').replaceChildren()
     const project = current
     for (const source of project.sources) {
@@ -132,7 +135,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       const stats = preview?.stats
       const topics = preview?.topics || []
       card.innerHTML = `<h3>${esc(preview?.title || source.scope.conversation_id)}</h3>
-        <p class="muted">Telegram · ${esc(source.scope.account_local_id)}</p>
+        <p class="muted">${esc(source.scope.platform)} · ${esc(source.scope.account_local_id)}</p>
+        <div class="source-access"></div>
         <label class="project-check"><input name="enabled" type="checkbox" ${source.selection.enabled ? 'checked' : ''}> Включать в анализ проекта</label>
         <label class="project-check"><input name="only_changes" type="checkbox" ${source.selection.only_changes ? 'checked' : ''}> Новые и изменённые после успешного анализа</label>
         <p class="hint">${preview?.baseline_analysis_id ? 'Есть сохранённая точка последнего успешного анализа.' : 'Первый анализ включает все выбранные сообщения. Обновление архива не отмечает сообщения как проанализированные.'}</p>
@@ -150,9 +154,13 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
         ${stats ? `<p class="project-stats" role="status">Сообщений в контексте: <b>${stats.selected}</b> · новых ${stats.created} · изменённых ${stats.edited} · отсутствуют в новом архиве ${stats.missing}</p>
           <p class="hint">Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота архива: ${esc(preview.coverage.level === 'unknown' ? 'не подтверждена' : preview.coverage.level)}.</p>` : `<p class="alert">${esc(problem)}</p>`}
         <div class="project-actions"><button class="btn btn-primary" type="submit">Сохранить выбор</button>
-          <button class="btn btn-ghost" type="button" data-refresh>Обновить из архива</button>
+          <button class="btn btn-ghost" type="button" data-refresh>Перечитать архив</button>
           <button class="btn btn-ghost" type="button" data-relink>Изменить файл…</button>
           <button class="btn btn-ghost" type="button" data-remove>Отключить</button></div>`
+      const facts = access.sources.find((s) => s.source_id === source.source_id)
+      renderSourceAccess(card.querySelector('.source-access'), facts, preview?.coverage)
+      card.querySelector('[data-refresh]').disabled = !facts?.method
+      card.querySelector('[data-relink]').disabled = !facts?.method
       const all = card.elements.all_topics
       const syncTopics = () => { for (const input of card.querySelectorAll('[name="topic"]')) input.disabled = all.checked }
       all.addEventListener('change', syncTopics)

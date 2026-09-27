@@ -230,6 +230,13 @@ main { flex: 1; min-height: 0; }
 .project-screen input:not([type="checkbox"]), #project-account-label { color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); padding: 9px 12px; border-radius: 8px; font: inherit; }
 .project-source { padding: 20px; margin-top: 18px; }
 .project-source h3 { margin: 0; }
+.source-method { font-weight: 600; }
+.source-access-details { margin: 10px 0 18px; }
+.source-access-details summary { cursor: pointer; }
+.source-access-details dl { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 4fr); gap: 10px 16px; margin: 16px 0; }
+.source-access-details dt { font-weight: 600; }
+.source-access-details dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 800px) { .source-access-details dl { grid-template-columns: 1fr; gap: 6px; } .source-access-details dd { margin-bottom: 10px; } }
 .project-source label.project-check { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 8px 0; }
 .project-fields { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
 .project-topics { border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; }

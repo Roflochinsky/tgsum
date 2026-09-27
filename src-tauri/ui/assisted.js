@@ -7,7 +7,7 @@ export function mountAssisted({ invoke, act, project, update, invalidate, import
     section.className = 'assisted-export'
     section.dataset.assistedSource = source.source_id
     section.dataset.state = 'needs_user_action'
-    section.innerHTML = `<summary>Обновить через Telegram Desktop</summary>
+    section.innerHTML = `<summary>Получить новый архив вручную в Telegram Desktop</summary>
       <p class="hint">Экспорт выполняется в Telegram Desktop. TGSUM получает выбранный JSON; сессиями и входом управляет сам клиент.</p>
       <p data-assisted-scope></p>
       <ol><li>Откройте нужный аккаунт и этот чат в Telegram Desktop.</li>

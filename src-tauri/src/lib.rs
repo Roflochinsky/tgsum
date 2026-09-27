@@ -12,6 +12,7 @@ mod desktop_e2e;
 #[cfg(target_os = "linux")]
 mod launcher;
 mod privacy;
+mod source_access;
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -334,9 +335,8 @@ async fn refresh_project_source<R: Runtime>(
             .iter()
             .find(|s| s.source_id == source_id)
             .ok_or_else(|| CmdError::Failed("source not connected to this project".into()))?;
-        if source.scope.platform != "telegram" || source.connector_id != "telegram_json" {
-            return Err(CmdError::Failed("Этот импортёр ещё не подключён".into()));
-        }
+        let importer = source_access::importer(source)
+            .ok_or_else(|| CmdError::Failed("Этот импортёр ещё не подключён".into()))?;
         let path = source
             .archive_path
             .as_ref()
@@ -351,11 +351,10 @@ async fn refresh_project_source<R: Runtime>(
             std::process::id(),
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
         );
-        store.snapshots(&project_id)?.import_telegram(
-            &id,
-            &source.scope,
-            open_tracked(&app, path, "import", cancel.clone())?,
-        )?;
+        let mut input = open_tracked(&app, path, "import", cancel.clone())?;
+        store
+            .snapshots(&project_id)?
+            .import(&importer, &id, &source.scope, &mut input)?;
         if cancel.load(Ordering::Relaxed) {
             return Err(cancelled().into());
         }
@@ -630,6 +629,7 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             open_project,
             update_project,
             project_source_status,
+            source_access::project_source_accesses,
             preview_project_source,
             refresh_project_source,
             assisted::pick_assisted_path,

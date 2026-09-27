@@ -60,12 +60,16 @@ and an existing window alone were insufficient in the first local run.
 
 1. First-run onboarding and Project creation through rendered controls.
 2. Full JSON import, selection of a direct chat and one forum topic, saved
-   date range, privacy preset and sanitized Review.
+   date range, privacy preset and sanitized Review. Source access details
+   distinguish whole-file reads, raw snapshot storage and narrower context;
+   a markup-like account label remains text.
 3. Export only: actual prepared Markdown is written and checked for secret leaks.
 4. Each synthetic Codex/Claude adapter: Review, explicit Run, validated result
    and rendered evidence. No installed agent executable or auth is used.
 5. Relink to a single-chat JSON, refresh the snapshot, preserve selected scope,
    invalidate old Review and reopen the saved Project.
+   A separate Project with an unimplemented OAuth source shows unverified
+   access and disables unavailable Telegram/archive operations.
 6. Single-chat one-off topic export and actual Markdown content verification.
 7. Malformed JSON error and absence of uncaught renderer exceptions.
 
