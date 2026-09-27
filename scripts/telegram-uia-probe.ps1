@@ -82,7 +82,7 @@ $outPath = [IO.Path]::GetTempFileName()
 $errPath = [IO.Path]::GetTempFileName()
 try {
     $shell = Join-Path $PSHOME 'powershell.exe'
-    $arguments = '-NoProfile -NonInteractive -File "{0}" -ProcessId {1} -Executable "{2}" -WindowHandle {3} -Stage {4} -Observe -Worker' -f
+    $arguments = '-NoProfile -NonInteractive -MTA -File "{0}" -ProcessId {1} -Executable "{2}" -WindowHandle {3} -Stage {4} -Observe -Worker' -f
         $PSCommandPath, $ProcessId, $Executable, $WindowHandle, $Stage
     $child = Start-Process -FilePath $shell -ArgumentList $arguments -PassThru `
         -RedirectStandardOutput $outPath -RedirectStandardError $errPath

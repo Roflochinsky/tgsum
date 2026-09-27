@@ -43,7 +43,12 @@ The test uses only fake nodes and an invalid CLI target, never Telegram:
 powershell.exe -NoProfile -File .\scripts\test-telegram-uia-probe.ps1
 ```
 
-The Windows `test` CI job runs these synthetic checks. The UIA binding uses
+The Windows `test` CI job runs these fake-tree checks and a second integration
+check that creates its own WinForms window, calls the real UIA transport against
+that window, verifies the report omits its private-looking labels and raw ID,
+and rejects the wrong executable, PID and HWND. It closes only its synthetic
+process. Neither check launches Telegram or proves Telegram-specific selectors.
+The UIA binding uses
 [Microsoft's AutomationElement](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.automationelement?view=windowsdesktop-10.0)
 and [RawViewWalker](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.treewalker.rawviewwalker?view=windowsdesktop-10.0)
 to observe an existing window. Its presence does not change the
