@@ -108,7 +108,11 @@ try {
             @{ error = 'probe_failed'; phase = $failed.phase } |
                 ConvertTo-Json -Compress
         } else {
-            '{"error":"probe_failed"}'
+            @{ error = 'probe_failed'; phase = 'parent_child_exit';
+                exit_code = $child.ExitCode;
+                stdout_bytes = (Get-Item -LiteralPath $outPath).Length;
+                stderr_bytes = (Get-Item -LiteralPath $errPath).Length } |
+                ConvertTo-Json -Compress
         }
         exit 1
     }
@@ -118,7 +122,9 @@ try {
     $report = $body | ConvertFrom-Json
     $script:ProbePhase = 'parent_validate'
     if ($null -eq $report.ok -or $report.ok.schema_version -ne 1) {
-        '{"error":"probe_failed"}'
+        @{ error = 'probe_failed'; phase = 'parent_invalid_output';
+            stdout_bytes = (Get-Item -LiteralPath $outPath).Length } |
+            ConvertTo-Json -Compress
         exit 1
     }
     $body.Trim()

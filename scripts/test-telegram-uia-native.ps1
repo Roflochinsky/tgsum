@@ -43,7 +43,7 @@ try {
             $detail = $detail.Replace($private, '[synthetic]')
         }
         if ($detail.Length -gt 1200) { $detail = $detail.Substring(0, 1200) }
-        throw "native UIA probe failed at $($safe.phase); worker exit=$directCode; $detail"
+        throw "native UIA probe failed at $($safe.phase) child_exit=$($safe.exit_code) stdout_bytes=$($safe.stdout_bytes) stderr_bytes=$($safe.stderr_bytes); worker exit=$directCode; $detail"
     }
     $report = $output | ConvertFrom-Json
     Assert-True ($report.ok.schema_version -eq 1) 'probe schema mismatch'
