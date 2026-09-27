@@ -13,6 +13,7 @@ mod desktop_e2e;
 mod launcher;
 mod privacy;
 mod source_access;
+pub mod telegram_refresh;
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -613,6 +614,14 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                     app.path().app_local_data_dir()?.join("projects"),
                 ));
             }
+            if app
+                .try_state::<telegram_refresh::TelegramRefreshState>()
+                .is_none()
+            {
+                app.manage(telegram_refresh::TelegramRefreshState::for_app(
+                    app.state::<ProjectStore>().inner().clone(),
+                )?);
+            }
             Ok(create_main_window(app.handle())?)
         })
         .invoke_handler(tauri::generate_handler![
@@ -637,6 +646,11 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             assisted::launch_assisted_client,
             assisted::poll_assisted_exports,
             assisted::import_assisted_export,
+            telegram_refresh::telegram_refresh_status,
+            telegram_refresh::start_telegram_refresh,
+            telegram_refresh::cancel_telegram_refresh,
+            telegram_refresh::set_telegram_refresh_cadence,
+            telegram_refresh::resolve_telegram_refresh,
             prepare_project_bundle,
             privacy::privacy_presets,
             privacy::attachment_catalog,
@@ -699,6 +713,12 @@ pub fn run() {
         app.handle().clone(),
         app.state::<ProjectStore>().inner().clone(),
         Arc::clone(&app.state::<assisted::ExportInboxState>().inner().0),
+        Arc::clone(&stop),
+    );
+    telegram_refresh::start_timer(
+        app.state::<telegram_refresh::TelegramRefreshState>()
+            .inner()
+            .clone(),
         Arc::clone(&stop),
     );
     app.run(move |_, event| {

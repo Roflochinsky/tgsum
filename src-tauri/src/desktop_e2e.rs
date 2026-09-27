@@ -12,6 +12,8 @@ struct Config {
     nonce: String,
     port: u16,
     picks: VecDeque<Pick>,
+    #[serde(default)]
+    refresh_fixture: bool,
 }
 
 #[derive(Deserialize)]
@@ -69,8 +71,17 @@ pub(crate) fn configure<R: Runtime>(builder: Builder<R>) -> io::Result<Builder<R
     // A second launch cannot silently reuse an existing Project store.
     let projects = root.join("projects");
     fs::create_dir(&projects)?;
+    let store = ProjectStore::new(projects);
+    let builder = if config.refresh_fixture {
+        builder.manage(crate::telegram_refresh::fixture::state(
+            root.clone(),
+            store.clone(),
+        )?)
+    } else {
+        builder
+    };
     Ok(builder
-        .manage(ProjectStore::new(projects))
+        .manage(store)
         .manage(Harness {
             root,
             nonce: config.nonce,

@@ -398,6 +398,15 @@ impl ProjectStore {
                     .find(|s| s.source_id == source.source_id)
                 {
                     if old.scope != source.scope || old.connector_id != source.connector_id {
+                        if project
+                            .telegram_refresh
+                            .get(&source.source_id)
+                            .is_some_and(|plan| plan.checkpoint.unresolved_attempt)
+                        {
+                            return Err(invalid(
+                                "review the unresolved Telegram export before replacing its source",
+                            ));
+                        }
                         project.assisted_exports.remove(&source.source_id);
                         project.telegram_refresh.remove(&source.source_id);
                     }
@@ -407,6 +416,15 @@ impl ProjectStore {
                 }
             }
             ProjectChange::RemoveSource(id) => {
+                if project
+                    .telegram_refresh
+                    .get(&id)
+                    .is_some_and(|plan| plan.checkpoint.unresolved_attempt)
+                {
+                    return Err(invalid(
+                        "review the unresolved Telegram export before removing its source",
+                    ));
+                }
                 if !project.sources.iter().any(|s| s.source_id == id) {
                     return Err(invalid("source not connected to this project"));
                 }
@@ -721,6 +739,61 @@ impl ProjectStore {
                 }
             },
         )?;
+        Ok(project)
+    }
+
+    /// Publish the completed snapshot, actual archive path and resolved claim
+    /// together. A crash cannot expose success with the previous snapshot.
+    pub(crate) fn publish_telegram_refresh_result(
+        &self,
+        claimed: &Project,
+        source_id: &str,
+        snapshot_id: &str,
+        archive_path: PathBuf,
+    ) -> io::Result<Project> {
+        let mut project = self.open(&claimed.project_id)?;
+        if project != *claimed {
+            return Err(conflict());
+        }
+        let source = project
+            .sources
+            .iter_mut()
+            .find(|s| s.source_id == source_id)
+            .ok_or_else(|| invalid("Telegram source disconnected"))?;
+        if self
+            .snapshots(&project.project_id)?
+            .load(snapshot_id)?
+            .source
+            != source.scope
+        {
+            return Err(invalid("snapshot does not belong to the connected source"));
+        }
+        source.archive_path = Some(archive_path);
+        source.latest_snapshot_id = Some(snapshot_id.to_owned());
+        let plan = project
+            .telegram_refresh
+            .get_mut(source_id)
+            .ok_or_else(|| invalid("Telegram refresh is not configured"))?;
+        if !plan.checkpoint.unresolved_attempt {
+            return Err(conflict());
+        }
+        plan.checkpoint = plan.checkpoint.resolved_successfully();
+        project.revision = project
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("project revision exhausted"))?;
+        validate_project(&project)?;
+        write_revision(
+            &self.directory(&project.project_id)?.join("revisions"),
+            &project,
+        )
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                conflict()
+            } else {
+                error
+            }
+        })?;
         Ok(project)
     }
 }

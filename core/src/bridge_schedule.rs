@@ -11,7 +11,7 @@ use std::io;
 use fs4::{FileExt, TryLockError};
 use serde::{Deserialize, Serialize};
 
-use crate::project::{Project, ProjectStore};
+use crate::project::{Project, ProjectEntry, ProjectStore};
 
 const SIX_HOURS: u64 = 6 * 60 * 60;
 const DAY: u64 = 24 * 60 * 60;
@@ -59,6 +59,13 @@ pub struct RefreshAttempt {
     project_id: String,
     source_id: String,
     checkpoint: RefreshCheckpoint,
+    pub(crate) project: Project,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshTrigger {
+    Scheduled,
+    Manual,
 }
 
 /// The user has checked the official client after an interrupted TGSUM run.
@@ -109,24 +116,57 @@ impl TelegramExportLease {
         context: RefreshContext<'_>,
     ) -> io::Result<Result<RefreshAttempt, RefreshDecision>> {
         let project = store.open(project_id)?;
+        self.claim_reviewed(
+            store,
+            &project,
+            source_id,
+            RefreshTrigger::Scheduled,
+            context,
+        )
+    }
+
+    /// Pin the configuration reviewed by the host before dispatching a driver.
+    pub fn claim_reviewed(
+        &self,
+        store: &ProjectStore,
+        project: &Project,
+        source_id: &str,
+        trigger: RefreshTrigger,
+        context: RefreshContext<'_>,
+    ) -> io::Result<Result<RefreshAttempt, RefreshDecision>> {
+        // The OS lock disappearing after a crash does not stop Telegram.
+        // A pending attempt anywhere in this store blocks every other source.
+        if store.list()?.iter().any(|entry| match entry {
+            ProjectEntry::Ready { project } => project
+                .telegram_refresh
+                .values()
+                .any(|plan| plan.checkpoint.unresolved_attempt),
+            ProjectEntry::Unavailable { .. } => true,
+        }) {
+            return Ok(Err(RefreshDecision::NeedsUserAction));
+        }
         let Some(plan) = project.telegram_refresh.get(source_id) else {
             return Ok(Err(RefreshDecision::ManualOnly));
         };
-        let next = match plan.checkpoint.try_claim(plan.cadence, context) {
+        let next = match plan
+            .checkpoint
+            .try_claim_for(plan.cadence, trigger, context)
+        {
             Ok(next) => next,
             Err(decision) => return Ok(Err(decision)),
         };
-        store.publish_telegram_refresh_checkpoint(
-            project_id,
+        let claimed = store.publish_telegram_refresh_checkpoint(
+            &project.project_id,
             source_id,
             &plan.checkpoint,
             Some(project.revision),
             next.clone(),
         )?;
         Ok(Ok(RefreshAttempt {
-            project_id: project_id.to_owned(),
+            project_id: project.project_id.clone(),
             source_id: source_id.to_owned(),
             checkpoint: next,
+            project: claimed,
         }))
     }
 
@@ -220,7 +260,8 @@ pub struct RefreshContext<'a> {
     pub any_export_in_flight: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RefreshDecision {
     ManualOnly,
     AlreadyAttempted,
@@ -233,29 +274,42 @@ pub enum RefreshDecision {
 
 impl RefreshCheckpoint {
     pub fn decide(&self, cadence: RefreshCadence, context: RefreshContext<'_>) -> RefreshDecision {
+        self.decide_for(cadence, RefreshTrigger::Scheduled, context)
+    }
+
+    pub fn decide_for(
+        &self,
+        cadence: RefreshCadence,
+        trigger: RefreshTrigger,
+        context: RefreshContext<'_>,
+    ) -> RefreshDecision {
         if self.unresolved_attempt {
             return RefreshDecision::NeedsUserAction;
         }
-        if cadence == RefreshCadence::Manual {
+        if trigger == RefreshTrigger::Scheduled && cadence == RefreshCadence::Manual {
             return RefreshDecision::ManualOnly;
         }
         if context.any_export_in_flight {
             return RefreshDecision::Busy;
         }
-        let cadence_ready_at = match cadence {
-            RefreshCadence::Manual => unreachable!(),
-            RefreshCadence::OnStart
-                if self.last_launch_id.as_deref() == Some(context.launch_id) =>
-            {
-                return RefreshDecision::AlreadyAttempted;
+        let cadence_ready_at = if trigger == RefreshTrigger::Manual {
+            0
+        } else {
+            match cadence {
+                RefreshCadence::Manual => unreachable!(),
+                RefreshCadence::OnStart
+                    if self.last_launch_id.as_deref() == Some(context.launch_id) =>
+                {
+                    return RefreshDecision::AlreadyAttempted;
+                }
+                RefreshCadence::OnStart => 0,
+                RefreshCadence::EverySixHours => self
+                    .last_started_at
+                    .map_or(0, |started| started.saturating_add(SIX_HOURS)),
+                RefreshCadence::Daily => self
+                    .last_started_at
+                    .map_or(0, |started| started.saturating_add(DAY)),
             }
-            RefreshCadence::OnStart => 0,
-            RefreshCadence::EverySixHours => self
-                .last_started_at
-                .map_or(0, |started| started.saturating_add(SIX_HOURS)),
-            RefreshCadence::Daily => self
-                .last_started_at
-                .map_or(0, |started| started.saturating_add(DAY)),
         };
         let ready_at = cadence_ready_at
             .max(self.retry_not_before.unwrap_or(0))
@@ -276,7 +330,16 @@ impl RefreshCheckpoint {
         cadence: RefreshCadence,
         context: RefreshContext<'_>,
     ) -> Result<Self, RefreshDecision> {
-        let decision = self.decide(cadence, context);
+        self.try_claim_for(cadence, RefreshTrigger::Scheduled, context)
+    }
+
+    pub fn try_claim_for(
+        &self,
+        cadence: RefreshCadence,
+        trigger: RefreshTrigger,
+        context: RefreshContext<'_>,
+    ) -> Result<Self, RefreshDecision> {
+        let decision = self.decide_for(cadence, trigger, context);
         if decision != RefreshDecision::Ready {
             return Err(decision);
         }

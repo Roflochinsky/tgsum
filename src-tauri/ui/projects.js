@@ -2,6 +2,7 @@
 import { mountAnalysis } from './analysis.js'
 import { mountPrivacy } from './privacy.js'
 import { mountAssisted } from './assisted.js'
+import { mountTelegramRefresh } from './telegram-refresh.js'
 import { recentProjects, rememberProject } from './onboarding.js'
 import { renderSourceAccess } from './source-access.js'
 
@@ -25,6 +26,14 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   const assisted = mountAssisted({ invoke, act, project: () => current, update,
     invalidate: invalidateReview, imported: async (updated) => { current = updated; await render() },
     startJob, endJob, show, toast })
+  const telegramRefresh = mountTelegramRefresh({ invoke, act, project: () => current, toast,
+    changed: async (updated, sourceId) => {
+      current = updated
+      invalidateReview()
+      await render()
+      const panel = document.querySelector(`[data-telegram-refresh="${CSS.escape(sourceId)}"]`)
+      if (panel) panel.open = true
+    } })
 
   function invalidateReview() {
     review = null
@@ -167,6 +176,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       syncTopics()
       await privacy.sourceFiles(card, source)
       assisted.source(card, source, preview?.title || source.scope.conversation_id)
+      telegramRefresh.source(card, source)
       if (epoch !== renderEpoch) return
     }
     await analysis.reset()

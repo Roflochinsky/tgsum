@@ -122,6 +122,35 @@ impl ArchiveFiles {
         Ok(Self { root: directory })
     }
 
+    /// Open one archive file beneath the retained directory handle. Used by
+    /// Bridge staging; no text-extension or attachment-size assumptions apply.
+    pub(crate) fn open_regular(&self, relative: &Path) -> io::Result<std::fs::File> {
+        let parts = relative
+            .components()
+            .map(|part| match part {
+                Component::Normal(name) => Ok(name),
+                _ => Err(invalid("archive file path must be relative and normalized")),
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let (leaf, directories) = parts
+            .split_last()
+            .ok_or_else(|| invalid("archive file path is empty"))?;
+        let mut parent = self.root.try_clone().map_err(access_error)?;
+        for part in directories {
+            parent = parent.open_dir_nofollow(part).map_err(access_error)?;
+            reject_reparse(&parent.dir_metadata().map_err(access_error)?)?;
+        }
+        let mut options = OpenOptions::new();
+        options.read(true).follow(FollowSymlinks::No).nonblock(true);
+        let file = parent.open_with(leaf, &options).map_err(access_error)?;
+        let metadata = file.metadata().map_err(access_error)?;
+        reject_reparse(&metadata)?;
+        if !metadata.is_file() {
+            return Err(invalid("archive must be a regular file"));
+        }
+        Ok(file.into_std())
+    }
+
     pub(crate) fn read(
         &self,
         reference: TextReference<'_>,

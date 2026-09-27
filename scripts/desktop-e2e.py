@@ -3,7 +3,7 @@
 Build: cargo build --locked -p tgsum --features desktop-e2e
 Run: python scripts/desktop-e2e.py [--cargo-run] [--report-dir DIR]
 On headless Linux use xvfb-run -a. This launches its own isolated application;
-it never attaches to existing apps. Native pickers and agents are synthetic.
+it never attaches to existing apps. Pickers, agents and Telegram refresh are synthetic.
 """
 import argparse
 import base64
@@ -106,7 +106,9 @@ def prepare(root, nonce, port):
              ("export", "single.json"), ("export", "single.json"),
              ("output", "single-output"), ("export", "malformed.json")]
     (root / "harness.json").write_text(json.dumps({"nonce": nonce, "port": port,
+        "refresh_fixture": True,
         "picks": [{"kind": kind, "path": path} for kind, path in picks]}), encoding="utf-8")
+    (root / "refresh-control.json").write_text(json.dumps({"mode": "locked", "now": 100}), encoding="utf-8")
 
 
 def exercise(ui, root, report, report_dir):
@@ -337,6 +339,64 @@ def exercise(ui, root, report, report_dir):
     assert accepted["analysis_run"] == old_analysis
     passed("two assisted Telegram sources reject wrong chat then retry one source without analysis")
 
+    refresh = direct_card + ' [data-telegram-refresh]'
+    def refresh_control(mode, now):
+        temporary = root / "refresh-control.tmp"
+        temporary.write_text(json.dumps({"mode": mode, "now": now}), encoding="utf-8")
+        temporary.replace(root / "refresh-control.json")
+
+    ui.click(refresh + ' summary')
+    ui.wait('!document.querySelector(' + json.dumps(refresh + ' [data-refresh-cadence]') + ').disabled')
+    ui.value(refresh + ' [data-refresh-cadence]', 'on_start')
+    ui.click(refresh + ' [data-refresh-save]')
+    ui.idle()
+    ui.wait("document.querySelector(" + json.dumps(refresh + ' [data-refresh-status]') + ").textContent.includes('разблокированная')")
+    assert not (root / "refresh-starts.txt").exists()
+    passed("schedule opt-in persists and a locked session never starts the synthetic client")
+
+    refresh_control("success", 100)
+    ui.wait('document.querySelector(' + json.dumps(refresh) + ').dataset.state === "ready"')
+    ui.wait('!document.querySelector(' + json.dumps(refresh + ' [data-refresh-now]') + ').disabled')
+    refreshed = ui.invoke("open_project", {"projectId": pid})
+    refreshed_direct = next(s for s in refreshed["sources"] if s["source_id"] == direct["source_id"])
+    assert Path(refreshed_direct["archive_path"]).parent.name.startswith('refresh-')
+    assert refreshed["analysis_run"] == accepted["analysis_run"]
+    assert next(s for s in refreshed["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == forum_snapshot
+    assert len((root / "refresh-starts.txt").read_text().splitlines()) == 1
+    ui.screenshot(report_dir / "scheduled-refresh.png")
+    passed("unlocked timer imports the correlated output path once and preserves the other chat and analysis")
+
+    refresh_control("hold", 10000)
+    ui.click(refresh + ' [data-refresh-now]')
+    ui.wait('document.querySelector(' + json.dumps(refresh) + ').dataset.state === "exporting"')
+    ui.click(refresh + ' [data-refresh-cancel]')
+    ui.wait('document.querySelector(' + json.dumps(refresh) + ').dataset.state === "cancelled"')
+    cancelled_project = ui.invoke("open_project", {"projectId": pid})
+    assert cancelled_project["sources"] == refreshed["sources"]
+    ui.click(refresh + ' [data-refresh-reload]')
+    ui.idle()
+    passed("refresh cancellation waits for the fake client terminal event and preserves snapshots")
+
+    refresh_control("hold", 20000)
+    ui.wait('!document.querySelector(' + json.dumps(refresh + ' [data-refresh-now]') + ').disabled')
+    ui.click(refresh + ' [data-refresh-now]')
+    ui.wait('document.querySelector(' + json.dumps(refresh) + ').dataset.state === "exporting"')
+    refresh_control("locked", 20000)
+    ui.wait('document.querySelector(' + json.dumps(refresh) + ').dataset.state === "needs_user_action"')
+    assert ui.evaluate('document.querySelector(' + json.dumps(refresh + ' [data-refresh-resolve]') + ').disabled')
+    ui.click(refresh + ' [data-refresh-confirm]')
+    ui.click(refresh + ' [data-refresh-resolve]')
+    ui.idle()
+    ui.wait('document.querySelector(' + json.dumps(refresh) + ').dataset.state === "idle"')
+    recovered_project = ui.invoke("open_project", {"projectId": pid})
+    assert recovered_project["sources"] == refreshed["sources"]
+    assert recovered_project["telegram_refresh"][direct["source_id"]]["checkpoint"]["unresolved_attempt"] is False
+    ui.value(refresh + ' [data-refresh-cadence]', 'manual')
+    ui.click(refresh + ' [data-refresh-save]')
+    ui.idle()
+    assert len((root / "refresh-starts.txt").read_text().splitlines()) == 3
+    passed("lost active session requires explicit review and manual cadence can stop future scheduling")
+
     # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.
     future = ui.invoke("create_project", {"name": "Unimplemented connector fixture"})
@@ -407,7 +467,9 @@ def main():
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
               "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO, text=True).strip()),
               "rust": subprocess.check_output(["rustc", "--version", "--verbose"], cwd=REPO, text=True).strip(),
-              "picker": "simulated native response", "agents": "synthetic", "driver": "tauri-plugin-wdio-webdriver=1.4.0"}
+              "picker": "simulated native response", "agents": "synthetic",
+              "telegram_refresh": "synthetic driver, clock and session; no messenger process",
+              "driver": "tauri-plugin-wdio-webdriver=1.4.0"}
     ui = WebView(port)
     child = None
     try:

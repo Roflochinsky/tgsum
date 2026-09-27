@@ -3,8 +3,9 @@
 `scripts/desktop-e2e.py` drives the **real application WebView** with an embedded
 W3C WebDriver. Source selection, parsing, Project storage, sanitization, Review,
 bundle export and result rendering use the application UI and production IPC.
-The only substituted boundaries are native file-picker responses and the
-existing synthetic analysis backend. No messenger or agent accounts are used.
+The substituted boundaries are native file-picker responses, the synthetic
+analysis backend and an explicitly configured Telegram refresh driver/clock.
+No messenger or agent accounts are used.
 
 ## Run
 
@@ -43,6 +44,11 @@ and an existing window alone were insufficient in the first local run.
 - The fresh temporary root holds synthetic exports, output, ProjectStore and
   a predeclared picker queue. Reusing a Project directory is refused. Picker
   paths are canonicalized and must remain within that root.
+- The refresh fixture requires `refresh_fixture: true` in the harness config.
+  It writes synthetic single-chat JSON only below the owned temporary root;
+  `refresh-control.json` supplies session state, time and simulated outcome.
+  It never launches a messenger or inspects sessions. Ordinary app launches
+  retain the unavailable production driver.
 - The test window uses an incognito WebView and a temporary data directory.
   Incognito is essential on macOS, where `data_directory` does not select a
   separate WKWebView store. Desktop-entry updates and external openers are
@@ -77,8 +83,20 @@ and an existing window alone were insufficient in the first local run.
    a fresh human confirmation before retry.
    A separate Project with an unimplemented OAuth source shows unverified
    access and disables unavailable Telegram/archive operations.
-6. Single-chat one-off topic export and actual Markdown content verification.
-7. Malformed JSON error and absence of uncaught renderer exceptions.
+6. Refresh scheduling through rendered controls: opt-in on-start cadence,
+   no dispatch while locked, one dispatch after unlock, a dynamically named
+   completed archive and preservation of the other source and analysis baseline.
+   Manual cancellation preserves the snapshot. Session loss leaves an unresolved
+   attempt; recovery requires the explicit client-stopped checkbox. The final
+   cadence returns to manual. All acquisition events come from the fake driver.
+7. Single-chat one-off topic export and actual Markdown content verification.
+8. Malformed JSON error and absence of uncaught renderer exceptions.
+
+The current script records 17 checks. Historical runs below describe the suite
+at their recorded revisions, before the refresh extension. The extended suite
+passed locally through `--cargo-run` on 2026-09-28; its report was written to
+`/tmp/tgsum-refresh-coordinator-e2e/report.json` and records a working tree based
+on `9e6763b`, not a clean committed revision.
 
 The CI `desktop-e2e` matrix executes this same script on Ubuntu, Windows and
 macOS, uploading artifacts even after failure. A configured job is not a passing

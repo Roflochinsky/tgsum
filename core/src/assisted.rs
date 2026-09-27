@@ -47,7 +47,10 @@ pub struct CompletedImport {
 }
 
 impl ImportDelta {
-    fn from_snapshots(current: &Snapshot, previous: Option<&Snapshot>) -> io::Result<Self> {
+    pub(crate) fn from_snapshots(
+        current: &Snapshot,
+        previous: Option<&Snapshot>,
+    ) -> io::Result<Self> {
         let diff = previous.map(|old| current.diff(old)).transpose()?;
         Ok(match diff {
             Some(SnapshotDiff {
@@ -188,17 +191,37 @@ fn stage_and_verify(
     on_progress: &mut impl FnMut(u64, u64) -> io::Result<()>,
     is_cancelled: &impl Fn() -> bool,
 ) -> io::Result<File> {
-    let before = fs::symlink_metadata(path)?;
-    if !before.is_file() || before.file_type().is_symlink() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "export must be a regular file",
-        ));
-    }
-    let mut source = File::open(path)?;
-    if !same_metadata(&before, &source.metadata()?) {
-        return Err(changed());
-    }
+    stage_with_opener(
+        || {
+            let before = fs::symlink_metadata(path)?;
+            if !before.is_file() || before.file_type().is_symlink() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "export must be a regular file",
+                ));
+            }
+            let source = File::open(path)?;
+            if !same_metadata(&before, &source.metadata()?) {
+                return Err(changed());
+            }
+            Ok(source)
+        },
+        directory,
+        on_progress,
+        is_cancelled,
+    )
+}
+
+/// Two streaming reads through a caller-owned, repeatable file opener. Bridge
+/// uses a retained directory handle so path swaps cannot escape its destination.
+pub(crate) fn stage_with_opener(
+    mut open: impl FnMut() -> io::Result<File>,
+    directory: &PathBuf,
+    on_progress: &mut impl FnMut(u64, u64) -> io::Result<()>,
+    is_cancelled: &impl Fn() -> bool,
+) -> io::Result<File> {
+    let mut source = open()?;
+    let before = source.metadata()?;
     let mut staged = tempfile::tempfile_in(directory)?;
     let mut digest = Sha256::new();
     let mut copied = 0u64;
@@ -215,17 +238,17 @@ fn stage_and_verify(
         staged.write_all(&buffer[..read])?;
         digest.update(&buffer[..read]);
         copied = copied.saturating_add(read as u64);
+        if copied > before.len() {
+            return Err(changed());
+        }
         on_progress(copied, total)?;
     }
-    if !same_metadata(&before, &source.metadata()?)
-        || !same_metadata(&before, &fs::symlink_metadata(path)?)
-        || copied != before.len()
-    {
+    if !same_metadata(&before, &source.metadata()?) || copied != before.len() {
         return Err(changed());
     }
     staged.flush()?;
     staged.sync_all()?;
-    let mut reread = File::open(path)?;
+    let mut reread = open()?;
     if !same_metadata(&before, &reread.metadata()?) {
         return Err(changed());
     }
@@ -241,11 +264,14 @@ fn stage_and_verify(
         }
         confirm.update(&buffer[..read]);
         verified = verified.saturating_add(read as u64);
+        if verified > copied {
+            return Err(changed());
+        }
         on_progress(copied.saturating_add(verified), total)?;
     }
     if verified != copied
         || !same_metadata(&before, &reread.metadata()?)
-        || !same_metadata(&before, &fs::symlink_metadata(path)?)
+        || !same_metadata(&before, &open()?.metadata()?)
         || digest.finalize() != confirm.finalize()
     {
         return Err(changed());

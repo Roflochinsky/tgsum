@@ -9,6 +9,7 @@ pub mod analysis;
 pub mod assisted;
 pub mod attachments;
 pub mod bridge;
+pub mod bridge_refresh;
 pub mod bridge_schedule;
 pub mod bundle;
 pub mod connector;

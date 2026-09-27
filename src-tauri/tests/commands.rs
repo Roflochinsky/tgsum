@@ -7,6 +7,8 @@ use std::path::PathBuf;
 mod assisted;
 #[path = "commands/source_access.rs"]
 mod source_access;
+#[path = "commands/telegram_refresh.rs"]
+mod telegram_refresh;
 
 use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};
