@@ -30,7 +30,7 @@ fn connected(store: &ProjectStore) -> Project {
 
 #[test]
 fn all_project_schema_upgrades_preserve_old_bytes_and_reject_corrupt_heads() {
-    for schema in 1..=8 {
+    for schema in 1..=9 {
         let root = tempfile::tempdir().unwrap();
         let store = ProjectStore::new(root.path());
         let project = connected(&store);
@@ -52,7 +52,13 @@ fn all_project_schema_upgrades_preserve_old_bytes_and_reject_corrupt_heads() {
         assert_eq!(fs::read(&path).unwrap(), bytes);
 
         let mut mutations = Vec::new();
-        for version in [json!(0), json!(9), json!(u64::MAX), json!("8"), Value::Null] {
+        for version in [
+            json!(0),
+            json!(10),
+            json!(u64::MAX),
+            json!("9"),
+            Value::Null,
+        ] {
             let mut value = legacy.clone();
             value["schema_version"] = version;
             mutations.push(value);
@@ -98,7 +104,7 @@ fn all_project_schema_upgrades_preserve_old_bytes_and_reject_corrupt_heads() {
                 ProjectChange::Rename("Upgraded".into()),
             )
             .unwrap();
-        assert_eq!(upgraded.schema_version, 8);
+        assert_eq!(upgraded.schema_version, 9);
         assert_eq!(upgraded.revision, project.revision + 1);
         assert_eq!(store.open(&project.project_id).unwrap(), upgraded);
         assert_eq!(fs::read(&path).unwrap(), bytes);

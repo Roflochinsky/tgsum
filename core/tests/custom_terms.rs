@@ -303,7 +303,7 @@ fn legacy_project_defaults_to_no_terms_without_rewriting_the_old_revision() {
     std::fs::write(&path, &bytes).unwrap();
     let reopened = store.open(&project.project_id).unwrap();
     assert!(reopened.custom_terms.is_empty());
-    assert_eq!(reopened.schema_version, 8);
+    assert_eq!(reopened.schema_version, 9);
     assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
 

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 8;
+const SCHEMA_VERSION: u32 = 9;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +116,9 @@ pub struct Project {
     /// Private acquisition preferences keyed by the connected source ID.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub assisted_exports: BTreeMap<String, crate::assisted::AssistedExportSettings>,
+    /// Private export scheduling state; absent sources stay manual.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub telegram_refresh: BTreeMap<String, crate::bridge_schedule::TelegramRefreshPlan>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +133,10 @@ pub enum ProjectChange {
     AssistedExport {
         source_id: String,
         settings: Option<crate::assisted::AssistedExportSettings>,
+    },
+    TelegramRefreshCadence {
+        source_id: String,
+        cadence: crate::bridge_schedule::RefreshCadence,
     },
     Selection {
         source_id: String,
@@ -227,6 +234,7 @@ impl ProjectStore {
             custom_terms: Default::default(),
             privacy_options: Default::default(),
             assisted_exports: Default::default(),
+            telegram_refresh: Default::default(),
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -283,7 +291,7 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=8)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=9)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
@@ -309,11 +317,15 @@ impl ProjectStore {
         if project.schema_version < 8 && !project.assisted_exports.is_empty() {
             return Err(invalid("legacy project cannot configure assisted exports"));
         }
+        if project.schema_version < 9 && !project.telegram_refresh.is_empty() {
+            return Err(invalid("legacy project cannot configure Telegram refresh"));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
         // private mappings; v4 lacked custom terms. Reading migrates in memory;
         // v5 lacked attachment selection; v6 lacked saved privacy options.
-        // v7 lacked assisted export plans. Only a later write publishes v8.
+        // v7 lacked assisted export plans; v8 lacked Telegram refresh state.
+        // Only a later write publishes the current schema.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != revision {
@@ -387,6 +399,7 @@ impl ProjectStore {
                 {
                     if old.scope != source.scope || old.connector_id != source.connector_id {
                         project.assisted_exports.remove(&source.source_id);
+                        project.telegram_refresh.remove(&source.source_id);
                     }
                     *old = source;
                 } else {
@@ -400,6 +413,7 @@ impl ProjectStore {
                 project.sources.retain(|s| s.source_id != id);
                 project.baselines.retain(|b| b.source_id != id);
                 project.assisted_exports.remove(&id);
+                project.telegram_refresh.remove(&id);
             }
             ProjectChange::Settings(settings) => project.settings = settings,
             ProjectChange::CustomTerms(terms) => project.custom_terms = terms,
@@ -414,7 +428,33 @@ impl ProjectStore {
                     project.assisted_exports.insert(source_id, settings);
                 } else {
                     project.assisted_exports.remove(&source_id);
+                    if let Some(plan) = project.telegram_refresh.get_mut(&source_id) {
+                        plan.cadence = crate::bridge_schedule::RefreshCadence::Manual;
+                    }
                 }
+            }
+            ProjectChange::TelegramRefreshCadence { source_id, cadence } => {
+                if !project.sources.iter().any(|source| {
+                    source.source_id == source_id
+                        && source.connector_id == "telegram_json"
+                        && source.scope.platform == "telegram"
+                }) {
+                    return Err(invalid(
+                        "Telegram refresh requires a connected Telegram JSON source",
+                    ));
+                }
+                if cadence != crate::bridge_schedule::RefreshCadence::Manual
+                    && !project.assisted_exports.contains_key(&source_id)
+                {
+                    return Err(invalid(
+                        "configure assisted export before scheduled refresh",
+                    ));
+                }
+                project
+                    .telegram_refresh
+                    .entry(source_id)
+                    .or_default()
+                    .cadence = cadence;
             }
             ProjectChange::Privacy(profile) => {
                 profile.validate()?;
@@ -636,6 +676,51 @@ impl ProjectStore {
         require_directory(&directory)?;
         Ok(directory)
     }
+
+    pub(crate) fn telegram_refresh_lock_path(&self) -> io::Result<PathBuf> {
+        fs::create_dir_all(&self.root)?;
+        require_directory(&self.root)?;
+        Ok(self.root.join(".telegram-export.lock"))
+    }
+
+    /// Called only while the caller holds the global Telegram export lease.
+    /// The expected checkpoint also prevents a delayed client result from
+    /// resolving a different attempt after an unrelated Project edit.
+    pub(crate) fn publish_telegram_refresh_checkpoint(
+        &self,
+        project_id: &str,
+        source_id: &str,
+        expected: &crate::bridge_schedule::RefreshCheckpoint,
+        expected_cadence: Option<crate::bridge_schedule::RefreshCadence>,
+        next: crate::bridge_schedule::RefreshCheckpoint,
+    ) -> io::Result<Project> {
+        let mut project = self.open(project_id)?;
+        let plan = project
+            .telegram_refresh
+            .get_mut(source_id)
+            .ok_or_else(|| invalid("Telegram refresh is not configured for this source"))?;
+        if &plan.checkpoint != expected
+            || expected_cadence.is_some_and(|cadence| plan.cadence != cadence)
+        {
+            return Err(conflict());
+        }
+        plan.checkpoint = next;
+        project.revision = project
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("project revision exhausted"))?;
+        validate_project(&project)?;
+        write_revision(&self.directory(project_id)?.join("revisions"), &project).map_err(
+            |error| {
+                if error.kind() == io::ErrorKind::AlreadyExists {
+                    conflict()
+                } else {
+                    error
+                }
+            },
+        )?;
+        Ok(project)
+    }
 }
 
 fn validate_project(project: &Project) -> io::Result<()> {
@@ -693,6 +778,24 @@ fn validate_project(project: &Project) -> io::Result<()> {
             ));
         }
         settings.validate()?;
+    }
+    for (id, plan) in &project.telegram_refresh {
+        if !project.sources.iter().any(|source| {
+            source.source_id == *id
+                && source.connector_id == "telegram_json"
+                && source.scope.platform == "telegram"
+        }) {
+            return Err(invalid(
+                "Telegram refresh requires a connected Telegram JSON source",
+            ));
+        }
+        if plan.cadence != crate::bridge_schedule::RefreshCadence::Manual
+            && !project.assisted_exports.contains_key(id)
+        {
+            return Err(invalid(
+                "scheduled refresh requires assisted export settings",
+            ));
+        }
     }
     let mut baseline_ids = BTreeSet::new();
     for baseline in &project.baselines {

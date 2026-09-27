@@ -27,3 +27,4 @@ url = "2.5.8"
 aho-corasick = "1.1.5"
 cap-std = "4.0.3"
 cap-fs-ext = "4.0.3"
+fs4 = { version = "1.1.0", default-features = false, features = ["sync"] }

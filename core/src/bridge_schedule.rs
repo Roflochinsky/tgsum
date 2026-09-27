@@ -5,7 +5,13 @@
 //! the checkpoint atomically before calling a driver, and hold one global
 //! in-flight lease while any source is exporting.
 
+use std::fs::{File, OpenOptions};
+use std::io;
+
+use fs4::{FileExt, TryLockError};
 use serde::{Deserialize, Serialize};
+
+use crate::project::{Project, ProjectStore};
 
 const SIX_HOURS: u64 = 6 * 60 * 60;
 const DAY: u64 = 24 * 60 * 60;
@@ -30,6 +36,130 @@ pub struct RefreshCheckpoint {
     pub unresolved_attempt: bool,
     /// Includes cancellation and ambiguous client outcomes; never auto-retry early.
     pub retry_not_before: Option<u64>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TelegramRefreshPlan {
+    #[serde(default)]
+    pub cadence: RefreshCadence,
+    #[serde(default)]
+    pub checkpoint: RefreshCheckpoint,
+}
+
+/// Held for the entire client export, across all projects and TGSUM processes.
+/// Dropping the file releases the OS lock; a persisted unresolved checkpoint
+/// still prevents replay after a crash.
+pub struct TelegramExportLease {
+    _file: File,
+}
+
+#[derive(Debug, Clone)]
+pub struct RefreshAttempt {
+    project_id: String,
+    source_id: String,
+    checkpoint: RefreshCheckpoint,
+}
+
+impl TelegramExportLease {
+    pub fn try_acquire(store: &ProjectStore) -> io::Result<Option<Self>> {
+        let path = store.telegram_refresh_lock_path()?;
+        if let Ok(metadata) = std::fs::symlink_metadata(&path) {
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Telegram export lock must be a regular file",
+                ));
+            }
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Telegram export lock must be a regular file",
+            ));
+        }
+        match FileExt::try_lock(&file) {
+            Ok(()) => Ok(Some(Self { _file: file })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    /// Persist the claim before calling any client driver. On a concurrent
+    /// Project edit, return the conflict; the caller may recompute the claim,
+    /// but must never call the client for the failed claim.
+    pub fn claim(
+        &self,
+        store: &ProjectStore,
+        project_id: &str,
+        source_id: &str,
+        context: RefreshContext<'_>,
+    ) -> io::Result<Result<RefreshAttempt, RefreshDecision>> {
+        let project = store.open(project_id)?;
+        let Some(plan) = project.telegram_refresh.get(source_id) else {
+            return Ok(Err(RefreshDecision::ManualOnly));
+        };
+        let next = match plan.checkpoint.try_claim(plan.cadence, context) {
+            Ok(next) => next,
+            Err(decision) => return Ok(Err(decision)),
+        };
+        store.publish_telegram_refresh_checkpoint(
+            project_id,
+            source_id,
+            &plan.checkpoint,
+            Some(plan.cadence),
+            next.clone(),
+        )?;
+        Ok(Ok(RefreshAttempt {
+            project_id: project_id.to_owned(),
+            source_id: source_id.to_owned(),
+            checkpoint: next,
+        }))
+    }
+
+    /// A driver may call this only after a known terminal outcome. An ambiguous
+    /// timeout or cancellation leaves the persisted claim unresolved.
+    pub fn resolve_successfully(
+        &self,
+        store: &ProjectStore,
+        attempt: &RefreshAttempt,
+    ) -> io::Result<Project> {
+        self.resolve(store, attempt, attempt.checkpoint.resolved_successfully())
+    }
+
+    pub fn resolve_with_backoff(
+        &self,
+        store: &ProjectStore,
+        attempt: &RefreshAttempt,
+        now: u64,
+        seconds: u64,
+    ) -> io::Result<Project> {
+        self.resolve(
+            store,
+            attempt,
+            attempt.checkpoint.resolved_with_backoff(now, seconds),
+        )
+    }
+
+    fn resolve(
+        &self,
+        store: &ProjectStore,
+        attempt: &RefreshAttempt,
+        next: RefreshCheckpoint,
+    ) -> io::Result<Project> {
+        store.publish_telegram_refresh_checkpoint(
+            &attempt.project_id,
+            &attempt.source_id,
+            &attempt.checkpoint,
+            None,
+            next,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,5 +256,97 @@ impl RefreshCheckpoint {
             retry_not_before: None,
             ..self.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assisted::AssistedExportSettings;
+    use crate::project::{ProjectChange, ProjectSource};
+    use crate::snapshot::SourceScope;
+
+    #[test]
+    fn stale_cadence_cannot_publish_an_export_claim() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(root.path());
+        let project = store.create("Synthetic").unwrap();
+        let project = store
+            .update(
+                &project.project_id,
+                project.revision,
+                ProjectChange::Source(ProjectSource {
+                    source_id: "pilot".into(),
+                    connector_id: "telegram_json".into(),
+                    scope: SourceScope::telegram("synthetic-account", "42"),
+                    archive_path: None,
+                    latest_snapshot_id: None,
+                    selection: Default::default(),
+                }),
+            )
+            .unwrap();
+        let project = store
+            .update(
+                &project.project_id,
+                project.revision,
+                ProjectChange::AssistedExport {
+                    source_id: "pilot".into(),
+                    settings: Some(AssistedExportSettings {
+                        directory: root.path().to_owned(),
+                        client: None,
+                    }),
+                },
+            )
+            .unwrap();
+        let project = store
+            .update(
+                &project.project_id,
+                project.revision,
+                ProjectChange::TelegramRefreshCadence {
+                    source_id: "pilot".into(),
+                    cadence: RefreshCadence::Daily,
+                },
+            )
+            .unwrap();
+        let old_checkpoint = project.telegram_refresh["pilot"].checkpoint.clone();
+        let next = old_checkpoint
+            .try_claim(
+                RefreshCadence::Daily,
+                RefreshContext {
+                    now: 100,
+                    launch_id: "launch-1",
+                    session_active_unlocked: true,
+                    client_not_before: None,
+                    any_export_in_flight: false,
+                },
+            )
+            .unwrap();
+        store
+            .update(
+                &project.project_id,
+                project.revision,
+                ProjectChange::TelegramRefreshCadence {
+                    source_id: "pilot".into(),
+                    cadence: RefreshCadence::Manual,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .publish_telegram_refresh_checkpoint(
+                    &project.project_id,
+                    "pilot",
+                    &old_checkpoint,
+                    Some(RefreshCadence::Daily),
+                    next,
+                )
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(
+            store.open(&project.project_id).unwrap().telegram_refresh["pilot"].checkpoint,
+            old_checkpoint
+        );
     }
 }

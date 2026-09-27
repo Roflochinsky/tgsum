@@ -200,7 +200,7 @@ fn v7_migrates_without_rewriting_and_cannot_smuggle_future_settings() {
     let bytes = serde_json::to_vec(&value).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     let opened = store.open(&p.project_id).unwrap();
-    assert_eq!(opened.schema_version, 8);
+    assert_eq!(opened.schema_version, 9);
     assert!(opened.assisted_exports.is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     value["assisted_exports"] =
