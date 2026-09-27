@@ -85,6 +85,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: .\scripts\test-telegram-uia-probe.ps1
+      - name: Telegram AX probe synthetic checks
+        if: runner.os == 'macOS'
+        run: |
+          swiftc scripts/telegram-ax-probe.swift -o "$RUNNER_TEMP/telegram-ax-probe"
+          "$RUNNER_TEMP/telegram-ax-probe" --self-test
 
   desktop-e2e:
     name: desktop E2E (${{ matrix.os }})
