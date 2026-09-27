@@ -10,6 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'TelegramUiaProbe.psm1') -Force
+$script:ProbePhase = 'target'
 
 function Invoke-Observation {
     if ($ProcessId -le 0 -or $WindowHandle -le 0 -or
@@ -23,6 +24,7 @@ function Invoke-Observation {
     if ($target.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId) {
         throw 'different_session'
     }
+    $script:ProbePhase = 'owner'
     $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId"
     if ($null -eq $cim) { throw 'process_changed' }
     $owner = Invoke-CimMethod -InputObject $cim -MethodName GetOwner
@@ -30,6 +32,7 @@ function Invoke-Observation {
     if ($owner.ReturnValue -ne 0 -or -not [string]::Equals($actualUser,
             [Security.Principal.WindowsIdentity]::GetCurrent().Name,
             [StringComparison]::OrdinalIgnoreCase)) { throw 'different_user' }
+    $script:ProbePhase = 'window'
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -45,12 +48,15 @@ public static class TgsumProbeWindow {
         [TgsumProbeWindow]::GetAncestor($hwnd, 2) -ne $hwnd -or
         [TgsumProbeWindow]::GetWindowThreadProcessId($hwnd, [ref]$windowPid) -eq 0 -or
         $windowPid -ne $ProcessId) { throw 'window_mismatch' }
+    $script:ProbePhase = 'uia_root'
     $reader = Get-TgsumUiaReader -ProcessId $ProcessId
     $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
     if ($null -eq $root -or $root.Current.ProcessId -ne $ProcessId) {
         throw 'uia_root_mismatch'
     }
+    $script:ProbePhase = 'tree'
     $tree = Get-TgsumUiaProbeTree -Root $root -Reader $reader -ProcessId $ProcessId
+    $script:ProbePhase = 'postflight'
     $again = Get-Process -Id $ProcessId -ErrorAction Stop
     if ($again.StartTime.ToUniversalTime().Ticks -ne $start -or
         -not [string]::Equals($again.Path, $selectedPath,
@@ -73,7 +79,8 @@ if ($Worker) {
         exit 0
     } catch {
         # Provider errors can contain user data. Never print exception text.
-        '{"error":"probe_failed"}'
+        @{ error = 'probe_failed'; phase = $script:ProbePhase } |
+            ConvertTo-Json -Compress
         exit 1
     }
 }
@@ -92,7 +99,15 @@ try {
         exit 1
     }
     if ($child.ExitCode -ne 0) {
-        '{"error":"probe_failed"}'
+        $failed = [IO.File]::ReadAllText($outPath) | ConvertFrom-Json
+        if ($failed.error -eq 'probe_failed' -and
+            $failed.phase -in @('target', 'owner', 'window', 'uia_root',
+                                'tree', 'postflight')) {
+            @{ error = 'probe_failed'; phase = $failed.phase } |
+                ConvertTo-Json -Compress
+        } else {
+            '{"error":"probe_failed"}'
+        }
         exit 1
     }
     $body = [IO.File]::ReadAllText($outPath)

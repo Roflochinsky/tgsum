@@ -25,7 +25,10 @@ try {
     $output = & $shell -NoProfile -NonInteractive -File $probe `
         -ProcessId $target.pid -Executable $target.executable `
         -WindowHandle $target.hwnd -Stage chat -Observe
-    Assert-True ($LASTEXITCODE -eq 0) 'native UIA probe failed on synthetic window'
+    if ($LASTEXITCODE -ne 0) {
+        $safe = $output | ConvertFrom-Json
+        throw "native UIA probe failed at $($safe.phase)"
+    }
     $report = $output | ConvertFrom-Json
     Assert-True ($report.ok.schema_version -eq 1) 'probe schema mismatch'
     Assert-True ($report.ok.nodes.Count -ge 1) 'probe returned no UIA nodes'
