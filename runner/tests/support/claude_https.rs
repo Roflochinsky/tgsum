@@ -1,7 +1,16 @@
 //! Test-only child of the production relay; no key or endpoint override.
+#[cfg(target_os = "linux")]
 mod hostile_probe;
+#[cfg(target_os = "linux")]
 use std::{path::Path, process::Command, time::Duration};
 
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("The synthetic HTTPS namespace fixture requires the Linux relay");
+    std::process::exit(125);
+}
+
+#[cfg(target_os = "linux")]
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args == ["--version"] {

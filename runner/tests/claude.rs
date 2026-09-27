@@ -42,6 +42,7 @@ struct Fixture {
     root: tempfile::TempDir,
     project: Project,
     context: PreparedContext,
+    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "test-fixtures"))]
     bundle_id: String,
 }
 
@@ -96,6 +97,7 @@ fn context(text: &str) -> Fixture {
         root,
         project,
         context,
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "test-fixtures"))]
         bundle_id: bundle.bundle_id,
     }
 }

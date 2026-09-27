@@ -510,17 +510,19 @@ fn prepare_backend(
             "Локальный стенд отсутствует в этой сборке.".into(),
         ));
     }
+    // Validate the reviewed recipient on every OS before selecting a runtime
+    // or opening auth. Unsupported hosts must preserve this same boundary.
+    let destination_valid = match options.agent {
+        Agent::Codex => ["api.openai.com", "chatgpt.com"].contains(&spec.destination.as_str()),
+        Agent::Claude => spec.destination == "api.anthropic.com",
+    };
+    if !destination_valid {
+        return Err(CmdError::Failed(
+            "Получатель не соответствует выбранному агенту.".into(),
+        ));
+    }
     #[cfg(target_os = "linux")]
     {
-        let destination_valid = match options.agent {
-            Agent::Codex => ["api.openai.com", "chatgpt.com"].contains(&spec.destination.as_str()),
-            Agent::Claude => spec.destination == "api.anthropic.com",
-        };
-        if !destination_valid {
-            return Err(CmdError::Failed(
-                "Получатель не соответствует выбранному агенту.".into(),
-            ));
-        }
         let relay = relay_path(options.agent).ok_or_else(|| {
             CmdError::Failed(format!(
                 "Компонент запуска {} не установлен. Сохранение контекста доступно.",
