@@ -64,6 +64,9 @@ pub struct BundleFile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleManifest {
     pub schema_version: u32,
+    /// Opaque version binding, not a claim that any pseudonym detector ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pseudonym_mapping_id: Option<String>,
     pub sanitizer_version: String,
     pub destination: String,
     pub project_title: String,
@@ -109,6 +112,8 @@ struct PrivateBundle {
     manifest_sha256: String,
     index_sha256: String,
     inputs: Vec<AnalysisInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pseudonyms: Option<crate::pseudonyms::MappingRef>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -224,6 +229,9 @@ impl ProjectStore {
         check_revision(project.revision, expected_revision)?;
         check_cancel(&cancelled)?;
         let directory = self.directory(project_id)?;
+        if let Some(reference) = &project.pseudonyms {
+            self.load_pseudonyms(project_id, reference)?;
+        }
         let key = EvidenceKey::load_or_create(&directory)?;
         let drafts = private_dir(&directory.join("bundles"))?;
         let staging = tempfile::Builder::new()
@@ -241,6 +249,7 @@ impl ProjectStore {
         )?);
         let mut manifest = BundleManifest {
             schema_version: 1,
+            pseudonym_mapping_id: project.pseudonyms.as_ref().map(|r| r.id().to_owned()),
             sanitizer_version: RULES_VERSION.into(),
             destination: "export_only".into(),
             project_title: String::new(),
@@ -424,12 +433,13 @@ impl ProjectStore {
         drop(index);
         write_json(&public.join("manifest.json"), &manifest)?;
         let private = PrivateBundle {
-            schema_version: 1,
+            schema_version: 2,
             project_id: project_id.into(),
             project_revision: expected_revision,
             manifest_sha256: files::digest_file(&public.join("manifest.json"), &cancelled)?,
             index_sha256: files::digest_file(&staging.path().join("evidence.jsonl"), &cancelled)?,
             inputs,
+            pseudonyms: project.pseudonyms,
         };
         write_json(&staging.path().join("private.json"), &private)?;
         check_cancel(&cancelled)?;
@@ -551,6 +561,21 @@ impl ProjectStore {
         Err(invalid("evidence reference does not belong to this bundle"))
     }
 
+    /// Resolve labels locally using this bundle's immutable mapping version.
+    /// Legacy bundles without a mapping remain unbound after later allocation.
+    pub fn bundle_pseudonyms(
+        &self,
+        project_id: &str,
+        bundle_id: &str,
+    ) -> io::Result<Option<crate::pseudonyms::PseudonymMapping>> {
+        let (_, private, _) = self.checked_bundle(project_id, bundle_id, &|| false)?;
+        private
+            .pseudonyms
+            .as_ref()
+            .map(|r| self.load_pseudonyms(project_id, r))
+            .transpose()
+    }
+
     fn checked_bundle(
         &self,
         project_id: &str,
@@ -566,8 +591,18 @@ impl ProjectStore {
         let directory = root.join(bundle_id);
         require_dir(&directory)?;
         let private: PrivateBundle = load_json(&directory.join("private.json"))?;
-        if private.schema_version != 1 || private.project_id != project_id {
+        if !matches!(private.schema_version, 1..=2) || private.project_id != project_id {
             return Err(invalid("private bundle identity/version mismatch"));
+        }
+        let project = self.read_revision(project_id, private.project_revision)?;
+        if private.pseudonyms != project.pseudonyms {
+            return Err(invalid("bundle private mapping changed"));
+        }
+        if let Some(reference) = &private.pseudonyms {
+            if private.schema_version < 2 {
+                return Err(invalid("legacy bundle cannot bind a private mapping"));
+            }
+            self.load_pseudonyms(project_id, reference)?;
         }
         let public = directory.join("context");
         require_dir(&public)?;
@@ -580,6 +615,9 @@ impl ProjectStore {
         let manifest: BundleManifest = load_json(&public.join("manifest.json"))?;
         if manifest.schema_version != 1 || manifest.destination != "export_only" {
             return Err(invalid("unsupported bundle format"));
+        }
+        if manifest.pseudonym_mapping_id.as_deref() != private.pseudonyms.as_ref().map(|r| r.id()) {
+            return Err(invalid("bundle public mapping reference changed"));
         }
         files::validate_files(&manifest.files)?;
         Ok((directory, private, manifest))

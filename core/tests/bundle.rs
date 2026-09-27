@@ -17,6 +17,174 @@ const DATA: &str = r#"{"chats":{"list":[
 {"id":104,"date":"2026-06-18T10:00:00","reply_to_message_id":20,"text":"EXCLUDED_TOPIC"}]},
 {"id":88,"name":"EXCLUDED_CHAT","messages":[{"id":101,"text":"EXCLUDED_CHAT_TEXT"}]}]}}"#;
 
+#[test]
+fn bundle_pins_private_mapping_and_reset_invalidates_export_without_changing_history() {
+    use tgsum_core::pseudonyms::{PseudonymCategory, PseudonymInput};
+    let root = tempfile::tempdir().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = setup(&store);
+    let assigned = store
+        .assign_pseudonyms(
+            &project.project_id,
+            project.revision,
+            &[PseudonymInput {
+                category: PseudonymCategory::Person,
+                identity: "PRIVATE_IDENTITY_NEVER_IN_CONTEXT",
+                original: "PRIVATE_ORIGINAL_NEVER_IN_CONTEXT",
+            }],
+        )
+        .unwrap();
+    let mapping = assigned.project.pseudonyms.as_ref().unwrap();
+    let review = prepare(&store, &assigned.project);
+    assert_eq!(
+        review.manifest.pseudonym_mapping_id.as_deref(),
+        Some(mapping.id())
+    );
+    let exported = store
+        .export_bundle(
+            &project.project_id,
+            &review.bundle_id,
+            assigned.project.revision,
+            destination.path(),
+            || false,
+        )
+        .unwrap();
+    let text = exported_text(&exported.directory);
+    for forbidden in [
+        "PRIVATE_IDENTITY_NEVER_IN_CONTEXT",
+        "PRIVATE_ORIGINAL_NEVER_IN_CONTEXT",
+        mapping.epoch(),
+        serde_json::to_value(mapping).unwrap()["sha256"]
+            .as_str()
+            .unwrap(),
+    ] {
+        assert!(!text.contains(forbidden));
+    }
+    let evidence = references(&review.preview).remove(0);
+    let before = store
+        .resolve_evidence(&project.project_id, &review.bundle_id, &evidence)
+        .unwrap();
+    let reset = store
+        .reset_pseudonyms(&project.project_id, assigned.project.revision)
+        .unwrap();
+    assert!(store
+        .export_bundle(
+            &project.project_id,
+            &review.bundle_id,
+            assigned.project.revision,
+            destination.path(),
+            || false
+        )
+        .is_err());
+    let historical = store
+        .bundle_pseudonyms(&project.project_id, &review.bundle_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        historical.originals("PERSON_0001").unwrap(),
+        ["PRIVATE_ORIGINAL_NEVER_IN_CONTEXT"]
+    );
+    assert_eq!(exported_text(&exported.directory), text);
+    let after = store
+        .resolve_evidence(&project.project_id, &review.bundle_id, &evidence)
+        .unwrap();
+    assert_eq!(after.message, before.message);
+    let fresh = prepare(&store, &reset);
+    assert_ne!(
+        fresh.manifest.pseudonym_mapping_id,
+        review.manifest.pseudonym_mapping_id
+    );
+    assert_eq!(references(&fresh.preview), references(&review.preview));
+    assert!(store
+        .bundle_pseudonyms(&project.project_id, &fresh.bundle_id)
+        .unwrap()
+        .unwrap()
+        .originals("PERSON_0001")
+        .is_none());
+}
+
+#[test]
+fn legacy_bundle_has_no_invented_mapping_and_damaged_bound_maps_block_export() {
+    use tgsum_core::pseudonyms::{PseudonymCategory, PseudonymInput};
+    let root = tempfile::tempdir().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = setup(&store);
+    let old = prepare(&store, &project);
+    let private_path = root
+        .path()
+        .join(&project.project_id)
+        .join("bundles")
+        .join(&old.bundle_id)
+        .join("private.json");
+    let mut legacy: serde_json::Value =
+        serde_json::from_slice(&fs::read(&private_path).unwrap()).unwrap();
+    legacy["schema_version"] = 1.into();
+    legacy.as_object_mut().unwrap().remove("pseudonyms");
+    fs::write(&private_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    store
+        .export_bundle(
+            &project.project_id,
+            &old.bundle_id,
+            project.revision,
+            destination.path(),
+            || false,
+        )
+        .unwrap();
+    let assigned = store
+        .assign_pseudonyms(
+            &project.project_id,
+            project.revision,
+            &[PseudonymInput {
+                category: PseudonymCategory::Person,
+                identity: "synthetic",
+                original: "SYNTHETIC_PRIVATE_ALIAS",
+            }],
+        )
+        .unwrap();
+    let bound = prepare(&store, &assigned.project);
+    assert!(store
+        .bundle_pseudonyms(&project.project_id, &old.bundle_id)
+        .unwrap()
+        .is_none());
+    let mapping = assigned.project.pseudonyms.as_ref().unwrap();
+    let path = root
+        .path()
+        .join(&project.project_id)
+        .join("pseudonyms")
+        .join(format!("{}.json", mapping.id()));
+    fs::write(path, "SYNTHETIC_PRIVATE_CORRUPTION").unwrap();
+    assert!(store
+        .export_bundle(
+            &project.project_id,
+            &bound.bundle_id,
+            assigned.project.revision,
+            destination.path(),
+            || false
+        )
+        .is_err());
+    assert!(store
+        .prepare_bundle(
+            &project.project_id,
+            assigned.project.revision,
+            BundleOptions::default(),
+            || false
+        )
+        .is_err());
+    assert!(store
+        .bundle_pseudonyms(&project.project_id, &old.bundle_id)
+        .unwrap()
+        .is_none());
+    assert!(store
+        .resolve_evidence(
+            &project.project_id,
+            &old.bundle_id,
+            &references(&old.preview)[0]
+        )
+        .is_ok());
+}
+
 fn setup(store: &ProjectStore) -> Project {
     let project = store.create("password=SYNTHETIC_PROJECT").unwrap();
     let scope = SourceScope::telegram("PRIVATE_ACCOUNT_LABEL", "77");

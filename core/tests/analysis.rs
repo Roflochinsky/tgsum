@@ -265,6 +265,100 @@ fn reviewed_result_survives_restart_and_commits_all_baselines_once() {
 }
 
 #[test]
+fn mapping_reset_preserves_saved_result_binding_and_rejects_an_inflight_commit() {
+    use tgsum_core::pseudonyms::{PseudonymCategory, PseudonymInput};
+    let mut f = fixture();
+    let legacy_bundle = f.bundle.clone();
+    f.project = f
+        .store
+        .assign_pseudonyms(
+            &f.project.project_id,
+            f.project.revision,
+            &[PseudonymInput {
+                category: PseudonymCategory::Person,
+                identity: "synthetic-user",
+                original: "Synthetic original",
+            }],
+        )
+        .unwrap()
+        .project;
+    f.bundle = f
+        .store
+        .prepare_bundle(
+            &f.project.project_id,
+            f.project.revision,
+            BundleOptions::default(),
+            || false,
+        )
+        .unwrap()
+        .bundle_id;
+    assert!(f
+        .store
+        .bundle_pseudonyms(&f.project.project_id, &legacy_bundle)
+        .unwrap()
+        .is_none());
+    let completed = f.begin();
+    let mut answer = f.answer();
+    answer.summary = "PERSON_0001 performed the synthetic action".into();
+    let receipt = f
+        .store
+        .save_analysis_result(&completed, &answer, validate, || false)
+        .unwrap();
+    f.store.commit_analysis(&completed, || false).unwrap();
+    let saved = f
+        .store
+        .read_analysis(&f.project.project_id, &receipt.run_id)
+        .unwrap();
+    let committed_revision = saved.committed_revision;
+    let saved_bundle = f.bundle.clone();
+    f.project = f.store.open(&f.project.project_id).unwrap();
+    f.bundle = f
+        .store
+        .prepare_bundle(
+            &f.project.project_id,
+            f.project.revision,
+            BundleOptions::default(),
+            || false,
+        )
+        .unwrap()
+        .bundle_id;
+    let inflight = f.begin();
+    f.store
+        .save_analysis_result(&inflight, &answer, validate, || false)
+        .unwrap();
+    let reset = f
+        .store
+        .reset_pseudonyms(&f.project.project_id, f.project.revision)
+        .unwrap();
+    assert!(f.store.commit_analysis(&inflight, || false).is_err());
+    assert_eq!(f.store.open(&f.project.project_id).unwrap(), reset);
+    let reopened = ProjectStore::new(f.root.path());
+    let old_result = reopened
+        .read_analysis(&f.project.project_id, &receipt.run_id)
+        .unwrap();
+    assert_eq!(old_result.committed_revision, committed_revision);
+    let Completion::Validated { value, evidence } = old_result.completion.unwrap() else {
+        panic!()
+    };
+    assert_eq!(value["summary"], answer.summary);
+    assert_eq!(evidence, answer.evidence);
+    assert_eq!(reset.analysis_run.unwrap().result.as_ref(), Some(&receipt));
+    let old_mapping = reopened
+        .bundle_pseudonyms(&f.project.project_id, &saved_bundle)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        old_mapping.originals("PERSON_0001").unwrap(),
+        ["Synthetic original"]
+    );
+    assert!(reopened
+        .load_pseudonyms(&f.project.project_id, reset.pseudonyms.as_ref().unwrap())
+        .unwrap()
+        .originals("PERSON_0001")
+        .is_none());
+}
+
+#[test]
 fn failures_cancel_rejected_evidence_and_oversize_never_advance_baseline() {
     let f = fixture();
     for code in [

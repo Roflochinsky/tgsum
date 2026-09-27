@@ -52,7 +52,7 @@ fn version_one_opens_with_default_scope_without_rewriting_old_revision() {
     fs::write(&path, &legacy_bytes).unwrap();
 
     let reopened = store.open(&project.project_id).unwrap();
-    assert_eq!(reopened.schema_version, 3);
+    assert_eq!(reopened.schema_version, 4);
     assert_eq!(reopened.sources[0].selection, Default::default());
     assert!(reopened.analysis_run.is_none() && reopened.baselines.is_empty());
     assert_eq!(fs::read(&path).unwrap(), legacy_bytes);
@@ -63,10 +63,43 @@ fn version_one_opens_with_default_scope_without_rewriting_old_revision() {
             ProjectChange::Rename("upgraded".into()),
         )
         .unwrap();
-    assert_eq!(updated.schema_version, 3);
+    assert_eq!(updated.schema_version, 4);
     assert_eq!(updated.revision, reopened.revision + 1);
     assert_eq!(store.open(&project.project_id).unwrap(), updated);
     assert_eq!(fs::read(path).unwrap(), legacy_bytes);
+}
+
+#[test]
+fn version_three_without_mapping_upgrades_only_on_the_next_write() {
+    use tgsum_core::pseudonyms::{PseudonymCategory, PseudonymInput};
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = store.create("Legacy v3").unwrap();
+    let path = manifest(root.path(), &project);
+    let mut legacy = serde_json::to_value(&project).unwrap();
+    legacy["schema_version"] = 3.into();
+    legacy.as_object_mut().unwrap().remove("pseudonyms");
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    let opened = store.open(&project.project_id).unwrap();
+    assert_eq!(opened.schema_version, 4);
+    assert!(opened.pseudonyms.is_none());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    let assigned = store
+        .assign_pseudonyms(
+            &project.project_id,
+            opened.revision,
+            &[PseudonymInput {
+                category: PseudonymCategory::Person,
+                identity: "synthetic",
+                original: "Synthetic",
+            }],
+        )
+        .unwrap();
+    assert_eq!(assigned.project.schema_version, 4);
+    assert!(assigned.project.pseudonyms.is_some());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(store.open(&project.project_id).unwrap(), assigned.project);
 }
 
 #[test]
@@ -213,7 +246,7 @@ fn version_two_baseline_only_run_does_not_invent_a_stored_result() {
     let path = manifest(root.path(), &project);
     fs::write(&path, &bytes).unwrap();
     let opened = store.open(&project.project_id).unwrap();
-    assert_eq!(opened.schema_version, 3);
+    assert_eq!(opened.schema_version, 4);
     assert_eq!(opened.baselines, project.baselines);
     assert!(opened.analysis_run.unwrap().result.is_none());
     assert_eq!(fs::read(path).unwrap(), bytes);

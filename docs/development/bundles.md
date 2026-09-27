@@ -7,7 +7,7 @@ as successfully analyzed. Legacy one-shot Markdown export keeps its old format.
 
 ## Contract
 
-`ProjectStore` exposes three operations:
+`ProjectStore` exposes these operations:
 
 - `prepare_bundle(project_id, expected_revision, options, cancelled)` freezes
   the selected snapshots, filters them with the successful-analysis baseline,
@@ -16,6 +16,8 @@ as successfully analyzed. Legacy one-shot Markdown export keeps its old format.
   cancelled)` verifies the reviewed draft and copies its public allowlist.
 - `resolve_evidence(project_id, bundle_id, reference)` resolves a reference to
   its exact native message and revision through the private index.
+- `bundle_pseudonyms(project_id, bundle_id)` resolves the exact private mapping
+  pinned by this bundle, when present; see [pseudonyms](pseudonyms.md).
 
 Tauri exposes the first two as `prepare_project_bundle` and
 `export_project_bundle`. Arguments use camelCase; results use snake_case.
@@ -34,6 +36,7 @@ refresh; a bundle always represents its frozen snapshot, not the current file.
 ```text
 projects/project-.../
   evidence-key.bin
+  pseudonyms/map-....json
   bundles/bundle-.../
     private.json
     evidence.jsonl
@@ -51,7 +54,11 @@ and message bodies pass through the minimum sanitizer before emission.
 
 The public manifest records sanitized titles, opaque source IDs, coverage level,
 gap counts, selected date ranges/topic counts, scope/diff counts, sanitizer
-version, privacy counts and file sizes/SHA-256 digests. It explicitly identifies
+version, privacy counts and file sizes/SHA-256 digests. An optional
+`pseudonym_mapping_id` binds an opaque mapping version; identities, aliases and
+the plaintext map digest remain private. This field does not claim that any
+pseudonym detector ran. Private bundle schema 2 pins the full mapping reference;
+schema 1 remains readable without one. It explicitly identifies
 `export_only` as the destination. Coverage never becomes complete merely because
 all selected records were written.
 
@@ -98,8 +105,9 @@ The screen displays source/message/attachment counts, known coverage, privacy
 counts and the local-folder recipient. Selected topic counts, changes-only mode,
 date basis and included unknown dates remain visible. It states the scanner's limited coverage.
 See [sanitization](sanitization.md): absence of findings does not prove anonymity
-or absence of credentials. PII/infrastructure pseudonyms and broader provider
-rules remain the Privacy epic.
+or absence of credentials. Expanded secret rules are `secrets/2` and private
+mapping persistence is implemented. PII/infrastructure/custom-term detectors
+and their preset controls remain subsequent tasks in the Privacy epic.
 
 ## Filesystem and resource behavior
 

@@ -19,15 +19,18 @@ projects/project-<random>/
   revisions/00000000000000000000.json
   revisions/00000000000000000001.json
   snapshots/<snapshot-id>.json
+  pseudonyms/map-<random>.json
 ```
 
 ## Persistence and recovery
 
-Manifests have `schema_version: 3`, adding a durable result reference to the
-scope/baseline ledger introduced in v2. Version 1 opens in memory with default
+Manifests have `schema_version: 4`, adding an optional private
+[pseudonym mapping reference](pseudonyms.md) to the v3 durable result reference
+and scope/baseline ledger introduced in v2. Version 1 opens in memory with default
 selections and no baseline. Version 2 keeps its legacy runs without inventing
-result files. Reading leaves original bytes unchanged; the next update publishes
-a separate v3 revision. Unknown versions are rejected before interpreting their
+result files. Versions 1–3 without a mapping keep it absent. Reading leaves
+original bytes unchanged; the next update publishes
+a separate v4 revision. Unknown versions are rejected before interpreting their
 fields. The managed [analysis lifecycle](analyses.md) publishes result provenance
 and all baselines in one revision after validating/storing the result.
 

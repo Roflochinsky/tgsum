@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +99,9 @@ pub struct Project {
     pub analysis_run: Option<AnalysisRun>,
     #[serde(default)]
     pub baselines: Vec<AnalysisBaseline>,
+    /// Private immutable mapping reference. Old project schemas have no mapping.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pseudonyms: Option<crate::pseudonyms::MappingRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +203,7 @@ impl ProjectStore {
             settings: ProjectSettings::default(),
             analysis_run: None,
             baselines: Vec::new(),
+            pseudonyms: None,
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -256,15 +260,16 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=3)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=4)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
         }
         let mut project: Project = serde_json::from_value(value).map_err(invalid)?;
         // Version 1 had no scope or analysis ledger. Defaults preserve its
-        // full-source behavior. v2 lacked durable result references. Reading
-        // migrates in memory; only a later write publishes a new v3 revision.
+        // full-source behavior. v2 lacked durable result references; v3 lacked
+        // private mappings. Reading migrates in memory; only a later write
+        // publishes a new v4 revision.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
         if project.project_id != project_id || project.revision != revision {
@@ -529,6 +534,31 @@ impl ProjectStore {
         Ok(project)
     }
 
+    pub(crate) fn publish_pseudonyms(
+        &self,
+        project_id: &str,
+        expected_revision: u64,
+        reference: crate::pseudonyms::MappingRef,
+    ) -> io::Result<Project> {
+        let mut project = self.open(project_id)?;
+        if project.revision != expected_revision {
+            return Err(conflict());
+        }
+        project.pseudonyms = Some(reference);
+        project.revision = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("project revision exhausted"))?;
+        validate_project(&project)?;
+        write_revision(&self.directory(project_id)?.join("revisions"), &project).map_err(|e| {
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                conflict()
+            } else {
+                e
+            }
+        })?;
+        Ok(project)
+    }
+
     pub(crate) fn directory(&self, project_id: &str) -> io::Result<PathBuf> {
         validate_snapshot_id(project_id)?;
         if !project_id.starts_with("project-") {
@@ -548,6 +578,9 @@ fn validate_project(project: &Project) -> io::Result<()> {
     }
     validate_snapshot_id(&project.project_id)?;
     validate_name(&project.name)?;
+    if let Some(reference) = &project.pseudonyms {
+        reference.validate()?;
+    }
     let mut ids = BTreeSet::new();
     for source in &project.sources {
         validate_snapshot_id(&source.source_id)?;
