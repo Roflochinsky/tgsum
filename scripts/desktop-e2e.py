@@ -303,13 +303,14 @@ def exercise(ui, root, report, report_dir):
 
     correct = json.loads((root / "full.json").read_text(encoding="utf-8"))["chats"]["list"][0]
     correct["messages"][1]["text"] = "Changed in direct chat"
+    correct["messages"].pop(0)  # absent in this snapshot, not a deletion claim
     correct["messages"].append({"id": 4, "type": "message", "date": "2026-06-20T13:00:00",
                                  "from": "Synthetic", "from_id": "user-synthetic", "text": "Added to direct chat"})
     direct_archive.write_text(json.dumps(correct), encoding="utf-8")
     ui.click(direct_card + " [data-assisted-confirm]")
     ui.click(direct_card + " [data-assisted-import]")
     ui.stage("source")
-    assert "+1 новых · 1 изменённых" in ui.evaluate("document.querySelector('#toast').textContent")
+    assert "+1 новых · 1 изменённых · 1 отсутствуют" in ui.evaluate("document.querySelector('#toast').textContent")
     accepted = ui.invoke("open_project", {"projectId": pid})
     assert next(s for s in accepted["sources"] if s["source_id"] == direct["source_id"])["latest_snapshot_id"] != direct_snapshot
     assert next(s for s in accepted["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == forum_snapshot

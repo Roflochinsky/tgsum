@@ -96,7 +96,8 @@ messenger credentials. Он читает только выбранный executa
 - `scripts/desktop-e2e.py`: реальный WebView на Linux/Windows/macOS с synthetic
   picker/archives; два подключённых чата и разные папки, отказ JSON чужого
   native chat ID без изменения snapshots, повтор после исправления файла,
-  дельта только нужного source и отсутствие автоматического анализа.
+  created/edited/missing дельта только нужного source и отсутствие
+  автоматического анализа.
 
 Тестовый клиент — `src-tauri/tests/fixtures/assisted-client.rs`; сетевого кода,
 Telegram и профилей в нём нет. Реальные аккаунты/клиенты не используются.

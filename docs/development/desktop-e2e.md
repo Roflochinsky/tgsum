@@ -71,7 +71,8 @@ and an existing window alone were insufficient in the first local run.
    requires explicit completion confirmation before repeat import and does not
    run analysis. With two connected Telegram chats, a file for the other native
    chat is rejected without changing either snapshot; a corrected file updates
-   only its selected source and reports created/edited counts.
+   only its selected source and reports created/edited/missing counts; missing
+   is not presented as a confirmed deletion.
    A separate Project with an unimplemented OAuth source shows unverified
    access and disables unavailable Telegram/archive operations.
 6. Single-chat one-off topic export and actual Markdown content verification.
