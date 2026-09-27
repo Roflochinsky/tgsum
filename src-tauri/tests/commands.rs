@@ -179,13 +179,14 @@ mod analysis_flow {
     use tgsum_core::snapshot::SourceScope;
 
     struct Fixture {
+        agent: &'static str,
         _dir: tempfile::TempDir,
         store: ProjectStore,
         project: Project,
         bundle: String,
     }
     impl Fixture {
-        fn new() -> Self {
+        fn new(agent: &'static str) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let store = ProjectStore::new(dir.path());
             let p = store.create("Local synthetic analysis").unwrap();
@@ -227,6 +228,7 @@ mod analysis_flow {
                 .unwrap()
                 .bundle_id;
             Self {
+                agent,
                 _dir: dir,
                 store,
                 project,
@@ -247,7 +249,7 @@ mod analysis_flow {
         }
         fn prepare(&self, w: &WebviewWindow<tauri::test::MockRuntime>, model: &str) -> Value {
             invoke(w,"prepare_project_analysis",json!({"projectId":self.project.project_id,"bundleId":self.bundle,"expectedRevision":self.project.revision,
-                "options":{"executable":"/NEVER_EXECUTE","auth_file":"/NEVER_OPEN","model":model,"recipe":"summary","destination":"local_fixture"}})).unwrap()
+                "options":{"agent":self.agent,"executable":"/NEVER_EXECUTE","auth_file":"/NEVER_OPEN","model":model,"recipe":"summary","destination":"local_fixture"}})).unwrap()
         }
         fn read(&self, w: &WebviewWindow<tauri::test::MockRuntime>, id: &Value) -> Value {
             invoke(
@@ -260,172 +262,212 @@ mod analysis_flow {
     }
 
     #[test]
-    fn reviewed_run_is_single_use_and_persists_across_application_restart() {
-        let f = Fixture::new();
-        let w = f.window();
-        let catalog = invoke(&w, "analysis_catalog", json!({})).unwrap();
-        assert_eq!(catalog["fixtures"], true);
-        assert_eq!(catalog["recipes"].as_array().unwrap().len(), 6);
-        let reviewed = f.prepare(&w, "fixture-success");
-        let id = &reviewed["run_id"];
-        assert_eq!(reviewed["spec"]["destination"], "local_fixture");
-        assert_eq!(reviewed["coverage"][0]["messages"], 1);
-        assert!(invoke(&w, "run_project_analysis", json!({"runId":"run-wrong"})).is_err());
-        let output = invoke(&w, "run_project_analysis", json!({"runId":id})).unwrap();
-        assert_eq!(output["state"], "succeeded");
-        assert!(output["result"]["sections"][0]["claims"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("<img"));
-        assert!(invoke(&w, "run_project_analysis", json!({"runId":id})).is_err());
-        let p = f.store.open(&f.project.project_id).unwrap();
-        assert_eq!(p.revision, f.project.revision + 1);
-        assert_eq!(p.baselines.len(), 1);
-        let restarted = f.window();
-        assert_eq!(f.read(&restarted, id), output);
-        assert!(invoke(&restarted, "run_project_analysis", json!({"runId":id})).is_err());
-        let entries = invoke(
-            &restarted,
-            "list_project_analyses",
-            json!({"projectId":p.project_id}),
+    fn cross_provider_destination_is_refused_before_runtime_or_auth_access() {
+        let f = Fixture::new("claude");
+        let app = tgsum_app::app(
+            mock_builder()
+                .manage(f.store.clone())
+                .manage(tgsum_app::analysis::AnalysisState::default()),
         )
+        .build(mock_context(noop_assets()))
         .unwrap();
-        assert_eq!(entries[0]["state"], "succeeded");
+        let w = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        for (agent, destination) in [("claude", "api.openai.com"), ("codex", "api.anthropic.com")] {
+            let error=invoke(&w,"prepare_project_analysis",json!({"projectId":f.project.project_id,"bundleId":f.bundle,"expectedRevision":f.project.revision,
+                "options":{"agent":agent,"executable":"/NEVER_EXECUTE","auth_file":"/NEVER_OPEN","model":"synthetic-model","recipe":"summary","destination":destination}})).unwrap_err();
+            assert_eq!(error["kind"], "failed");
+            assert!(error["message"]
+                .as_str()
+                .unwrap()
+                .contains("Получатель не соответствует"));
+        }
+        assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
+        assert!(f
+            .store
+            .recent_analysis_ids(&f.project.project_id, 20)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn reviewed_run_is_single_use_and_persists_across_application_restart() {
+        for agent in ["codex", "claude"] {
+            let f = Fixture::new(agent);
+            let w = f.window();
+            let catalog = invoke(&w, "analysis_catalog", json!({})).unwrap();
+            assert_eq!(catalog["fixtures"], true);
+            assert_eq!(catalog["recipes"].as_array().unwrap().len(), 6);
+            let reviewed = f.prepare(&w, "fixture-success");
+            let id = &reviewed["run_id"];
+            assert_eq!(reviewed["spec"]["destination"], "local_fixture");
+            assert_eq!(reviewed["spec"]["agent"], format!("synthetic-{agent}"));
+            assert_eq!(catalog["agents"].as_array().unwrap().len(), 2);
+            assert_eq!(reviewed["coverage"][0]["messages"], 1);
+            assert!(invoke(&w, "run_project_analysis", json!({"runId":"run-wrong"})).is_err());
+            let output = invoke(&w, "run_project_analysis", json!({"runId":id})).unwrap();
+            assert_eq!(output["state"], "succeeded");
+            assert!(output["result"]["sections"][0]["claims"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("<img"));
+            assert!(invoke(&w, "run_project_analysis", json!({"runId":id})).is_err());
+            let p = f.store.open(&f.project.project_id).unwrap();
+            assert_eq!(p.revision, f.project.revision + 1);
+            assert_eq!(p.baselines.len(), 1);
+            let restarted = f.window();
+            assert_eq!(f.read(&restarted, id), output);
+            assert!(invoke(&restarted, "run_project_analysis", json!({"runId":id})).is_err());
+            let entries = invoke(
+                &restarted,
+                "list_project_analyses",
+                json!({"projectId":p.project_id}),
+            )
+            .unwrap();
+            assert_eq!(entries[0]["state"], "succeeded");
+        }
     }
 
     #[test]
     fn review_changes_and_agent_failure_preserve_baselines() {
-        let f = Fixture::new();
-        let w = f.window();
-        let first = f.prepare(&w, "fixture-success");
-        let second = f.prepare(&w, "fixture-failure");
-        assert_eq!(f.read(&w, &first["run_id"])["state"], "cancelled");
-        assert!(invoke(&w, "run_project_analysis", json!({"runId":first["run_id"]})).is_err());
-        let failed = invoke(
-            &w,
-            "run_project_analysis",
-            json!({"runId":second["run_id"]}),
-        )
-        .unwrap();
-        assert_eq!(failed["state"], "failed");
-        assert_eq!(failed["failure"], "agent");
-        assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
-        let third = f.prepare(&w, "fixture-success");
-        invoke(&w,"update_project",json!({"projectId":f.project.project_id,"expectedRevision":f.project.revision,"change":{"kind":"rename","value":"Edited after review"}})).unwrap();
-        assert_eq!(f.read(&w, &third["run_id"])["state"], "cancelled");
-        assert!(invoke(&w, "run_project_analysis", json!({"runId":third["run_id"]})).is_err());
-        assert!(f
-            .store
-            .open(&f.project.project_id)
-            .unwrap()
-            .baselines
-            .is_empty());
+        for agent in ["codex", "claude"] {
+            let f = Fixture::new(agent);
+            let w = f.window();
+            let first = f.prepare(&w, "fixture-success");
+            let second = f.prepare(&w, "fixture-failure");
+            assert_eq!(f.read(&w, &first["run_id"])["state"], "cancelled");
+            assert!(invoke(&w, "run_project_analysis", json!({"runId":first["run_id"]})).is_err());
+            let failed = invoke(
+                &w,
+                "run_project_analysis",
+                json!({"runId":second["run_id"]}),
+            )
+            .unwrap();
+            assert_eq!(failed["state"], "failed");
+            assert_eq!(failed["failure"], "agent");
+            assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
+            let third = f.prepare(&w, "fixture-success");
+            invoke(&w,"update_project",json!({"projectId":f.project.project_id,"expectedRevision":f.project.revision,"change":{"kind":"rename","value":"Edited after review"}})).unwrap();
+            assert_eq!(f.read(&w, &third["run_id"])["state"], "cancelled");
+            assert!(invoke(&w, "run_project_analysis", json!({"runId":third["run_id"]})).is_err());
+            assert!(f
+                .store
+                .open(&f.project.project_id)
+                .unwrap()
+                .baselines
+                .is_empty());
+        }
     }
 
     #[test]
     fn running_job_rejects_project_edit_and_can_be_cancelled() {
-        let f = Fixture::new();
-        let w = f.window();
-        let prepared = f.prepare(&w, "fixture-wait");
-        let runner = w.clone();
-        let id = prepared["run_id"].clone();
-        let thread = std::thread::spawn(move || {
-            invoke(&runner, "run_project_analysis", json!({"runId":id}))
-        });
-        // Fixture waits up to five seconds and checks cancellation every 10ms.
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let edit = invoke(
-            &w,
-            "update_project",
-            json!({"projectId":f.project.project_id,"expectedRevision":f.project.revision,"change":{"kind":"rename","value":"Must not change"}}),
-        );
-        invoke(&w, "cancel_job", json!({})).unwrap();
-        assert_eq!(thread.join().unwrap().unwrap()["state"], "cancelled");
-        assert_eq!(edit.unwrap_err()["kind"], "conflict");
-        assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
-        let fresh = f.prepare(&w, "fixture-success");
-        invoke(&w, "discard_analysis_review", json!({})).unwrap();
-        assert_eq!(f.read(&w, &fresh["run_id"])["state"], "cancelled");
+        for agent in ["codex", "claude"] {
+            let f = Fixture::new(agent);
+            let w = f.window();
+            let prepared = f.prepare(&w, "fixture-wait");
+            let runner = w.clone();
+            let id = prepared["run_id"].clone();
+            let thread = std::thread::spawn(move || {
+                invoke(&runner, "run_project_analysis", json!({"runId":id}))
+            });
+            // Fixture waits up to five seconds and checks cancellation every 10ms.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let edit = invoke(
+                &w,
+                "update_project",
+                json!({"projectId":f.project.project_id,"expectedRevision":f.project.revision,"change":{"kind":"rename","value":"Must not change"}}),
+            );
+            invoke(&w, "cancel_job", json!({})).unwrap();
+            assert_eq!(thread.join().unwrap().unwrap()["state"], "cancelled");
+            assert_eq!(edit.unwrap_err()["kind"], "conflict");
+            assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
+            let fresh = f.prepare(&w, "fixture-success");
+            invoke(&w, "discard_analysis_review", json!({})).unwrap();
+            assert_eq!(f.read(&w, &fresh["run_id"])["state"], "cancelled");
+        }
     }
 
     #[test]
     fn restart_never_replays_and_explicit_recovery_revalidates_saved_result() {
-        use tgsum_core::recipe::{Recipe, RecipeEvidence, RecipeOutput};
-        let f = Fixture::new();
-        let w = f.window();
-        let pending = f.prepare(&w, "fixture-success");
-        let id = &pending["run_id"];
-        let ticket = f
-            .store
-            .resume_analysis(&f.project.project_id, id.as_str().unwrap())
-            .unwrap();
-        let restarted = f.window();
-        assert_eq!(f.read(&restarted, id)["state"], "interrupted");
-        assert!(invoke(&restarted, "run_project_analysis", json!({"runId":id})).is_err());
-        assert!(f
-            .store
-            .read_analysis(&f.project.project_id, id.as_str().unwrap())
-            .unwrap()
-            .completion
-            .is_none());
-        let output:RecipeOutput=serde_json::from_value(json!({"recipe":"summary","version":1,"sections":Recipe::Summary.sections().iter().map(|id|json!({"id":id,"claims":[]})).collect::<Vec<_>>(),"actions":[]})).unwrap();
-        let staged = tempfile::tempdir().unwrap();
-        let exported = f
-            .store
-            .export_bundle(
-                &f.project.project_id,
-                &f.bundle,
-                f.project.revision,
-                staged.path(),
-                || false,
-            )
-            .unwrap();
-        let parts: Vec<_> = std::fs::read_dir(exported.directory)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|p| p.extension().is_some_and(|x| x == "md"))
-            .map(|p| std::fs::read_to_string(p).unwrap())
-            .collect();
-        let evidence = RecipeEvidence::from_markdown(parts.iter().map(String::as_str)).unwrap();
-        f.store
-            .save_analysis_result(
-                &ticket,
-                &output,
-                |v| Recipe::Summary.validate(v, &evidence),
-                || false,
-            )
-            .unwrap();
-        assert_eq!(f.read(&restarted, id)["state"], "uncommitted");
-        assert_eq!(f.read(&restarted, id)["can_commit"], true);
-        assert!(f
-            .store
-            .open(&f.project.project_id)
-            .unwrap()
-            .baselines
-            .is_empty());
-        let recovered = invoke(
-            &restarted,
-            "recover_project_analysis",
-            json!({"projectId":f.project.project_id,"runId":id,"commit":true}),
-        )
-        .unwrap();
-        assert_eq!(recovered["state"], "succeeded");
-        assert!(matches!(
-            f.store
+        for agent in ["codex", "claude"] {
+            use tgsum_core::recipe::{Recipe, RecipeEvidence, RecipeOutput};
+            let f = Fixture::new(agent);
+            let w = f.window();
+            let pending = f.prepare(&w, "fixture-success");
+            let id = &pending["run_id"];
+            let ticket = f
+                .store
+                .resume_analysis(&f.project.project_id, id.as_str().unwrap())
+                .unwrap();
+            let restarted = f.window();
+            assert_eq!(f.read(&restarted, id)["state"], "interrupted");
+            assert!(invoke(&restarted, "run_project_analysis", json!({"runId":id})).is_err());
+            assert!(f
+                .store
                 .read_analysis(&f.project.project_id, id.as_str().unwrap())
                 .unwrap()
-                .completion,
-            Some(Completion::Validated { .. })
-        ));
-        assert_eq!(
-            invoke(
+                .completion
+                .is_none());
+            let output:RecipeOutput=serde_json::from_value(json!({"recipe":"summary","version":1,"sections":Recipe::Summary.sections().iter().map(|id|json!({"id":id,"claims":[]})).collect::<Vec<_>>(),"actions":[]})).unwrap();
+            let staged = tempfile::tempdir().unwrap();
+            let exported = f
+                .store
+                .export_bundle(
+                    &f.project.project_id,
+                    &f.bundle,
+                    f.project.revision,
+                    staged.path(),
+                    || false,
+                )
+                .unwrap();
+            let parts: Vec<_> = std::fs::read_dir(exported.directory)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.extension().is_some_and(|x| x == "md"))
+                .map(|p| std::fs::read_to_string(p).unwrap())
+                .collect();
+            let evidence = RecipeEvidence::from_markdown(parts.iter().map(String::as_str)).unwrap();
+            f.store
+                .save_analysis_result(
+                    &ticket,
+                    &output,
+                    |v| Recipe::Summary.validate(v, &evidence),
+                    || false,
+                )
+                .unwrap();
+            assert_eq!(f.read(&restarted, id)["state"], "uncommitted");
+            assert_eq!(f.read(&restarted, id)["can_commit"], true);
+            assert!(f
+                .store
+                .open(&f.project.project_id)
+                .unwrap()
+                .baselines
+                .is_empty());
+            let recovered = invoke(
                 &restarted,
                 "recover_project_analysis",
-                json!({"projectId":f.project.project_id,"runId":id,"commit":true})
+                json!({"projectId":f.project.project_id,"runId":id,"commit":true}),
             )
-            .unwrap(),
-            recovered
-        );
+            .unwrap();
+            assert_eq!(recovered["state"], "succeeded");
+            assert!(matches!(
+                f.store
+                    .read_analysis(&f.project.project_id, id.as_str().unwrap())
+                    .unwrap()
+                    .completion,
+                Some(Completion::Validated { .. })
+            ));
+            assert_eq!(
+                invoke(
+                    &restarted,
+                    "recover_project_analysis",
+                    json!({"projectId":f.project.project_id,"runId":id,"commit":true})
+                )
+                .unwrap(),
+                recovered
+            );
+        }
     }
 }
 

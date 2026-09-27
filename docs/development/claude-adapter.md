@@ -7,7 +7,8 @@
 network profile проверены на synthetic TLS peer. Добавлены перенос Linux
 managed files и проверка эффективной конфигурации до передачи corpus.
 `ClaudeNetworkRunner` и durable `AnalysisJob` реализованы в библиотеке.
-**Desktop Review/Run пока не подключены.**
+Desktop Prepare/Review/Run, история и явное восстановление подключены к этому
+runner. [Общий desktop-контракт и упаковка](desktop-analysis.md).
 [Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md),
 [managed policy и control protocol](../research/claude-managed-policy-2026-09-27.md).
 
@@ -144,7 +145,7 @@ Native CLI проверен с TLS peer, SAN `api.anthropic.com`, synthetic OAut
 
 `policy_limits` — отдельный endpoint от managed settings. Synthetic reply имеет
 пустые `restrictions`/`compliance_taints`; это не доказательство поддержки настоящей
-организации. Desktop Run и реальные auth/org profiles не квалифицированы.
+организации. Реальные auth/org profiles не квалифицированы.
 
 ## Review, result и baseline
 
@@ -240,6 +241,11 @@ production TLS или server-managed policy. Fake CLI независимо пр�
 успех, ошибки, timeout/cancel. Другая версия/профиль не получает fallback вне sandbox.
 Игнорируемые process tests нужно запускать явно; обычный gate не доказывает их прохождение.
 
-До подключения Desktop Review/Run Claude остаётся Export only в приложении.
+Desktop UI проверен в настоящем Tauri с синтетическим backend: выбор агента,
+инвалидация Review при смене параметров, success/failure/cancel, история и recovery
+после перезапуска. Default-сборка проверена до Prepare/Run: fixed Anthropic receiver,
+выбор скрытого synthetic `.credentials.json` через native dialog, сброс auth/model
+при смене агента. Native runtime manifest отдельно проходит offline version probe
+с synthetic policy. Эти проверки не используют системную policy или реальный auth.
 Реальные аккаунты и OS/enterprise qualification — `tgsum-t8t.19` под контролем
 пользователя. Offline fixture не заменяет эту приёмку.

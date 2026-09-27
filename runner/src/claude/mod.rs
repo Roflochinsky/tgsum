@@ -17,6 +17,8 @@ pub use network::{ClaudeNetworkRunner, NetworkDecodeError, NetworkOutput};
 #[cfg(target_os = "linux")]
 mod lifecycle;
 #[cfg(target_os = "linux")]
+mod runtime;
+#[cfg(target_os = "linux")]
 pub use lifecycle::{AnalysisError, AnalysisJob, CompletedAnalysis};
 #[cfg(all(test, target_os = "linux"))]
 mod network_tests;

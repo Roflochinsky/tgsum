@@ -12,6 +12,8 @@ mod discovery;
 pub mod egress;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+mod native_runtime;
 
 pub use context::PreparedContext;
 pub use discovery::{discover, ExecutableCandidate};

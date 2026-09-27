@@ -48,8 +48,9 @@
 - 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме; по желанию —
   цвета текущей темы Omarchy вместо картины.
 - 🔒 **Локальная подготовка.** Импорт, выбор и очистка выполняются на компьютере.
-  Сохранение контекста не требует сети. Необязательный запуск Codex передаёт
-  подготовленный контекст выбранному получателю OpenAI только после Review и Run.
+  Сохранение контекста не требует сети. Необязательный запуск Codex или Claude Code
+  передаёт подготовленный контекст выбранному получателю OpenAI или Anthropic
+  только после Review и Run.
 
 ## Установка
 
@@ -186,7 +187,7 @@ Parser в текущих исходниках также поддерживае�
 
 ```
 core/          tgsum-core — Rust-библиотека: потоковый парсер, топики, Markdown, запись файлов
-runner/        tgsum-runner — изолированный процессный runner (пока offline Linux profile)
+runner/        tgsum-runner — изолированный Linux runner и ограниченный HTTPS transport
 src-tauri/     приложение tgsum на Tauri 2: окно, команды, диалоги, прогресс и отмена
 src-tauri/ui/  интерфейс: HTML + CSS + JS без сборки и без npm
 packaging/     пакет для Arch/Omarchy (PKGBUILD)
@@ -194,7 +195,9 @@ install.sh     установка одной командой: зависимо�
 ```
 
 [Контракт runner, ограничения и отдельная проверка Linux-изоляции](docs/development/runner.md).
-[Протокол Codex и оставшаяся работа до облачного запуска](docs/development/codex-adapter.md).
+[Протокол Codex](docs/development/codex-adapter.md),
+[протокол Claude Code](docs/development/claude-adapter.md),
+[desktop Review/Run и границы проверки](docs/development/desktop-analysis.md).
 
 ## Сборка из исходников
 
@@ -210,16 +213,16 @@ sudo pacman -S --needed rust webkit2gtk-4.1 gtk3 librsvg xdg-utils
 
 ```bash
 cargo run -p tgsum                       # запустить приложение
-cargo build -p tgsum-runner --bin tgsum-codex-relay # helper рядом с dev-приложением
+cargo build -p tgsum-runner --bin tgsum-codex-relay --bin tgsum-claude-relay --locked
 bash scripts/check.sh                    # полный набор проверок Rust
 
 cargo install --path src-tauri --locked  # поставить собранное из этой папки
-cargo install --path runner --bin tgsum-codex-relay --locked # необязательный helper
+cargo install --path runner --bin tgsum-codex-relay --bin tgsum-claude-relay --locked
 packaging/arch/build-local.sh -si        # собрать и поставить пакет для Arch/Omarchy
 
 cargo install tauri-cli --version "^2" --locked
 cargo tauri build                        # установщики → target/release/bundle/
-# Linux x86_64, с компонентом запуска Codex:
+# Linux x86_64, с компонентами запуска Codex и Claude Code:
 bash scripts/build-relay.sh x86_64-unknown-linux-gnu
 cargo tauri build --config src-tauri/tauri.linux-relay.conf.json
 ```
@@ -343,8 +346,9 @@ bd init --non-interactive --skip-agents --skip-hooks --setup-exclude \
 
 Текущая ветка поддерживает полный и отдельный JSON-экспорт Telegram, Projects,
 выбор scope, privacy review, evidence и сохранение контекста. Добавлен отдельный
-Review/Run Codex для квалифицированного Linux x86_64 runtime: установленный static
-Codex 0.155.1, bubblewrap 0.12.0 и relay. Другие ОС сохраняют контекст в файл.
+Review/Run Codex и Claude Code для квалифицированных Linux x86_64 runtime:
+native Codex 0.155.1 или Claude Code 2.1.280, bubblewrap 0.12.0 и соответствующий
+relay. Другие ОС сохраняют контекст в файл.
 [Инструкция и пределы квалификации](docs/development/desktop-analysis.md).
 Реальные аккаунты пока не проверялись; эта ветка не является объявлением релиза.
 

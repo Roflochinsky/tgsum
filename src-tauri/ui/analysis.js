@@ -14,6 +14,32 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
   let reviewed = null
   let selected = null
   let invalidation = Promise.resolve()
+  const agent = () => catalog?.agents.find((a) => a.id === $('#analysis-agent').value)
+
+  function configureAgent() {
+    const selectedAgent = agent()
+    $('#analysis-executable').value = selectedAgent.executables[0] || ''
+    $('#analysis-auth').value = ''
+    $('#analysis-model').value = catalog.fixtures ? 'fixture-success' : ''
+    $('#analysis-model').placeholder = `ID модели из ${selectedAgent.title}`
+    $('#analysis-executable-label').textContent = `Исполняемый файл ${selectedAgent.title}`
+    $('#btn-analysis-executable').textContent = `Выбрать ${selectedAgent.title}…`
+    $('#analysis-auth-label').textContent = `Файл авторизации ${selectedAgent.title}`
+    $('#btn-analysis-auth').textContent = `Выбрать ${selectedAgent.auth_name}…`
+    $('#analysis-runtime-hint').textContent = `Требуется нативный бинарник ${selectedAgent.title} ${selectedAgent.version}. Найденный путь проверяется при подготовке запуска.`
+    $('#analysis-auth-hint').textContent = `Авторизация остаётся в выбранном файле. Если вход истёк, обновите его в ${selectedAgent.title} отдельно и подготовьте запуск заново.`
+    $('#analysis-destination').replaceChildren(...selectedAgent.destinations.map((d) => {
+      const option = node('option', d.title)
+      option.value = d.id
+      return option
+    }))
+    $('#analysis-destination').disabled = catalog.fixtures || selectedAgent.destinations.length === 1
+    $('#analysis-status').textContent = catalog.fixtures
+      ? `Локальный тестовый стенд · ${selectedAgent.title}. Данные не передаются агенту или в сеть.`
+      : selectedAgent.available ? `${selectedAgent.title} ${selectedAgent.version} · Linux x86_64. Подготовка проверит совместимость без обращения к аккаунту.`
+        : `Запуск ${selectedAgent.title} недоступен: требуется Linux x86_64 и установленный компонент запуска. Контекст можно сохранить в файл.`
+    $('#analysis-runtime-fields').hidden = catalog.fixtures || !selectedAgent.available
+  }
 
   function invalidate() {
     reviewed = null
@@ -24,7 +50,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
   }
 
   function availability() {
-    $('#btn-analysis-prepare').disabled = !catalog?.available || !bundle() || bundle().manifest.privacy.needs_review > 0
+    $('#btn-analysis-prepare').disabled = !agent()?.available || !bundle() || bundle().manifest.privacy.needs_review > 0
   }
 
   async function reset() {
@@ -38,14 +64,12 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
         option.value = r.id
         return option
       }))
-      $('#analysis-executable').value = catalog.executables[0] || ''
-      $('#analysis-status').textContent = catalog.fixtures
-        ? 'Локальный тестовый стенд. Данные не передаются агенту или в сеть.'
-        : catalog.available ? `Codex ${catalog.version} · Linux x86_64. Подготовка проверит совместимость без обращения к аккаунту.`
-          : 'Запуск Codex недоступен: требуется Linux x86_64 и установленный компонент запуска. Контекст можно сохранить в файл.'
-      $('#analysis-runtime-fields').hidden = catalog.fixtures || !catalog.available
-      $('#analysis-model').value = catalog.fixtures ? 'fixture-success' : ''
-      $('#analysis-destination').disabled = catalog.fixtures
+      $('#analysis-agent').replaceChildren(...catalog.agents.map((a) => {
+        const option = node('option', a.title)
+        option.value = a.id
+        return option
+      }))
+      configureAgent()
     }
     availability()
     await history()
@@ -58,7 +82,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     if (!current) return
     const entries = await invoke('list_project_analyses', { projectId: current.project_id })
     for (const entry of entries) {
-      const button = node('button', `${entry.recipe || 'Анализ'} · ${states[entry.state]} · ${entry.run_id}`, 'btn btn-ghost')
+      const button = node('button', `${entry.agent || 'Агент'} · ${entry.recipe || 'Анализ'} · ${states[entry.state]} · ${entry.run_id}`, 'btn btn-ghost')
       button.type = 'button'
       button.dataset.run = entry.run_id
       button.disabled = entry.state === 'unavailable'
@@ -97,7 +121,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
         }
       }
     }
-    const failures = { authentication: 'Проверьте выбранную авторизацию Codex.', transport: 'Не удалось завершить передачу.', invalid_result: 'Ответ не прошёл проверку структуры и ссылок.', timed_out: 'Время ожидания истекло.', interrupted: 'Процесс был прерван.', agent: 'Агент не завершил анализ. Проверьте модель, получателя и выбранную авторизацию.' }
+    const failures = { authentication: 'Проверьте выбранную авторизацию агента.', transport: 'Не удалось завершить передачу.', invalid_result: 'Ответ не прошёл проверку структуры и ссылок.', timed_out: 'Время ожидания истекло.', interrupted: 'Процесс был прерван.', agent: 'Агент не завершил анализ. Проверьте модель, получателя и выбранную авторизацию.' }
     $('#analysis-result-note').textContent = view.failure ? failures[view.failure] || 'Анализ не завершён.'
       : view.state === 'uncommitted' ? (view.can_commit ? 'Можно принять сохранённый результат без повторного обращения к агенту.' : 'Проект изменился. Сохранённый результат доступен для чтения; подготовьте новый анализ.')
         : view.state === 'interrupted' ? 'Автоматического повтора нет. Закройте запись, затем подготовьте новый запуск.' : ''
@@ -106,12 +130,16 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     $('#analysis-result').scrollIntoView({ block: 'start' })
   }
 
-  $('#analysis-options').addEventListener('input', () => { invalidate(); availability() })
-  for (const [id, kind] of [['#btn-analysis-executable', 'codex'], ['#btn-analysis-auth', 'auth']]) {
+  $('#analysis-options').addEventListener('input', (event) => {
+    if (event.target.id === 'analysis-agent') configureAgent()
+    invalidate(); availability()
+  })
+  for (const [id, kind] of [['#btn-analysis-executable', 'executable'], ['#btn-analysis-auth', 'auth']]) {
     $(id).addEventListener('click', () => act(async () => {
-      const path = await invoke('pick_analysis_file', { kind })
-      if (path) {
-        $(kind === 'codex' ? '#analysis-executable' : '#analysis-auth').value = path
+      const selectedAgent = agent().id
+      const path = await invoke('pick_analysis_file', { kind, agent: selectedAgent })
+      if (path && agent().id === selectedAgent) {
+        $(kind === 'executable' ? '#analysis-executable' : '#analysis-auth').value = path
         await invalidate()
       }
     }))
@@ -120,18 +148,18 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     await invalidate()
     const context = bundle()
     if (!context) return
-    const options = { executable: $('#analysis-executable').value, auth_file: $('#analysis-auth').value,
+    const options = { agent: agent().id, executable: $('#analysis-executable').value, auth_file: $('#analysis-auth').value,
       model: $('#analysis-model').value.trim(), recipe: $('#analysis-recipe').value, destination: $('#analysis-destination').value }
-    if (!options.model) throw new Error('Укажите модель, доступную в выбранном Codex.')
+    if (!options.model) throw new Error(`Укажите модель, доступную в ${agent().title}.`)
     startJob('analysis', 'Подготовка запуска без передачи данных агенту')
     try {
       reviewed = await invoke('prepare_project_analysis', { projectId: project().project_id, bundleId: context.bundle_id, expectedRevision: context.project_revision, options })
     } finally { endJob(); show('projects') }
     const s = reviewed.spec
     $('#analysis-review-summary').textContent = `${s.agent} ${s.agent_version} · ${s.recipe} v${s.recipe_version} · модель ${s.model}`
-    $('#analysis-review-destination').textContent = s.destination === 'local_fixture' ? 'Получатель: локальный тестовый стенд' : `Получатель контекста: OpenAI · ${s.destination}`
+    $('#analysis-review-destination').textContent = s.destination === 'local_fixture' ? 'Получатель: локальный тестовый стенд' : `Получатель контекста: ${s.agent === 'claude' ? 'Anthropic' : 'OpenAI'} · ${s.destination}`
     $('#analysis-review-access').textContent = s.destination === 'local_fixture' ? 'Используются только синтетические данные.'
-      : `Агент получит проверенный выше контекст и выбранный файл авторизации только для чтения: ${options.auth_file}. Codex: ${options.executable}.`
+      : `Агент получит проверенный выше контекст и выбранный файл авторизации только для чтения: ${options.auth_file}. ${agent().title}: ${options.executable}.`
     $('#analysis-review').hidden = false
     $('#btn-analysis-run').disabled = false
     $('#analysis-review').scrollIntoView({ block: 'start' })

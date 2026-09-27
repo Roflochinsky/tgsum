@@ -73,7 +73,7 @@ jobs:
           key: ${{ matrix.target }}
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
-      - name: Stage isolated Codex relay
+      - name: Stage isolated agent relays
         if: runner.os == 'Linux'
         run: bash scripts/build-relay.sh x86_64-unknown-linux-gnu
       - id: tauri

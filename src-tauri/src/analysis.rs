@@ -12,7 +12,6 @@ use tauri_plugin_dialog::DialogExt;
 use tgsum_core::analysis::{AnalysisCoverage, AnalysisSpec, Completion, FailureCode, RunTicket};
 use tgsum_core::project::ProjectStore;
 use tgsum_core::recipe::{Recipe, RecipeOutput, RECIPE_VERSION};
-use tgsum_runner::codex::RecipeRequest;
 use tgsum_runner::{Cancellation, PreparedContext, RunnerError};
 
 pub struct AnalysisState {
@@ -172,18 +171,121 @@ fn runner_error(error: RunnerError) -> CmdError {
     match error {
         RunnerError::Cancelled => CmdError::Cancelled,
         RunnerError::ExportOnly(reason)|RunnerError::InvalidRequest(reason) => CmdError::Failed(format!("Запуск недоступен: {reason}. Можно сохранить контекст в файл.")),
-        RunnerError::Io(_) => CmdError::Failed("Не удалось подготовить файлы запуска. Проверьте выбранный Codex и доступ к файлу авторизации.".into()),
+        RunnerError::Io(_) => CmdError::Failed("Не удалось подготовить файлы запуска. Проверьте выбранный агент и доступ к файлу авторизации.".into()),
     }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AnalysisOptions {
+    agent: Agent,
     executable: String,
     auth_file: String,
     model: String,
     recipe: Recipe,
     destination: String,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Agent {
+    Codex,
+    Claude,
+}
+impl Agent {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+        }
+    }
+    fn title(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::Claude => "Claude Code",
+        }
+    }
+    fn version(self) -> &'static str {
+        match self {
+            Self::Codex => "0.155.1",
+            Self::Claude => tgsum_runner::claude::VERSION,
+        }
+    }
+    fn profile(self) -> &'static str {
+        match self {
+            Self::Codex => "linux-x86_64-bwrap-codex-egress-v1",
+            Self::Claude => "linux-x86_64-bwrap-claude-egress-v1",
+        }
+    }
+    fn relay(self) -> &'static str {
+        match self {
+            Self::Codex => "tgsum-codex-relay",
+            Self::Claude => "tgsum-claude-relay",
+        }
+    }
+    fn auth_name(self) -> &'static str {
+        match self {
+            Self::Codex => "auth.json",
+            Self::Claude => ".credentials.json",
+        }
+    }
+    fn from_saved(id: &str) -> Result<Self, CmdError> {
+        match id {
+            "codex" | "synthetic" | "synthetic-codex" => Ok(Self::Codex),
+            "claude" | "synthetic-claude" => Ok(Self::Claude),
+            _ => Err(CmdError::Failed(
+                "Неизвестный агент сохранённого анализа.".into(),
+            )),
+        }
+    }
+}
+
+enum RecipeRequest<'a> {
+    Codex(tgsum_runner::codex::RecipeRequest<'a>),
+    Claude(tgsum_runner::claude::RecipeRequest<'a>),
+}
+impl<'a> RecipeRequest<'a> {
+    fn prepare(
+        agent: Agent,
+        context: &'a PreparedContext,
+        model: &str,
+        recipe: Recipe,
+        cancel: &Cancellation,
+    ) -> Result<Self, RunnerError> {
+        match agent {
+            Agent::Codex => {
+                tgsum_runner::codex::RecipeRequest::prepare(context, model, recipe, cancel)
+                    .map(Self::Codex)
+            }
+            Agent::Claude => {
+                tgsum_runner::claude::RecipeRequest::prepare(context, model, recipe, cancel)
+                    .map(Self::Claude)
+            }
+        }
+    }
+    fn validate(
+        &self,
+        value: &RecipeOutput,
+    ) -> std::io::Result<Vec<tgsum_core::bundle::EvidenceRef>> {
+        match self {
+            Self::Codex(r) => r.validate(value),
+            Self::Claude(r) => r.validate(value),
+        }
+    }
+    #[cfg(all(feature = "analysis-fixtures", debug_assertions))]
+    fn recipe(&self) -> Recipe {
+        match self {
+            Self::Codex(r) => r.recipe(),
+            Self::Claude(r) => r.recipe(),
+        }
+    }
+    #[cfg(all(feature = "analysis-fixtures", debug_assertions))]
+    fn input(&self) -> Result<&[u8], RunnerError> {
+        match self {
+            Self::Codex(r) => Ok(&r.request().invocation()?.stdin),
+            Self::Claude(r) => Ok(&r.request().invocation()?.stdin),
+        }
+    }
 }
 struct Prepared {
     context: PreparedContext,
@@ -195,6 +297,11 @@ enum Backend {
     Codex {
         runner: tgsum_runner::codex::CodexNetworkRunner,
         auth: tgsum_runner::codex::SelectedAuthFile,
+    },
+    #[cfg(target_os = "linux")]
+    Claude {
+        runner: tgsum_runner::claude::ClaudeNetworkRunner,
+        auth: tgsum_runner::claude::SelectedAuthFile,
     },
     #[cfg(all(feature = "analysis-fixtures", debug_assertions))]
     Synthetic,
@@ -245,15 +352,12 @@ fn view(store: &ProjectStore, project: &str, id: &str) -> Result<AnalysisView, C
     })
 }
 
-fn relay_path() -> Option<PathBuf> {
-    let path = std::env::current_exe()
-        .ok()?
-        .parent()?
-        .join("tgsum-codex-relay");
+fn relay_path(agent: Agent) -> Option<PathBuf> {
+    let path = std::env::current_exe().ok()?.parent()?.join(agent.relay());
     if path.is_file() {
         return Some(path);
     }
-    tgsum_runner::discover(std::ffi::OsStr::new("tgsum-codex-relay"), &search_dirs())
+    tgsum_runner::discover(std::ffi::OsStr::new(agent.relay()), &search_dirs())
         .ok()?
         .into_iter()
         .next()
@@ -271,27 +375,35 @@ fn search_dirs() -> Vec<PathBuf> {
 
 #[tauri::command]
 pub(crate) fn analysis_catalog(state: State<'_, AnalysisState>) -> Value {
-    let paths =
-        tgsum_runner::discover(std::ffi::OsStr::new("codex"), &search_dirs()).unwrap_or_default();
+    let agents = [Agent::Codex,Agent::Claude].map(|agent| {
+        let paths=tgsum_runner::discover(std::ffi::OsStr::new(agent.id()),&search_dirs()).unwrap_or_default();
+        let destinations=match agent {
+            Agent::Codex=>serde_json::json!([{"id":"chatgpt.com","title":"OpenAI · ChatGPT"},{"id":"api.openai.com","title":"OpenAI · API"}]),
+            Agent::Claude=>serde_json::json!([{"id":"api.anthropic.com","title":"Anthropic · Claude"}]),
+        };
+        serde_json::json!({"id":agent.id(),"title":agent.title(),"version":agent.version(),
+            "auth_name":agent.auth_name(),"destinations":destinations,
+            "executables":paths.into_iter().map(|p|p.path).collect::<Vec<_>>(),
+            "available":state.fixtures || (cfg!(all(target_os="linux",target_arch="x86_64")) && relay_path(agent).is_some())})
+    });
     serde_json::json!({"recipes":Recipe::ALL.map(|r|serde_json::json!({"id":r.id(),"title":r.title(),"version":RECIPE_VERSION})),
-        "executables":paths.into_iter().map(|p|p.path).collect::<Vec<_>>(),"fixtures":state.fixtures,
-        "available":state.fixtures || (cfg!(all(target_os="linux",target_arch="x86_64")) && relay_path().is_some()),
-        "version":"0.155.1"})
+        "agents":agents,"fixtures":state.fixtures})
 }
 
 #[tauri::command]
 pub(crate) async fn pick_analysis_file<R: Runtime>(
     app: AppHandle<R>,
+    agent: Agent,
     kind: String,
 ) -> Option<String> {
     let title = match kind.as_str() {
-        "codex" => "Выберите исполняемый файл Codex",
-        "auth" => "Выберите auth.json Codex",
+        "executable" => format!("Выберите исполняемый файл {}", agent.title()),
+        "auth" => format!("Выберите {} {}", agent.auth_name(), agent.title()),
         _ => return None,
     };
     let mut dialog = app.dialog().file().set_title(title);
     if kind == "auth" {
-        dialog = dialog.add_filter("Codex auth.json", &["json"]);
+        dialog = dialog.add_filter(agent.auth_name(), &["json"]);
     }
     dialog
         .blocking_pick_file()
@@ -320,9 +432,14 @@ pub(crate) async fn prepare_project_analysis(
             &lease.cancel,
         )
         .map_err(runner_error)?;
-        let request =
-            RecipeRequest::prepare(&context, &options.model, options.recipe, &lease.cancel)
-                .map_err(runner_error)?;
+        let request = RecipeRequest::prepare(
+            options.agent,
+            &context,
+            &options.model,
+            options.recipe,
+            &lease.cancel,
+        )
+        .map_err(runner_error)?;
         let (backend, spec) = prepare_backend(&request, options, fixtures, &lease.cancel)?;
         let ticket =
             store.begin_analysis(&project_id, &bundle_id, expected_revision, spec, || {
@@ -358,9 +475,9 @@ fn prepare_backend(
     cancel: &Cancellation,
 ) -> Result<(Backend, AnalysisSpec), CmdError> {
     let spec = AnalysisSpec {
-        agent: "codex".into(),
-        agent_version: "0.155.1".into(),
-        isolation_profile: "linux-x86_64-bwrap-codex-egress-v1".into(),
+        agent: options.agent.id().into(),
+        agent_version: options.agent.version().into(),
+        isolation_profile: options.agent.profile().into(),
         destination: options.destination,
         model: options.model,
         recipe: options.recipe.id().into(),
@@ -382,7 +499,7 @@ fn prepare_backend(
                     "Выберите модель локального стенда.".into(),
                 ));
             }
-            spec.agent = "synthetic".into();
+            spec.agent = format!("synthetic-{}", options.agent.id());
             spec.agent_version = "1".into();
             spec.isolation_profile = "synthetic-local".into();
             spec.destination = "local_fixture".into();
@@ -395,24 +512,52 @@ fn prepare_backend(
     }
     #[cfg(target_os = "linux")]
     {
-        if !["api.openai.com", "chatgpt.com"].contains(&spec.destination.as_str()) {
-            return Err(CmdError::Failed("Выберите получателя Codex.".into()));
+        let destination_valid = match options.agent {
+            Agent::Codex => ["api.openai.com", "chatgpt.com"].contains(&spec.destination.as_str()),
+            Agent::Claude => spec.destination == "api.anthropic.com",
+        };
+        if !destination_valid {
+            return Err(CmdError::Failed(
+                "Получатель не соответствует выбранному агенту.".into(),
+            ));
         }
-        let relay = relay_path().ok_or_else(|| {
-            CmdError::Failed(
-                "Компонент запуска Codex не установлен. Сохранение контекста доступно.".into(),
-            )
+        let relay = relay_path(options.agent).ok_or_else(|| {
+            CmdError::Failed(format!(
+                "Компонент запуска {} не установлен. Сохранение контекста доступно.",
+                options.agent.title()
+            ))
         })?;
-        let runner = tgsum_runner::codex::CodexNetworkRunner::qualify_installed(
-            request.request(),
-            relay,
-            options.executable.into(),
-            cancel,
-        )
-        .map_err(runner_error)?;
-        let auth = tgsum_runner::codex::SelectedAuthFile::select(Path::new(&options.auth_file))
-            .map_err(runner_error)?;
-        Ok((Backend::Codex { runner, auth }, spec))
+        let backend = match request {
+            RecipeRequest::Codex(request) => {
+                let runner = tgsum_runner::codex::CodexNetworkRunner::qualify_installed(
+                    request.request(),
+                    relay,
+                    options.executable.into(),
+                    cancel,
+                )
+                .map_err(runner_error)?;
+                let auth =
+                    tgsum_runner::codex::SelectedAuthFile::select(Path::new(&options.auth_file))
+                        .map_err(runner_error)?;
+                Backend::Codex { runner, auth }
+            }
+            RecipeRequest::Claude(_) => {
+                let policy =
+                    tgsum_runner::claude::EndpointPolicy::capture(cancel).map_err(runner_error)?;
+                let runner = tgsum_runner::claude::ClaudeNetworkRunner::qualify_installed(
+                    relay,
+                    options.executable.into(),
+                    policy,
+                    cancel,
+                )
+                .map_err(runner_error)?;
+                let auth =
+                    tgsum_runner::claude::SelectedAuthFile::select(Path::new(&options.auth_file))
+                        .map_err(runner_error)?;
+                Backend::Claude { runner, auth }
+            }
+        };
+        Ok((backend, spec))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -456,19 +601,39 @@ fn execute(store: &ProjectStore, run: &Prepared, cancel: &Cancellation) -> Resul
     store.check_pending_analysis(&run.ticket, || cancel.is_cancelled())?;
     let spec = &run.ticket.request().spec;
     let recipe = Recipe::from_version(&spec.recipe, spec.recipe_version)?;
-    let request =
-        RecipeRequest::prepare(&run.context, &spec.model, recipe, cancel).map_err(runner_error)?;
-    match &run.backend {
+    let request = RecipeRequest::prepare(
+        Agent::from_saved(&spec.agent)?,
+        &run.context,
+        &spec.model,
+        recipe,
+        cancel,
+    )
+    .map_err(runner_error)?;
+    match (&run.backend, &request) {
         #[cfg(target_os = "linux")]
-        Backend::Codex { runner, auth } => {
+        (Backend::Codex { runner, auth }, RecipeRequest::Codex(request)) => {
             runner
-                .run_recipe(&request, &run.ticket, auth, cancel)
+                .run_recipe(request, &run.ticket, auth, cancel)
+                .map_err(|_| {
+                    CmdError::Failed("Анализ не завершён. Проверьте запись запуска.".into())
+                })?;
+        }
+        #[cfg(target_os = "linux")]
+        (Backend::Claude { runner, auth }, RecipeRequest::Claude(request)) => {
+            runner
+                .run_recipe(request, &run.ticket, auth, cancel)
                 .map_err(|_| {
                     CmdError::Failed("Анализ не завершён. Проверьте запись запуска.".into())
                 })?;
         }
         #[cfg(all(feature = "analysis-fixtures", debug_assertions))]
-        Backend::Synthetic => synthetic_result(store, run, &request, cancel)?,
+        (Backend::Synthetic, _) => synthetic_result(store, run, &request, cancel)?,
+        #[cfg(target_os = "linux")]
+        _ => {
+            return Err(CmdError::Failed(
+                "Агент не соответствует проверенному запуску.".into(),
+            ))
+        }
     }
     Ok(())
 }
@@ -505,9 +670,7 @@ fn synthetic_result(
     if run.ticket.request().spec.model == "fixture-failure" {
         return Err(CmdError::Failed("Synthetic failure".into()));
     }
-    let input: Value =
-        serde_json::from_slice(&request.request().invocation().map_err(runner_error)?.stdin)
-            .unwrap();
+    let input: Value = serde_json::from_slice(request.input().map_err(runner_error)?).unwrap();
     let (id, revision) = input["untrusted_documents"]
         .as_array()
         .unwrap()
@@ -543,7 +706,7 @@ pub(crate) async fn list_project_analyses(
             .recent_analysis_ids(&project_id, 20)?
             .into_iter()
             .map(|id| match view(&store, &project_id, &id) {
-                Ok(v) => serde_json::json!({"run_id":id,"recipe":v.spec.recipe,"state":v.state}),
+                Ok(v) => serde_json::json!({"run_id":id,"agent":v.spec.agent,"recipe":v.spec.recipe,"state":v.state}),
                 Err(_) => serde_json::json!({"run_id":id,"recipe":"","state":"unavailable"}),
             })
             .collect())
@@ -590,6 +753,7 @@ pub(crate) async fn recover_project_analysis(
                 )
                 .map_err(runner_error)?;
                 let request = RecipeRequest::prepare(
+                    Agent::from_saved(&spec.agent)?,
                     &context,
                     &spec.model,
                     Recipe::from_version(&spec.recipe, spec.recipe_version)?,

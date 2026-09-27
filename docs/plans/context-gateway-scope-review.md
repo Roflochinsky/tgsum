@@ -1,6 +1,6 @@
 # TGSUM: полный состав для согласования
 
-Снимок Beads от 2026-09-27 МСК, после завершения `tgsum-hzm.7`.
+Снимок Beads от 2026-09-27 МСК, после завершения `tgsum-hzm.8`.
 Решение по этой сверке: `tgsum-9x6`. Первоначальный снимок от 14:44 UTC обновлён
 после повторной проверки всех 118 записей: 12 эпиков и 106 дочерних задач.
 
@@ -11,7 +11,7 @@
 ## Текущее исполнение на 2026-09-27
 
 Повторная сверка Beads подтверждает прежний состав: **12 эпиков / 106 задач**,
-из них 9 closed, 1 in_progress, 96 open; **35 verification**, включая **17
+из них 10 closed, 0 in_progress, 96 open; **35 verification**, включая **17
 user-controlled backlog**. Все 12 эпиков остаются незавершёнными. Текущая активная
 цель — выполнять все эпики по установленным правилам; состав и критерии ниже не
 расширены. Beads остаётся источником актуального состояния.
@@ -46,7 +46,7 @@ Default-сборка проверена до Run: version probe установл
 Проверка build metadata не заменяет installer roundtrip; реальные аккаунты,
 enterprise/agent identity и остальные ОС остаются неквалифицированными.
 [Desktop контракт](../development/desktop-analysis.md).
-Активный `hzm.8` (Claude Code): реализованы offline request/decoder, отдельный
+`hzm.8` (Claude Code) завершён: реализованы offline request/decoder, отдельный
 Linux профиль и binding шести recipes. Установленный native 2.1.280 проверен
 с локальным canned Messages server, вымышленным ключом и без внешней сети:
 все шесть схем и HTTP 401. Добавлен явный read-only mount одного выбранного
@@ -58,14 +58,20 @@ cancel/timeout, original managed files и same-process settings preflight.
 Документы передаются только после проверки настроек, network `/context` пустой.
 Public network runner и durable Review/result/baseline реализованы; negative
 fixtures не меняют baseline, stale Project сохраняет artifact для recovery.
-Desktop Claude Run остаётся в работе, реальный refresh — в qualification backlog; задача не
-закрыта. [Контракт Claude](../development/claude-adapter.md). Состав и состояния
-12 эпиков / 106 задач не изменены. Эпик и полная цель открыты.
+Desktop Claude Prepare/Review/Run, history и explicit recovery подключены;
+смена агента сбрасывает auth/model и Review, cross-provider receiver отклоняется.
+Actual Tauri synthetic success/failure/cancel/restart/recovery и default native
+picker скрытого synthetic auth-файла проверены без реальных аккаунтов. Общий
+runtime manifest квалифицирует оба native CLI version-only; обе relay sidecar
+собираются. Финальный gate: **188 passed / 26 ignored**, отдельно 15 Claude process
+tests, два native manifest tests и 5 IPC tests. Реальный refresh — в qualification
+backlog; его поддержка не заявлена. [Контракт Claude](../development/claude-adapter.md). Состав
+12 эпиков / 106 задач не расширен. Эпик и полная цель открыты.
 
 ## Что согласовываем
 
 - 12 продуктовых и сквозных эпиков, 106 дочерних задач. Задача согласования не добавляет продуктовый эпик или функциональный срез.
-- Из 106 задач: 9 выполнены, 1 в работе, 96 открыты. Все 12 эпиков остаются незавершёнными.
+- Из 106 задач: 10 выполнены, 0 в работе, 96 открыты. Все 12 эпиков остаются незавершёнными.
 - 35 отдельных задач с меткой verification: 18 автономных проверок и 17 проверок/действий с участием пользователя. Это число задач, а не выполненных тестов.
 - Закрытая основа `tgsum-d9b` переиспользуется: Telegram full/single JSON, snapshots/diff и offline Bridge simulator. Работающий экспорт через настоящий Telegram Desktop этим не доказан.
 - Эпик закрывается только после выполнения всех задач согласованного состава. Перенос проверки в backlog не доказывает совместимость.
@@ -76,10 +82,10 @@ Desktop Claude Run остаётся в работе, реальный refresh �
 
 ## Уже начатая реализация
 
-- В `tgsum-hzm` завершены 9 из 13 задач: `hzm.1` (Project store), `hzm.2` (canonical schema), `hzm.3` (scope, период, delta), `hzm.4` (интерфейсы источников), `hzm.5` (минимальный sanitizer), `hzm.6` (общий изолированный runner), `tgsum-ax6` (evidence и Export only bundle), `hzm.9` (шесть recipes) и `hzm.7` (Codex adapter).
+- В `tgsum-hzm` завершены 10 из 13 задач: `hzm.1` (Project store), `hzm.2` (canonical schema), `hzm.3` (scope, период, delta), `hzm.4` (интерфейсы источников), `hzm.5` (минимальный sanitizer), `hzm.6` (общий изолированный runner), `tgsum-ax6` (evidence и Export only bundle), `hzm.9` (шесть recipes), `hzm.7` (Codex adapter) и `hzm.8` (Claude Code adapter).
 - Предыдущая реализация — commit `056859e`: сохранение результатов Codex и атомарное обновление baseline после проверки ответа. Общий offline runner Linux x86_64 реализован ранее в `41b285d`; выбранный auth mount и HTTPS transport — последующими срезами. Review и Export only ранее проверены на synthetic данных через настоящий Linux Tauri UI (`f97a53f`). Эти проверки не подтверждают работу настоящего аккаунта или Windows/macOS runner.
-- `hzm.7` (Codex adapter) завершён на описанном Linux профиле; `hzm.8` (Claude adapter) взят в работу, первым шагом research. Onboarding (`hzm.10`) и отдельные E2E/adversarial suites (`hzm.11`, `hzm.12`) открыты. Реальная квалификация Codex/Claude — отдельная backlog-задача `t8t.19` под контролем пользователя.
-- Одна задача в работе, остальные 96 открыты. Все 12 эпиков незавершены. Закрытый `tgsum-d9b` — предшествующая основа, отдельно от этих 106 задач.
+- `hzm.7` (Codex adapter) завершён на описанном Linux профиле; `hzm.8` (Claude adapter) также завершён в техническом scope. Onboarding (`hzm.10`) и отдельные E2E/adversarial suites (`hzm.11`, `hzm.12`) открыты. Реальная квалификация Codex/Claude — отдельная backlog-задача `t8t.19` под контролем пользователя.
+- На момент сверки задач в работе нет, 96 открыты. Все 12 эпиков незавершены. Закрытый `tgsum-d9b` — предшествующая основа, отдельно от этих 106 задач.
 - Все задачи плана уже имеют родительские эпики в Beads; недостающих задач не обнаружено, дубликаты не создавались. Изменения реализации описаны выше; состав roadmap не расширен. Проверки на реальных аккаунтах не проводились.
 - Видимые в текущей сессии исследовательские субагенты завершены. Продолжающих работу субагентов при этой сверке нет.
 
@@ -91,7 +97,7 @@ Context Engine → Privacy & Files → Telegram Bridge → Archive Pack → Live
 
 | Эпик | Результат | Состояние | Срезов | Выполнено | Проверок | Требуют пользователя |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| [tgsum-hzm](#tgsum-hzm) | v0.3 — Context Engine, Projects и первые агенты | В работе | 13 | 9 | 2 | 0 |
+| [tgsum-hzm](#tgsum-hzm) | v0.3 — Context Engine, Projects и первые агенты | В работе | 13 | 10 | 2 | 0 |
 | [tgsum-af2](#tgsum-af2) | v0.4 — Privacy, псевдонимы и выбранные вложения | Открыт | 9 | 0 | 2 | 0 |
 | [tgsum-i1w](#tgsum-i1w) | v0.5 — Telegram 2.0 и Official Client Bridge | Открыт | 8 | 0 | 2 | 0 |
 | [tgsum-b5v](#tgsum-b5v) | v0.6 — Archive Pack: WhatsApp, Slack, Яндекс, Signal, LINE, Google Chat | Открыт | 11 | 0 | 1 | 0 |
@@ -218,7 +224,7 @@ Discovery executable/version/auth availability, аргументы без shell 
 
 #### tgsum-hzm.8 — Claude Code adapter: запуск и structured result
 
-**На момент сверки:** В работе.
+**На момент сверки:** Выполнена.
 
 Проверить актуальные CLI/version/permission controls и реализовать ограниченный analysis flow через установленный executable.
 

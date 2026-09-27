@@ -66,19 +66,20 @@
             <button id="btn-project-open-export" type="button" class="btn btn-ghost" hidden>Открыть папку контекста</button>
           </section>
           <section id="project-analysis" class="card project-review" aria-labelledby="analysis-title">
-            <h3 id="analysis-title">Анализ с Codex</h3>
+            <h3 id="analysis-title">Анализ с агентом</h3>
             <p id="analysis-status" class="hint"></p>
             <div id="analysis-options">
+              <label>Агент<select id="analysis-agent" class="select"></select></label>
               <div class="project-fields">
                 <label>Задание<select id="analysis-recipe" class="select"></select></label>
-                <label>Модель<input id="analysis-model" placeholder="ID модели из вашего Codex" autocomplete="off" spellcheck="false"></label>
+                <label>Модель<input id="analysis-model" placeholder="ID модели из выбранного агента" autocomplete="off" spellcheck="false"></label>
               </div>
               <div id="analysis-runtime-fields">
-                <label>Получатель<select id="analysis-destination" class="select"><option value="chatgpt.com">OpenAI · ChatGPT</option><option value="api.openai.com">OpenAI · API</option></select></label>
-                <div class="project-actions"><label>Исполняемый файл Codex<input id="analysis-executable" readonly></label><button id="btn-analysis-executable" type="button" class="btn btn-ghost">Выбрать Codex…</button></div>
-                <p class="hint">Требуется нативный бинарник Codex 0.155.1. Найденный путь проверяется при подготовке запуска.</p>
-                <div class="project-actions"><label>Файл авторизации Codex<input id="analysis-auth" readonly placeholder="Выберите явно"></label><button id="btn-analysis-auth" type="button" class="btn btn-ghost">Выбрать auth.json…</button></div>
-                <p class="hint">Авторизация остаётся в выбранном файле. Если вход истёк, обновите его в Codex отдельно и подготовьте запуск заново.</p>
+                <label>Получатель<select id="analysis-destination" class="select"></select></label>
+                <div class="project-actions"><label><span id="analysis-executable-label">Исполняемый файл агента</span><input id="analysis-executable" readonly></label><button id="btn-analysis-executable" type="button" class="btn btn-ghost">Выбрать агент…</button></div>
+                <p id="analysis-runtime-hint" class="hint"></p>
+                <div class="project-actions"><label><span id="analysis-auth-label">Файл авторизации агента</span><input id="analysis-auth" readonly placeholder="Выберите явно"></label><button id="btn-analysis-auth" type="button" class="btn btn-ghost">Выбрать файл…</button></div>
+                <p id="analysis-auth-hint" class="hint"></p>
               </div>
             </div>
             <button id="btn-analysis-prepare" type="button" class="btn btn-primary" disabled>Подготовить запуск</button>
