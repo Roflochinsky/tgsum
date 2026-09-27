@@ -6,6 +6,8 @@
 //! export is a single root chat object and uses the same message deserializer.
 //! Memory is bounded by one chat, not by one message.
 
+mod utf8;
+
 use std::cell::Cell;
 use std::fmt;
 use std::io::{self, BufReader, Read};
@@ -34,7 +36,10 @@ where
     F: FnMut(RawChat<M>) -> ControlFlow<()>,
 {
     let stopped = Cell::new(false);
-    let mut de = serde_json::Deserializer::from_reader(BufReader::with_capacity(1 << 18, reader));
+    // IgnoredAny skips string decoding, so JSON syntax validation alone does
+    // not reject invalid UTF-8 in fields omitted by the lightweight index.
+    let reader = BufReader::with_capacity(1 << 18, utf8::Utf8Read::new(reader));
+    let mut de = serde_json::Deserializer::from_reader(reader);
     let root = Root {
         on_chat: &mut on_chat,
         stopped: &stopped,

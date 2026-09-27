@@ -1,4 +1,9 @@
 //! Deterministic fault/property corpus. No accounts or host application data.
+#[path = "faults/process.rs"]
+mod process;
+#[path = "faults/schema.rs"]
+mod schema;
+
 use std::fs;
 use std::io::{self, Read};
 
@@ -63,6 +68,7 @@ fn short_reads_preserve_generated_unicode_and_exact_native_identities() {
         "\"",
         "\0",
         "same",
+        "\u{80}\u{7ff}\u{800}\u{d7ff}\u{e000}\u{ffff}\u{10000}\u{10ffff}",
     ];
     for seed in 0..24 {
         let texts = (0..seed)
@@ -153,4 +159,124 @@ fn every_truncation_and_read_failure_boundary_preserves_the_committed_snapshot()
         .import_telegram("attempt", &source(), bytes.as_slice())
         .unwrap();
     assert_eq!(retried.diff(&committed).unwrap().unchanged, 2);
+}
+
+#[test]
+fn bounded_byte_mutations_never_publish_invalid_json_or_change_committed_data() {
+    let root = tempfile::tempdir().unwrap();
+    let store = SnapshotStore::new(root.path());
+    let bytes = encode(&["Unicode Жλ; quote \" and slash \\".into(), "same".into()]);
+    store
+        .import_telegram("baseline", &source(), bytes.as_slice())
+        .unwrap();
+    let baseline = fs::read(root.path().join("baseline.json")).unwrap();
+    let mut accepted = 0;
+    let mut rejected = 0;
+    // A small, reproducible mutation corpus in the normal gate: every byte is
+    // replaced with NUL/invalid UTF-8/a delimiter/a digit, then removed. This
+    // probes arbitrary malformed boundaries, including numeric identities.
+    for offset in 0..bytes.len() {
+        for mutation in [Some(0), Some(0xff), Some(b'}'), Some(b'0'), None] {
+            let mut input = bytes.clone();
+            if let Some(byte) = mutation {
+                input[offset] = byte;
+            } else {
+                input.remove(offset);
+            }
+            let valid_json = serde_json::from_slice::<serde_json::Value>(&input).is_ok();
+            let index = tgsum_core::index_reader(input.as_slice());
+            let result = store.import_telegram("mutant", &source(), input.as_slice());
+            if !valid_json {
+                assert!(
+                    index.is_err() && result.is_err(),
+                    "invalid JSON at {offset}: {mutation:?}; index_ok={}, snapshot_ok={}",
+                    index.is_ok(),
+                    result.is_ok()
+                );
+            }
+            match result {
+                Ok(snapshot) => {
+                    accepted += 1;
+                    assert_eq!(snapshot.source, source());
+                    assert_eq!(store.load("mutant").unwrap(), snapshot);
+                    let reference = store
+                        .import_telegram(
+                            "fragmented-mutant",
+                            &source(),
+                            Fragmented {
+                                bytes: &input,
+                                offset: 0,
+                                chunk: 1,
+                                fail_at: None,
+                            },
+                        )
+                        .unwrap();
+                    let diff = reference.diff(&snapshot).unwrap();
+                    assert_eq!(diff.unchanged, snapshot.messages.len());
+                    assert!(
+                        diff.created.is_empty()
+                            && diff.edited.is_empty()
+                            && diff.missing.is_empty()
+                    );
+                    fs::remove_file(root.path().join("mutant.json")).unwrap();
+                    fs::remove_file(root.path().join("fragmented-mutant.json")).unwrap();
+                }
+                Err(_) => {
+                    rejected += 1;
+                    assert!(!root.path().join("mutant.json").exists());
+                }
+            }
+            assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+        }
+    }
+    assert!(accepted > 0 && rejected > 0, "exercise both outcomes");
+    assert_eq!(
+        fs::read(root.path().join("baseline.json")).unwrap(),
+        baseline
+    );
+}
+
+#[test]
+fn ignored_fields_validate_utf8_across_chunks_but_extraction_can_stop_before_bad_tail() {
+    let root = tempfile::tempdir().unwrap();
+    let store = SnapshotStore::new(root.path());
+    for bad in [
+        &[0xff][..],
+        &[0x80],
+        &[0xc0, 0xaf],
+        &[0xed, 0xa0, 0x80],
+        &[0xf4, 0x90, 0x80, 0x80],
+        &[0xe2, 0x82],
+    ] {
+        let mut bytes =
+            br#"{"id":9007199254740993,"type":"private_group","messages":[],"extra":""#.to_vec();
+        bytes.extend_from_slice(bad);
+        bytes.extend_from_slice(br#""}"#);
+        for chunk in [1, 2, 3, 4, 7, 1 << 18] {
+            let read = || Fragmented {
+                bytes: &bytes,
+                offset: 0,
+                chunk,
+                fail_at: None,
+            };
+            assert!(
+                tgsum_core::index_reader(read()).is_err(),
+                "ignored UTF-8 {bad:?}, chunk {chunk}"
+            );
+            assert!(store.import_telegram("invalid", &source(), read()).is_err());
+            assert!(!root.path().join("invalid.json").exists());
+        }
+    }
+    let mut bytes =
+        br#"{"chats":{"list":[{"id":9007199254740993,"type":"private_group","messages":[]},"#
+            .to_vec();
+    bytes.push(0xff);
+    let selection = tgsum_core::Selection {
+        chat_id: source().conversation_id,
+        topic_ids: Vec::new(),
+    };
+    // Buffer fill may already read the bad tail. Deliver valid prefix bytes
+    // before the deferred encoding error so a deliberate early stop survives.
+    assert!(tgsum_core::extract_reader(bytes.as_slice(), &[selection]).is_ok());
+    assert!(tgsum_core::index_reader(bytes.as_slice()).is_err());
 }
