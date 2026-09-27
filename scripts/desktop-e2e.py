@@ -271,6 +271,51 @@ def exercise(ui, root, report, report_dir):
     assert project["analysis_run"] == old_analysis, "Watcher/import must not run the agent"
     passed("selected-folder candidate requires confirmation; stable repeated Telegram import updates snapshot without Run")
 
+    # Two connected chats may receive files in separate watched folders. A
+    # candidate for one source is never permission to import the other chat.
+    direct = next(s for s in project["sources"] if s["scope"]["conversation_id"] == "111")
+    direct_card = '[data-source="' + direct["source_id"] + '"]'
+    direct_snapshot = direct["latest_snapshot_id"]
+    forum_snapshot = forum["latest_snapshot_id"]
+    direct_dir = root / "direct-exports"
+    direct_dir.mkdir()
+    direct_archive = direct_dir / "result.json"
+    direct_archive.write_bytes(new_archive.read_bytes())  # wrong native chat ID 222
+    project = ui.invoke("update_project", {"projectId": pid, "expectedRevision": project["revision"],
+        "change": {"kind": "assisted_export", "value": {"source_id": direct["source_id"],
+            "settings": {"directory": str(direct_dir), "client": None}}}})
+    ui.click("#btn-projects")
+    ui.idle()
+    ui.click('[data-project="' + pid + '"]')
+    ui.stage("source")
+    ui.click(direct_card + " .assisted-export summary")
+    ui.wait("document.querySelector(" + json.dumps(direct_card + " [data-assisted-candidate-list] button") + ") !== null", timeout=12)
+    ui.click(direct_card + " [data-assisted-candidate-list] button")
+    ui.click(direct_card + " [data-assisted-confirm]")
+    ui.click(direct_card + " [data-assisted-import]")
+    ui.stage("source")
+    assert "Импорт не завершён" in ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-status]") + ").textContent")
+    rejected = ui.invoke("open_project", {"projectId": pid})
+    assert rejected["revision"] == project["revision"]
+    assert next(s for s in rejected["sources"] if s["source_id"] == direct["source_id"])["latest_snapshot_id"] == direct_snapshot
+    assert next(s for s in rejected["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == forum_snapshot
+    assert not ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-confirm]") + ").checked")
+
+    correct = json.loads((root / "full.json").read_text(encoding="utf-8"))["chats"]["list"][0]
+    correct["messages"][1]["text"] = "Changed in direct chat"
+    correct["messages"].append({"id": 4, "type": "message", "date": "2026-06-20T13:00:00",
+                                 "from": "Synthetic", "from_id": "user-synthetic", "text": "Added to direct chat"})
+    direct_archive.write_text(json.dumps(correct), encoding="utf-8")
+    ui.click(direct_card + " [data-assisted-confirm]")
+    ui.click(direct_card + " [data-assisted-import]")
+    ui.stage("source")
+    assert "+1 новых · 1 изменённых" in ui.evaluate("document.querySelector('#toast').textContent")
+    accepted = ui.invoke("open_project", {"projectId": pid})
+    assert next(s for s in accepted["sources"] if s["source_id"] == direct["source_id"])["latest_snapshot_id"] != direct_snapshot
+    assert next(s for s in accepted["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == forum_snapshot
+    assert accepted["analysis_run"] == old_analysis
+    passed("two assisted Telegram sources reject wrong chat then retry one source without analysis")
+
     # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.
     future = ui.invoke("create_project", {"name": "Unimplemented connector fixture"})

@@ -67,7 +67,11 @@ and an existing window alone were insufficient in the first local run.
 4. Each synthetic Codex/Claude adapter: Review, explicit Run, validated result
    and rendered evidence. No installed agent executable or auth is used.
 5. Relink to a single-chat JSON, refresh the snapshot, preserve selected scope,
-   invalidate old Review and reopen the saved Project.
+   invalidate old Review and reopen the saved Project. A watched export candidate
+   requires explicit completion confirmation before repeat import and does not
+   run analysis. With two connected Telegram chats, a file for the other native
+   chat is rejected without changing either snapshot; a corrected file updates
+   only its selected source and reports created/edited counts.
    A separate Project with an unimplemented OAuth source shows unverified
    access and disables unavailable Telegram/archive operations.
 6. Single-chat one-off topic export and actual Markdown content verification.

@@ -93,6 +93,10 @@ messenger credentials. Он читает только выбранный executa
   собственного test PID, fake launch, wrong-chat failure, неподдержанный launcher
   и ручной fallback, nested JSON import, повторное открытие Project, забывание
   клиента. Сохраняет screenshot в собственном `/tmp/tgsum-assisted-ui-*`.
+- `scripts/desktop-e2e.py`: реальный WebView на Linux/Windows/macOS с synthetic
+  picker/archives; два подключённых чата и разные папки, отказ JSON чужого
+  native chat ID без изменения snapshots, повтор после исправления файла,
+  дельта только нужного source и отсутствие автоматического анализа.
 
 Тестовый клиент — `src-tauri/tests/fixtures/assisted-client.rs`; сетевого кода,
 Telegram и профилей в нём нет. Реальные аккаунты/клиенты не используются.
