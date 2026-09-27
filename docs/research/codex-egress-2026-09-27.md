@@ -261,3 +261,8 @@ launch/изоляция не менялись; их последний прох�
 Review/Run/result UI и упаковка. Только реальная account qualification относится
 к user-controlled `tgsum-t8t.19`. Контракт восстановления/границы:
 [analysis lifecycle](../development/analyses.md).
+
+Последующее состояние: [desktop controller, Review/Run и packaging](../development/desktop-analysis.md)
+реализованы после описанного выше transport milestone. `hzm.7` завершён;
+реальные аккаунты, enterprise profiles и installer qualification этим
+обновлением не подтверждаются. Числа проверок выше относятся к своим срезам.

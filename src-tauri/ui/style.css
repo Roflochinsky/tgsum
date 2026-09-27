@@ -520,3 +520,10 @@ mark { background: color-mix(in srgb, var(--accent) 38%, transparent); color: in
 }
 .project-review-findings { overflow-wrap: anywhere; }
 .project-review-findings li { margin-block: .5rem; }
+/* Analysis output is plain text; evidence wraps without expanding the window. */
+.analysis-history { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; }
+.analysis-history button { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.analysis-evidence { overflow-wrap: anywhere; }
+.analysis-claim { border-left: 2px solid currentColor; padding-left: 1rem; margin-block: 1rem; }
+#analysis-result-body p { white-space: pre-wrap; overflow-wrap: anywhere; }
+#project-analysis input { width: 100%; min-width: 0; }

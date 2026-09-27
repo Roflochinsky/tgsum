@@ -47,7 +47,9 @@
   (шрифты встроены в приложение).
 - 🐧 **Omarchy / Hyprland.** Нативный Wayland, без лишней рамки в тайловом режиме; по желанию —
   цвета текущей темы Omarchy вместо картины.
-- 🔒 **Полностью локально.** Ни сети, ни ключей, ни телеметрии.
+- 🔒 **Локальная подготовка.** Импорт, выбор и очистка выполняются на компьютере.
+  Сохранение контекста не требует сети. Необязательный запуск Codex передаёт
+  подготовленный контекст выбранному получателю OpenAI только после Review и Run.
 
 ## Установка
 
@@ -208,13 +210,18 @@ sudo pacman -S --needed rust webkit2gtk-4.1 gtk3 librsvg xdg-utils
 
 ```bash
 cargo run -p tgsum                       # запустить приложение
+cargo build -p tgsum-runner --bin tgsum-codex-relay # helper рядом с dev-приложением
 bash scripts/check.sh                    # полный набор проверок Rust
 
 cargo install --path src-tauri --locked  # поставить собранное из этой папки
+cargo install --path runner --bin tgsum-codex-relay --locked # необязательный helper
 packaging/arch/build-local.sh -si        # собрать и поставить пакет для Arch/Omarchy
 
 cargo install tauri-cli --version "^2" --locked
 cargo tauri build                        # установщики → target/release/bundle/
+# Linux x86_64, с компонентом запуска Codex:
+bash scripts/build-relay.sh x86_64-unknown-linux-gnu
+cargo tauri build --config src-tauri/tauri.linux-relay.conf.json
 ```
 
 Релизы собирает GitHub Actions: пуш тега `v*` публикует черновик релиза с установщиками
@@ -281,7 +288,7 @@ cargo fmt --all                       # исправить форматиров�
 
 CI запускается на каждый push и pull request и использует тот же скрипт:
 lint на Linux, тесты на Linux/macOS/Windows. ShellCheck отдельно проверяет скрипты:
-`shellcheck -s sh install.sh` и `shellcheck packaging/arch/build-local.sh scripts/check.sh`
+`shellcheck -s sh install.sh` и `shellcheck packaging/arch/build-local.sh scripts/check.sh scripts/build-relay.sh`
 (локально устанавливается через `apt install shellcheck`, `pacman -S shellcheck` или `brew install shellcheck`).
 Отдельная задача собирает пакет Arch/Omarchy системным Rust. Локальный успех
 проверяет текущую ОС; результаты остальных платформ видны в GitHub Actions.
@@ -334,9 +341,12 @@ bd init --non-interactive --skip-agents --skip-hooks --setup-exclude \
 
 ## Направление развития
 
-Текущая версия остаётся локальным импортёром полного экспорта Telegram Desktop.
-Следующая архитектура — подготовка контекста из нескольких мессенджеров с явным
-scope, privacy review и отдельным запуском выбранного AI-инструмента.
+Текущая ветка поддерживает полный и отдельный JSON-экспорт Telegram, Projects,
+выбор scope, privacy review, evidence и сохранение контекста. Добавлен отдельный
+Review/Run Codex для квалифицированного Linux x86_64 runtime: установленный static
+Codex 0.155.1, bubblewrap 0.12.0 и relay. Другие ОС сохраняют контекст в файл.
+[Инструкция и пределы квалификации](docs/development/desktop-analysis.md).
+Реальные аккаунты пока не проверялись; эта ветка не является объявлением релиза.
 
 - [Архитектурное решение](docs/adr/0001-local-context-gateway.md) и
   [проект следующего pipeline](docs/specs/context-gateway.md).
@@ -352,8 +362,8 @@ scope, privacy review и отдельным запуском выбранног�
 (`tdata`, session cookies, память клиента). Official Client Bridge получает
 файлы штатного экспорта; API-интеграции используют специально выданные им токены.
 
-Эти документы фиксируют направление и условия поддержки; новые коннекторы,
-автовыгрузка и запуск агентов ещё не реализованы.
+Эти документы фиксируют направление и условия поддержки. Новые мессенджеры,
+автовыгрузка и остальные agent adapters пока остаются в плане.
 
 ## Лицензия
 

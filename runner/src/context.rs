@@ -14,7 +14,7 @@ pub struct PreparedContext {
     _staging: TempDir,
     directory: PathBuf,
     files: Vec<BundleFile>,
-    store_root: PathBuf,
+    store: ProjectStore,
     project_id: String,
     #[cfg(target_os = "linux")]
     bundle_id: String,
@@ -34,6 +34,27 @@ impl PreparedContext {
         }
         let store_root = std::fs::canonicalize(store_root)?;
         let store = ProjectStore::new(&store_root);
+        Self::from_store(
+            store,
+            project_id,
+            bundle_id,
+            expected_revision,
+            cancellation,
+        )
+    }
+
+    /// Prepare from the application's existing store capability. Only public
+    /// bundle files enter the runner, even when the store root is kept private.
+    pub fn from_store(
+        store: ProjectStore,
+        project_id: &str,
+        bundle_id: &str,
+        expected_revision: u64,
+        cancellation: &Cancellation,
+    ) -> Result<Self, RunnerError> {
+        if cancellation.is_cancelled() {
+            return Err(RunnerError::Cancelled);
+        }
         let staging = tempfile::Builder::new().prefix("tgsum-run-").tempdir()?;
         let exported = store.export_bundle(
             project_id,
@@ -47,7 +68,7 @@ impl PreparedContext {
             _staging: staging,
             directory: exported.directory,
             files: exported.files,
-            store_root,
+            store,
             project_id: project_id.into(),
             #[cfg(target_os = "linux")]
             bundle_id: bundle_id.into(),
@@ -56,11 +77,7 @@ impl PreparedContext {
     }
 
     pub(crate) fn check_revision(&self) -> Result<(), RunnerError> {
-        if ProjectStore::new(&self.store_root)
-            .open(&self.project_id)?
-            .revision
-            != self.revision
-        {
+        if self.store.open(&self.project_id)?.revision != self.revision {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Project changed after context preparation; prepare and review again",
@@ -83,7 +100,7 @@ impl PreparedContext {
                 "analysis is not bound to the prepared context",
             ));
         }
-        Ok(ProjectStore::new(&self.store_root))
+        Ok(self.store.clone())
     }
 
     /// Inline only the immutable public export, never traverse the source tree.

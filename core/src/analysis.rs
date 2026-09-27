@@ -232,6 +232,43 @@ pub struct StoredAnalysis {
 }
 
 impl ProjectStore {
+    /// Most recently modified run directories, for bounded recovery UI. The
+    /// filesystem timestamp only orders this view; it never proves success or
+    /// message chronology. Corrupt runs remain addressable and fail on read.
+    pub fn recent_analysis_ids(&self, project_id: &str, limit: usize) -> io::Result<Vec<String>> {
+        if limit == 0 || limit > 100 {
+            return Err(invalid("analysis list limit must be 1..100"));
+        }
+        self.open(project_id)?;
+        let directory = self.directory(project_id)?.join("analyses");
+        match fs::symlink_metadata(&directory) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+            Ok(m) if !m.is_dir() || m.file_type().is_symlink() => {
+                return Err(invalid("invalid analyses directory"))
+            }
+            _ => {}
+        }
+        let mut latest = std::collections::BTreeSet::new();
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| invalid("invalid analysis name"))?;
+            run_id(&name)?;
+            let m = fs::symlink_metadata(entry.path())?;
+            if !m.is_dir() || m.file_type().is_symlink() {
+                return Err(invalid("invalid analysis directory"));
+            }
+            latest.insert((m.modified()?, name));
+            if latest.len() > limit {
+                latest.pop_first();
+            }
+        }
+        Ok(latest.into_iter().rev().map(|(_, id)| id).collect())
+    }
+
     /// Recheck immediately before a launch; terminal runs cannot be replayed.
     pub fn check_pending_analysis(
         &self,

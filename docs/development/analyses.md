@@ -1,8 +1,9 @@
 # Журнал анализа и commit результата
 
 Код: `core::analysis`, `runner::codex::AnalysisJob`, срез `tgsum-hzm.7`.
-Это реализация backend со [встроенными recipes](recipes.md). Экран Review/Run,
-упаковка runtime и реальная квалификация аккаунтов ещё не завершены.
+Backend со [встроенными recipes](recipes.md) подключён к
+[desktop Review/Run и восстановлению](desktop-analysis.md). Реальная
+квалификация аккаунтов остаётся отдельной задачей под контролем пользователя.
 
 ## Порядок операций
 

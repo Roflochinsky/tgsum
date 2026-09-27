@@ -29,7 +29,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: bash scripts/check.sh lint
       - name: Shell scripts
-        run: shellcheck -s sh install.sh && shellcheck packaging/arch/build-local.sh scripts/check.sh
+        run: shellcheck -s sh install.sh && shellcheck packaging/arch/build-local.sh scripts/check.sh scripts/build-relay.sh
 
   test:
     strategy:

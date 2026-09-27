@@ -14,6 +14,7 @@ license=('MIT')
 depends=('cairo' 'gcc-libs' 'gdk-pixbuf2' 'glib2' 'glibc' 'gtk3' 'hicolor-icon-theme'
          'libsoup3' 'pango' 'webkit2gtk-4.1' 'xdg-utils')
 makedepends=('cargo')
+optdepends=('bubblewrap: isolated Codex analysis on x86_64; requires qualified version 0.12.0')
 options=('!lto' '!debug')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP') # the release workflow and build-local.sh build from the tag/checkout
@@ -27,7 +28,7 @@ prepare() {
 build() {
   cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
-  cargo build --frozen --release -p tgsum
+  cargo build --frozen --release -p tgsum -p tgsum-runner --bins
 }
 
 check() {
@@ -39,6 +40,7 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
   install -Dm755 target/release/tgsum -t "$pkgdir/usr/bin"
+  install -Dm755 target/release/tgsum-codex-relay -t "$pkgdir/usr/bin"
   install -Dm644 src-tauri/tgsum.desktop -t "$pkgdir/usr/share/applications"
   local size
   for size in 32 64 128; do

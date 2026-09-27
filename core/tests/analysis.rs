@@ -125,6 +125,69 @@ fn validate(answer: &Answer) -> io::Result<Vec<EvidenceRef>> {
 }
 
 #[test]
+fn recent_runs_are_bounded_and_listing_does_not_promote_or_read_results() {
+    let f = fixture();
+    assert!(f
+        .store
+        .recent_analysis_ids(&f.project.project_id, 20)
+        .unwrap()
+        .is_empty());
+    let a = f.begin();
+    let b = f.begin();
+    let c = f.begin();
+    f.store.fail_analysis(&a, FailureCode::Agent).unwrap();
+    // A damaged request remains visible as an ID so a UI can report it as
+    // unavailable; listing must not parse arbitrary result payloads.
+    fs::write(f.path(&b, "request.json"), b"broken").unwrap();
+    let all = f
+        .store
+        .recent_analysis_ids(&f.project.project_id, 20)
+        .unwrap();
+    assert_eq!(all.len(), 3);
+    for run in [&a, &b, &c] {
+        assert!(all.contains(&run.request().run_id));
+    }
+    assert_eq!(
+        f.store
+            .recent_analysis_ids(&f.project.project_id, 2)
+            .unwrap()
+            .len(),
+        2
+    );
+    for limit in [0, 101, usize::MAX] {
+        assert!(f
+            .store
+            .recent_analysis_ids(&f.project.project_id, limit)
+            .is_err());
+    }
+    assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
+    assert!(f
+        .store
+        .read_analysis(&f.project.project_id, &c.request().run_id)
+        .unwrap()
+        .completion
+        .is_none());
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(
+            outside.path(),
+            f.path(&a, "request.json")
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("run-linked"),
+        )
+        .unwrap();
+        assert!(f
+            .store
+            .recent_analysis_ids(&f.project.project_id, 20)
+            .is_err());
+    }
+}
+
+#[test]
 fn reviewed_result_survives_restart_and_commits_all_baselines_once() {
     let f = fixture();
     let ticket = f.begin();

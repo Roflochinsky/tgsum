@@ -12,6 +12,8 @@ mod network;
 mod recipe;
 mod request;
 mod response;
+#[cfg(target_os = "linux")]
+mod runtime;
 
 #[cfg(target_os = "linux")]
 pub use auth::SelectedAuthFile;

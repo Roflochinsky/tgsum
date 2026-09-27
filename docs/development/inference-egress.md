@@ -180,6 +180,7 @@ ID/access/refresh tokens в stdout/stderr. Expiry/stale/401 вызывают о�
 для refresh authority; любой такой отказ запрещает commit, даже если CLI смог
 получить успешный canned response со старым token. Всего **13 сценариев**.
 
-Предстоят Review/Run, упаковка runtime и контролируемая пользователем реальная
-квалификация `tgsum-t8t.19`. Live OAuth, enterprise/agent identity, WSS и ОС кроме
-Linux этим не доказаны. `tgsum-hzm.7` остаётся открытой.
+[Desktop Review/Run и восстановление](desktop-analysis.md), fixed runtime
+manifest и relay packaging metadata реализованы в завершённом `tgsum-hzm.7`.
+Контролируемая пользователем реальная квалификация остаётся в `tgsum-t8t.19`.
+Live OAuth, enterprise/agent identity, WSS и ОС кроме Linux этим не доказаны.

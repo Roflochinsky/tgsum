@@ -142,30 +142,23 @@ Auth milestone `366eb5b`, 2026-09-27 MSK: полный gate — **131 passed, 11
 Идентификация executable и источники настроек — в
 [дополнении исследования](../research/codex-adapter-2026-09-26.md#квалификация-установленного-cli-без-аккаунта).
 
-## Что остаётся до первого cloud Run
+## Desktop Run и оставшаяся квалификация
 
-[`AnalysisJob` и `run_analysis`](analyses.md) уже связывают reviewed ticket,
+[`AnalysisJob` и `run_analysis`](analyses.md) связывают reviewed ticket,
 bundle/revision, destination/model/version/profile, typed validator, durable
-result и baseline. `NetworkOutput::decode` отвергает ошибки gateway даже при
-exit 0. Local HTTPS qualification покрывает также HTTP 401 и mismatch auth
-mode/receiver; они сохраняются как static failure без provider diagnostics.
+result и baseline commit. `NetworkOutput::decode` отвергает ошибки gateway даже
+при exit 0. Synthetic API-key и managed ChatGPT file auth проверены на локальном
+HTTPS: success, expiry/stale cache, HTTP 401, receiver mismatch и запрет refresh.
+[Шесть recipes](recipes.md) подключены через `RecipeRequest`/`run_recipe`.
 
-Synthetic managed ChatGPT file auth теперь также проходит локальный HTTPS:
-success, expired JWT, stale opaque cache, 401 и обратный receiver mismatch.
-[Шесть recipes](recipes.md) подключены через `RecipeRequest`/`run_recipe`;
-инструкции, schema, validator и reviewed recipe version связаны до launch.
+[Desktop controller и UI](desktop-analysis.md) реализуют Prepare → Review → Run,
+показывают получателя, сохраняют историю, не повторяют прерванный запуск и дают
+явно принять validated-uncommitted result. Linux runtime manifest и relay
+packaging добавлены; установленный CLI проходит version probe без auth/сети.
 
-1. Реализовать понятный recovery и упаковку relay/runtime. Отдельный
-   [CONNECT gateway + namespace relay](inference-egress.md) уже проверяет
-   выбранный auth mount, очищенный env, SSE и отказ refresh authority.
-   Реальную авторизацию и весь профиль TGSUM не обнаруживает и не копирует.
-2. Проверить effective tools/config/hooks/MCP и filesystem/network/IPC уже
-   с выбранным auth transport, refresh и provider. Offline qualification
-   доказывает только описанный выше профиль с готовыми ответами.
-3. Подключить managed lifecycle с built-in recipes к Review/Run/result UI;
-   показывать фактического получателя и результат/recovery пользователю.
-4. Провести контролируемую пользователем квалификацию `tgsum-t8t.19`.
-
-Пункты 1–3 остаются инженерной работой; нужна и упаковка relay/runtime. Только
-пункт 4 требует реального входа пользователя. `tgsum-hzm.7` и весь эпик этим
-транспортным этапом не закрываются.
+Реальные аккаунты и provider inference остаются в `tgsum-t8t.19` под контролем
+пользователя. Basic synthetic file auth не квалифицирует enterprise managed
+requirements, agent identity или keyring. Изоляция не является разрешением
+обходить организационные настройки. Другие ОС пока используют Export only.
+Изменения упаковки проверяются локально как build metadata; полный installer
+roundtrip на каждой ОС относится к отдельной release QA.

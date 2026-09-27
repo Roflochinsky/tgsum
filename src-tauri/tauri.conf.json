@@ -31,7 +31,7 @@
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "Telegram export → AI-ready Markdown",
-    "longDescription": "tgsum turns a Telegram Desktop export (result.json) into clean, token-efficient Markdown files per chat or forum topic, ready to paste into Claude or ChatGPT. Fully local: no network, no API keys.",
+    "longDescription": "tgsum prepares selected Telegram conversations locally as evidence-linked Markdown. Export to a local folder, or review and explicitly launch the optional Codex analysis on a qualified Linux runtime. Agent inference may send the prepared context to the selected OpenAI destination.",
     "copyright": "MIT",
     "icon": [
       "icons/32x32.png",

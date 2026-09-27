@@ -10,12 +10,21 @@ use tauri::webview::InvokeRequest;
 use tauri::{WebviewWindow, WebviewWindowBuilder};
 
 fn window() -> WebviewWindow<tauri::test::MockRuntime> {
-    let app = tgsum_app::app(mock_builder())
-        .build(mock_context(noop_assets()))
-        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let app = tgsum_app::app(
+        command_builder().manage(tgsum_core::project::ProjectStore::new(directory.path())),
+    )
+    .build(mock_context(noop_assets()))
+    .unwrap();
     WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap()
+}
+
+// MockRuntime::build does not run the real event-loop setup callback, so
+// command state must be supplied explicitly, as ProjectStore already is below.
+fn command_builder() -> tauri::Builder<tauri::test::MockRuntime> {
+    mock_builder().manage(tgsum_app::analysis::AnalysisState::default())
 }
 
 fn invoke(
@@ -161,12 +170,271 @@ fn cancel_job_is_harmless_when_idle() {
     assert_eq!(invoke(&w, "cancel_job", json!({})).unwrap(), Value::Null);
 }
 
+#[cfg(all(feature = "analysis-fixtures", debug_assertions))]
+mod analysis_flow {
+    use super::*;
+    use tgsum_core::analysis::Completion;
+    use tgsum_core::bundle::BundleOptions;
+    use tgsum_core::project::{Project, ProjectChange, ProjectSource, ProjectStore};
+    use tgsum_core::snapshot::SourceScope;
+
+    struct Fixture {
+        _dir: tempfile::TempDir,
+        store: ProjectStore,
+        project: Project,
+        bundle: String,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let store = ProjectStore::new(dir.path());
+            let p = store.create("Local synthetic analysis").unwrap();
+            let scope = SourceScope::telegram("synthetic", "111");
+            store
+                .snapshots(&p.project_id)
+                .unwrap()
+                .import_telegram(
+                    "fixture",
+                    &scope,
+                    std::io::Cursor::new(
+                        r#"{"id":111,"messages":[{"id":1,"text":"Synthetic message"}]}"#,
+                    ),
+                )
+                .unwrap();
+            let project = store
+                .update(
+                    &p.project_id,
+                    p.revision,
+                    ProjectChange::Source(ProjectSource {
+                        source_id: "source".into(),
+                        connector_id: "telegram_json".into(),
+                        scope,
+                        archive_path: None,
+                        latest_snapshot_id: Some("fixture".into()),
+                        selection: Default::default(),
+                    }),
+                )
+                .unwrap();
+            let bundle = store
+                .prepare_bundle(
+                    &project.project_id,
+                    project.revision,
+                    BundleOptions {
+                        redact_candidates: true,
+                    },
+                    || false,
+                )
+                .unwrap()
+                .bundle_id;
+            Self {
+                _dir: dir,
+                store,
+                project,
+                bundle,
+            }
+        }
+        fn window(&self) -> WebviewWindow<tauri::test::MockRuntime> {
+            let app = tgsum_app::app(
+                mock_builder()
+                    .manage(self.store.clone())
+                    .manage(tgsum_app::analysis::AnalysisState::synthetic()),
+            )
+            .build(mock_context(noop_assets()))
+            .unwrap();
+            WebviewWindowBuilder::new(&app, "main", Default::default())
+                .build()
+                .unwrap()
+        }
+        fn prepare(&self, w: &WebviewWindow<tauri::test::MockRuntime>, model: &str) -> Value {
+            invoke(w,"prepare_project_analysis",json!({"projectId":self.project.project_id,"bundleId":self.bundle,"expectedRevision":self.project.revision,
+                "options":{"executable":"/NEVER_EXECUTE","auth_file":"/NEVER_OPEN","model":model,"recipe":"summary","destination":"local_fixture"}})).unwrap()
+        }
+        fn read(&self, w: &WebviewWindow<tauri::test::MockRuntime>, id: &Value) -> Value {
+            invoke(
+                w,
+                "read_project_analysis",
+                json!({"projectId":self.project.project_id,"runId":id}),
+            )
+            .unwrap()
+        }
+    }
+
+    #[test]
+    fn reviewed_run_is_single_use_and_persists_across_application_restart() {
+        let f = Fixture::new();
+        let w = f.window();
+        let catalog = invoke(&w, "analysis_catalog", json!({})).unwrap();
+        assert_eq!(catalog["fixtures"], true);
+        assert_eq!(catalog["recipes"].as_array().unwrap().len(), 6);
+        let reviewed = f.prepare(&w, "fixture-success");
+        let id = &reviewed["run_id"];
+        assert_eq!(reviewed["spec"]["destination"], "local_fixture");
+        assert_eq!(reviewed["coverage"][0]["messages"], 1);
+        assert!(invoke(&w, "run_project_analysis", json!({"runId":"run-wrong"})).is_err());
+        let output = invoke(&w, "run_project_analysis", json!({"runId":id})).unwrap();
+        assert_eq!(output["state"], "succeeded");
+        assert!(output["result"]["sections"][0]["claims"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("<img"));
+        assert!(invoke(&w, "run_project_analysis", json!({"runId":id})).is_err());
+        let p = f.store.open(&f.project.project_id).unwrap();
+        assert_eq!(p.revision, f.project.revision + 1);
+        assert_eq!(p.baselines.len(), 1);
+        let restarted = f.window();
+        assert_eq!(f.read(&restarted, id), output);
+        assert!(invoke(&restarted, "run_project_analysis", json!({"runId":id})).is_err());
+        let entries = invoke(
+            &restarted,
+            "list_project_analyses",
+            json!({"projectId":p.project_id}),
+        )
+        .unwrap();
+        assert_eq!(entries[0]["state"], "succeeded");
+    }
+
+    #[test]
+    fn review_changes_and_agent_failure_preserve_baselines() {
+        let f = Fixture::new();
+        let w = f.window();
+        let first = f.prepare(&w, "fixture-success");
+        let second = f.prepare(&w, "fixture-failure");
+        assert_eq!(f.read(&w, &first["run_id"])["state"], "cancelled");
+        assert!(invoke(&w, "run_project_analysis", json!({"runId":first["run_id"]})).is_err());
+        let failed = invoke(
+            &w,
+            "run_project_analysis",
+            json!({"runId":second["run_id"]}),
+        )
+        .unwrap();
+        assert_eq!(failed["state"], "failed");
+        assert_eq!(failed["failure"], "agent");
+        assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
+        let third = f.prepare(&w, "fixture-success");
+        invoke(&w,"update_project",json!({"projectId":f.project.project_id,"expectedRevision":f.project.revision,"change":{"kind":"rename","value":"Edited after review"}})).unwrap();
+        assert_eq!(f.read(&w, &third["run_id"])["state"], "cancelled");
+        assert!(invoke(&w, "run_project_analysis", json!({"runId":third["run_id"]})).is_err());
+        assert!(f
+            .store
+            .open(&f.project.project_id)
+            .unwrap()
+            .baselines
+            .is_empty());
+    }
+
+    #[test]
+    fn running_job_rejects_project_edit_and_can_be_cancelled() {
+        let f = Fixture::new();
+        let w = f.window();
+        let prepared = f.prepare(&w, "fixture-wait");
+        let runner = w.clone();
+        let id = prepared["run_id"].clone();
+        let thread = std::thread::spawn(move || {
+            invoke(&runner, "run_project_analysis", json!({"runId":id}))
+        });
+        // Fixture waits up to five seconds and checks cancellation every 10ms.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let edit = invoke(
+            &w,
+            "update_project",
+            json!({"projectId":f.project.project_id,"expectedRevision":f.project.revision,"change":{"kind":"rename","value":"Must not change"}}),
+        );
+        invoke(&w, "cancel_job", json!({})).unwrap();
+        assert_eq!(thread.join().unwrap().unwrap()["state"], "cancelled");
+        assert_eq!(edit.unwrap_err()["kind"], "conflict");
+        assert_eq!(f.store.open(&f.project.project_id).unwrap(), f.project);
+        let fresh = f.prepare(&w, "fixture-success");
+        invoke(&w, "discard_analysis_review", json!({})).unwrap();
+        assert_eq!(f.read(&w, &fresh["run_id"])["state"], "cancelled");
+    }
+
+    #[test]
+    fn restart_never_replays_and_explicit_recovery_revalidates_saved_result() {
+        use tgsum_core::recipe::{Recipe, RecipeEvidence, RecipeOutput};
+        let f = Fixture::new();
+        let w = f.window();
+        let pending = f.prepare(&w, "fixture-success");
+        let id = &pending["run_id"];
+        let ticket = f
+            .store
+            .resume_analysis(&f.project.project_id, id.as_str().unwrap())
+            .unwrap();
+        let restarted = f.window();
+        assert_eq!(f.read(&restarted, id)["state"], "interrupted");
+        assert!(invoke(&restarted, "run_project_analysis", json!({"runId":id})).is_err());
+        assert!(f
+            .store
+            .read_analysis(&f.project.project_id, id.as_str().unwrap())
+            .unwrap()
+            .completion
+            .is_none());
+        let output:RecipeOutput=serde_json::from_value(json!({"recipe":"summary","version":1,"sections":Recipe::Summary.sections().iter().map(|id|json!({"id":id,"claims":[]})).collect::<Vec<_>>(),"actions":[]})).unwrap();
+        let staged = tempfile::tempdir().unwrap();
+        let exported = f
+            .store
+            .export_bundle(
+                &f.project.project_id,
+                &f.bundle,
+                f.project.revision,
+                staged.path(),
+                || false,
+            )
+            .unwrap();
+        let parts: Vec<_> = std::fs::read_dir(exported.directory)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "md"))
+            .map(|p| std::fs::read_to_string(p).unwrap())
+            .collect();
+        let evidence = RecipeEvidence::from_markdown(parts.iter().map(String::as_str)).unwrap();
+        f.store
+            .save_analysis_result(
+                &ticket,
+                &output,
+                |v| Recipe::Summary.validate(v, &evidence),
+                || false,
+            )
+            .unwrap();
+        assert_eq!(f.read(&restarted, id)["state"], "uncommitted");
+        assert_eq!(f.read(&restarted, id)["can_commit"], true);
+        assert!(f
+            .store
+            .open(&f.project.project_id)
+            .unwrap()
+            .baselines
+            .is_empty());
+        let recovered = invoke(
+            &restarted,
+            "recover_project_analysis",
+            json!({"projectId":f.project.project_id,"runId":id,"commit":true}),
+        )
+        .unwrap();
+        assert_eq!(recovered["state"], "succeeded");
+        assert!(matches!(
+            f.store
+                .read_analysis(&f.project.project_id, id.as_str().unwrap())
+                .unwrap()
+                .completion,
+            Some(Completion::Validated { .. })
+        ));
+        assert_eq!(
+            invoke(
+                &restarted,
+                "recover_project_analysis",
+                json!({"projectId":f.project.project_id,"runId":id,"commit":true})
+            )
+            .unwrap(),
+            recovered
+        );
+    }
+}
+
 #[test]
 fn project_commands_persist_and_report_conflicts_and_missing_sources() {
     use tgsum_core::project::ProjectStore;
     let dir = tempfile::tempdir().unwrap();
     let make_window = || {
-        let app = tgsum_app::app(mock_builder().manage(ProjectStore::new(dir.path())))
+        let app = tgsum_app::app(command_builder().manage(ProjectStore::new(dir.path())))
             .build(mock_context(noop_assets()))
             .unwrap();
         WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -229,7 +497,7 @@ fn project_commands_persist_and_report_conflicts_and_missing_sources() {
 fn project_import_scope_and_failed_analysis_use_real_backend_commands() {
     use tgsum_core::project::ProjectStore;
     let dir = tempfile::tempdir().unwrap();
-    let app = tgsum_app::app(mock_builder().manage(ProjectStore::new(dir.path())))
+    let app = tgsum_app::app(command_builder().manage(ProjectStore::new(dir.path())))
         .build(mock_context(noop_assets()))
         .unwrap();
     let w = WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -308,7 +576,7 @@ fn project_review_and_export_commands_enforce_privacy_scope_and_revision() {
         {"id":222,"name":"Excluded","messages":[{"id":2,"text":"EXCLUDED_TEXT"}]}
     ]}})).unwrap()).unwrap();
     let app =
-        tgsum_app::app(mock_builder().manage(ProjectStore::new(root.path().join("projects"))))
+        tgsum_app::app(command_builder().manage(ProjectStore::new(root.path().join("projects"))))
             .build(mock_context(noop_assets()))
             .unwrap();
     let w = WebviewWindowBuilder::new(&app, "main", Default::default())

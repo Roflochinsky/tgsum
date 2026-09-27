@@ -323,6 +323,36 @@ mod process {
     }
 
     #[test]
+    #[ignore = "requires qualified Linux sandbox and TGSUM_CODEX_TEST_BINARY; version probe only, no auth/network"]
+    fn installed_runtime_manifest_qualifies_without_accounts() {
+        use tgsum_core::recipe::Recipe;
+        use tgsum_runner::codex::{CodexNetworkRunner, RecipeRequest};
+        let f = context("Synthetic qualification context");
+        let cancel = Cancellation::default();
+        let request =
+            RecipeRequest::prepare(&f.context, "synthetic-model", Recipe::Summary, &cancel)
+                .unwrap();
+        let binary =
+            std::env::var_os("TGSUM_CODEX_TEST_BINARY").expect("explicit static Codex test binary");
+        let relay = PathBuf::from(env!("CARGO_BIN_EXE_tgsum-codex-relay"));
+        let runner = CodexNetworkRunner::qualify_installed(
+            request.request(),
+            relay.clone(),
+            binary.into(),
+            &cancel,
+        )
+        .unwrap();
+        assert!(runner.info().version_output.contains("codex-cli 0.155.1"));
+        assert!(CodexNetworkRunner::qualify_installed(
+            request.request(),
+            relay,
+            "/usr/bin/false".into(),
+            &cancel
+        )
+        .is_err());
+    }
+
+    #[test]
     #[ignore = "requires offline Linux sandbox and TGSUM_CODEX_TEST_BINARY pointing to static Codex 0.155.1"]
     fn installed_cli_uses_mock_provider_without_accounts_or_external_network() {
         installed_cli(false);

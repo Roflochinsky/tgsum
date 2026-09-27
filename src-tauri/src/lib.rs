@@ -4,6 +4,7 @@
 //! Both passes run on a blocking thread, stream the export from disk, emit
 //! throttled `progress` events and stop early when the user cancels.
 
+pub mod analysis;
 mod desktop;
 #[cfg(target_os = "linux")]
 mod launcher;
@@ -141,11 +142,13 @@ async fn open_project(
 
 #[tauri::command]
 async fn update_project(
+    analysis: State<'_, analysis::AnalysisState>,
     store: State<'_, ProjectStore>,
     project_id: String,
     expected_revision: u64,
     change: ProjectChange,
 ) -> Result<Project, CmdError> {
+    analysis.before_edit(&store, &project_id)?;
     let store = store.inner().clone();
     run_blocking(move || Ok(store.update(&project_id, expected_revision, change)?)).await
 }
@@ -302,6 +305,7 @@ async fn preview_project_source(
 
 #[tauri::command]
 async fn refresh_project_source<R: Runtime>(
+    analysis: State<'_, analysis::AnalysisState>,
     app: AppHandle<R>,
     jobs: State<'_, Jobs>,
     store: State<'_, ProjectStore>,
@@ -309,6 +313,7 @@ async fn refresh_project_source<R: Runtime>(
     source_id: String,
     expected_revision: u64,
 ) -> Result<Project, CmdError> {
+    analysis.before_edit(&store, &project_id)?;
     let store = store.inner().clone();
     let cancel = jobs.start();
     run_blocking(move || {
@@ -491,8 +496,13 @@ async fn export_selection<R: Runtime>(
 
 /// Cancels the running pass.
 #[tauri::command]
-fn cancel_job(jobs: State<'_, Jobs>) {
+fn cancel_job(
+    jobs: State<'_, Jobs>,
+    analysis: State<'_, analysis::AnalysisState>,
+    store: State<'_, ProjectStore>,
+) -> Result<(), CmdError> {
     jobs.cancel();
+    analysis.cancel(&store)
 }
 
 /// The desktop theme to follow (the active Omarchy theme), if any.
@@ -549,6 +559,9 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_opener::init())
         .manage(Jobs::default())
         .setup(|app| {
+            if app.try_state::<analysis::AnalysisState>().is_none() {
+                app.manage(analysis::AnalysisState::for_app());
+            }
             if app.try_state::<ProjectStore>().is_none() {
                 app.manage(ProjectStore::new(
                     app.path().app_local_data_dir()?.join("projects"),
@@ -575,6 +588,14 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             refresh_project_source,
             prepare_project_bundle,
             export_project_bundle,
+            analysis::analysis_catalog,
+            analysis::pick_analysis_file,
+            analysis::prepare_project_analysis,
+            analysis::run_project_analysis,
+            analysis::list_project_analyses,
+            analysis::read_project_analysis,
+            analysis::recover_project_analysis,
+            analysis::discard_analysis_review,
         ])
 }
 

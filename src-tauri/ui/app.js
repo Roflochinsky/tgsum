@@ -161,10 +161,11 @@ const errText = (e) => (e && e.message) || String(e)
 
 function startJob(phase, fileName) {
   state.job = { phase, started: performance.now() }
-  $('#progress-title').textContent = phase === 'index' ? 'Читаю выгрузку…' : 'Извлекаю и сохраняю…'
+  $('#progress-title').textContent = phase === 'analysis' ? 'Выполняю задание…' : phase === 'index' ? 'Читаю выгрузку…' : 'Извлекаю и сохраняю…'
   $('#progress-file').textContent = fileName
   $('#btn-cancel').disabled = false
   setProgress(0, 0)
+  if (phase === 'analysis') $('#progress-percent').textContent = 'Ожидание'
   show('progress')
 }
 

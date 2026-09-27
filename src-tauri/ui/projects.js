@@ -1,4 +1,6 @@
 // Persistent Project scope editor. Archive parsing and filtering stay in Rust.
+import { mountAnalysis } from './analysis.js'
+
 export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, selection, index, toast }) {
   const $ = (s) => document.querySelector(s)
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])
@@ -9,11 +11,15 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   let review = null
   let exportedDirectory = null
   const error = (e) => toast(e?.message || String(e), 'error')
+  const analysis = mountAnalysis({ invoke, act, project: () => current, bundle: () => review,
+    reload: async () => { current = await invoke('open_project', { projectId: current.project_id }); await render() },
+    startJob, endJob, show, toast })
 
   async function act(job) {
     if (working || busy()) return
     working = true
     $('#screen-projects').setAttribute('aria-busy', 'true')
+    $('#screen-projects').inert = true
     try { await job() } catch (e) {
       error(e)
       if (e?.kind === 'conflict' && current) current = await invoke('open_project', { projectId: current.project_id }).catch(() => current)
@@ -21,6 +27,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     } finally {
       working = false
       $('#screen-projects').setAttribute('aria-busy', 'false')
+      $('#screen-projects').inert = false
     }
   }
 
@@ -46,6 +53,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   async function render() {
     const epoch = ++renderEpoch
     $('#project-detail').hidden = !current
+    await analysis.invalidate()
     if (!current) return
     review = null
     exportedDirectory = null
@@ -95,6 +103,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       all.addEventListener('change', syncTopics)
       syncTopics()
     }
+    await analysis.reset()
   }
 
   async function refresh(sourceId) {
@@ -105,6 +114,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   }
 
   async function prepareReview() {
+    await analysis.invalidate()
     review = null
     $('#btn-project-export').disabled = true
     $('#project-export-result').hidden = true
@@ -143,6 +153,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#project-review-truncated').hidden = !review.preview_truncated
     $('#project-review').hidden = false
     $('#btn-project-export').disabled = m.privacy.needs_review > 0
+    analysis.availability()
     $('#project-review').scrollIntoView({ block: 'start' })
   }
 
@@ -150,11 +161,15 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   $('#btn-project-review-again').addEventListener('click', () => act(prepareReview))
   $('#project-redact-candidates').addEventListener('change', () => {
     review = null
+    analysis.invalidate()
+    analysis.availability()
     $('#btn-project-export').disabled = true
     $('#project-review-privacy').textContent = 'Настройка изменена. Обновите проверку перед сохранением.'
   })
   $('#project-sources').addEventListener('input', () => {
     review = null
+    analysis.invalidate()
+    analysis.availability()
     $('#project-review').hidden = true
     $('#btn-project-review').disabled = true
     $('#project-unsaved').hidden = false
