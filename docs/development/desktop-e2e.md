@@ -78,5 +78,24 @@ installers, real agent process isolation or official messenger automation.
 The separate Linux assisted-export smoke exercises synthetic native pickers.
 Real account and user-client tests remain under the user's control.
 
+## Recorded TGSUM run
+
+[CI 36306684685](https://github.com/Roflochinsky/tgsum/actions/runs/36306684685),
+source **f3d3a131c975e70fbe292456ee7e658c821590ce**, 2026-09-27: all eight smoke
+stages passed on each row. Downloaded `desktop-e2e-*` artifacts confirmed the
+same source revision, a clean checkout and these actual runtime versions:
+
+| Environment | Architecture | WebView version | Runner image | E2E job |
+| --- | --- | --- | --- | --- |
+| Ubuntu 24.04, Linux 6.17.0-1022-azure | x86_64 | WebKitGTK 2.52.6 | 20260920.314.1 | 108584603977 |
+| Windows Server 2025, build 26100 | AMD64 | WebView2 153.0.4234.48 | 20260922.246.2 | 108584603925 |
+| macOS 26.6.2 | arm64 | WKWebView 21624.5.1.11.3 | 20260907.0351.1 | 108584603932 |
+
+Local `cargo run -p tgsum --features desktop-e2e` also passed on Omarchy
+x86_64 / WebKitGTK 2.52.6. The complete Rust gate and Rust 1.88 feature check
+passed before publication. These observations qualify this synthetic desktop
+flow on the listed environments; they do not imply every Windows/macOS version
+or architecture, native picker automation, installer acceptance or real accounts.
+
 Tool selection, upstream version/CI evidence and platform limitations are in
 [the dated research](../research/desktop-e2e-platforms-2026-09-27.md).
