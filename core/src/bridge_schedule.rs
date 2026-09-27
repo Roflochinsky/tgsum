@@ -112,7 +112,7 @@ impl TelegramExportLease {
             project_id,
             source_id,
             &plan.checkpoint,
-            Some(plan.cadence),
+            Some(project.revision),
             next.clone(),
         )?;
         Ok(Ok(RefreshAttempt {
@@ -267,7 +267,7 @@ mod tests {
     use crate::snapshot::SourceScope;
 
     #[test]
-    fn stale_cadence_cannot_publish_an_export_claim() {
+    fn changing_the_export_destination_cannot_publish_a_stale_claim() {
         let root = tempfile::tempdir().unwrap();
         let store = ProjectStore::new(root.path());
         let project = store.create("Synthetic").unwrap();
@@ -325,9 +325,12 @@ mod tests {
             .update(
                 &project.project_id,
                 project.revision,
-                ProjectChange::TelegramRefreshCadence {
+                ProjectChange::AssistedExport {
                     source_id: "pilot".into(),
-                    cadence: RefreshCadence::Manual,
+                    settings: Some(AssistedExportSettings {
+                        directory: root.path().join("new-export-directory"),
+                        client: None,
+                    }),
                 },
             )
             .unwrap();
@@ -337,7 +340,7 @@ mod tests {
                     &project.project_id,
                     "pilot",
                     &old_checkpoint,
-                    Some(RefreshCadence::Daily),
+                    Some(project.revision),
                     next,
                 )
                 .unwrap_err()

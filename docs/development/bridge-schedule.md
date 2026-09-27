@@ -15,12 +15,13 @@ export in flight, and the end of any recorded client delay/backoff.
 `TelegramExportLease::try_acquire` uses one OS file lock beneath the Project
 root, across projects and processes. While holding it, `claim` publishes an
 immutable Project revision with an unresolved checkpoint **before** a future
-driver action. A concurrent edit that changes the cadence or checkpoint makes
-the claim fail without starting a client action. A crash or ambiguous timeout
-leaves `unresolved_attempt = true`, which refuses unattended retries across
-restarts until an explicit resolution. A known terminal outcome may clear it;
-`resolve_with_backoff` delays retries after known failure/cancellation. The
-configured intervals are product choices, not platform-safe rate limits.
+driver action. Any concurrent Project edit, including a client or destination
+change, makes the claim fail without starting a client action. A crash or
+ambiguous timeout leaves `unresolved_attempt = true`, which refuses unattended
+retries across restarts until an explicit resolution. A known terminal outcome
+may clear it; `resolve_with_backoff` delays retries after known
+failure/cancellation. The configured intervals are product choices, not
+platform-safe rate limits.
 The lock uses [`fs4`](https://docs.rs/crate/fs4/1.1.0), whose synchronous
 feature supports the project's Rust 1.88 minimum.
 

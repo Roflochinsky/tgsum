@@ -204,6 +204,14 @@ fn persisted_claim_and_global_lease_prevent_replay_after_restart() {
             .unwrap_err(),
         RefreshDecision::NeedsUserAction
     );
+    let current = second_store.open(&project_id).unwrap();
+    second_store
+        .update(
+            &project_id,
+            current.revision,
+            ProjectChange::Rename("Edited while the attempt was unresolved".into()),
+        )
+        .unwrap();
     recovered_lease
         .resolve_successfully(&second_store, &attempt)
         .unwrap();

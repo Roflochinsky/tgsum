@@ -684,24 +684,26 @@ impl ProjectStore {
     }
 
     /// Called only while the caller holds the global Telegram export lease.
-    /// The expected checkpoint also prevents a delayed client result from
-    /// resolving a different attempt after an unrelated Project edit.
+    /// A claim also pins the complete Project revision, including client and
+    /// destination settings. Resolution pins only the checkpoint so an
+    /// unrelated edit cannot discard a known terminal client outcome.
     pub(crate) fn publish_telegram_refresh_checkpoint(
         &self,
         project_id: &str,
         source_id: &str,
         expected: &crate::bridge_schedule::RefreshCheckpoint,
-        expected_cadence: Option<crate::bridge_schedule::RefreshCadence>,
+        expected_revision: Option<u64>,
         next: crate::bridge_schedule::RefreshCheckpoint,
     ) -> io::Result<Project> {
         let mut project = self.open(project_id)?;
+        if expected_revision.is_some_and(|revision| project.revision != revision) {
+            return Err(conflict());
+        }
         let plan = project
             .telegram_refresh
             .get_mut(source_id)
             .ok_or_else(|| invalid("Telegram refresh is not configured for this source"))?;
-        if &plan.checkpoint != expected
-            || expected_cadence.is_some_and(|cadence| plan.cadence != cadence)
-        {
+        if &plan.checkpoint != expected {
             return Err(conflict());
         }
         plan.checkpoint = next;
