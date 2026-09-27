@@ -701,7 +701,7 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
         .import_telegram(
             "initial",
             &scope,
-            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice db.local 10.0.0.2"}]}"#),
+            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice alice@example.test +12025550100 @Alice db.local 10.0.0.2"}]}"#),
         )
         .unwrap();
     let project = store
@@ -724,15 +724,18 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     let w = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
-    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":project.revision,"options":{"redact_candidates":false,"pii":{"categories":["participants"]},"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
+    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":project.revision,"options":{"redact_candidates":false,"pii":{"categories":["participants","emails","phones","usernames"]},"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
     assert_eq!(review["project_revision"], project.revision + 1);
     assert_eq!(review["manifest"]["infrastructure"]["replacements"], 2);
-    assert_eq!(review["manifest"]["pii"]["replacements"], 2);
+    assert_eq!(
+        review["manifest"]["pii"]["by_category"],
+        json!({"participants":2,"emails":1,"phones":1,"usernames":1})
+    );
     assert!(!review.to_string().contains("Alice"));
     assert!(review["preview"]
         .as_str()
         .unwrap()
-        .contains("HOST_0001 IP_0001"));
+        .contains("EMAIL_0001 PHONE_0001 USER_0001 HOST_0001 IP_0001"));
     assert!(!review.to_string().contains("unmentioned-private-host"));
     let stale = invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":project.revision,"outDir":destination.path()})).unwrap_err();
     assert_eq!(stale["kind"], "conflict");

@@ -1,23 +1,26 @@
-# Participant pseudonyms in selected bundles
+# Participants and contacts in selected bundles
 
-Participant milestone of `tgsum-af2.3`, 2026-09-27. The backend now connects
-known senders and their observed display aliases to private Project mappings.
-The task remains in progress: email, phone and standalone messenger username
-rules are not implemented by this module yet. Desktop preset controls remain
+Backend contract for `tgsum-af2.3`, 2026-09-27. Known senders, their observed
+display aliases and supported contact shapes use private Project mappings.
+Desktop preset controls remain
 `tgsum-af2.7`. This does not change acquisition or use real accounts.
 
 ## Interface and identity
 
 `BundleOptions.pii` defaults to an empty category set. The currently supported
-opt-in is:
+independent opt-ins are:
 
 ```json
-{"redact_candidates": true, "pii": {"categories": ["participants"]}}
+{"redact_candidates": true, "pii": {"categories": ["participants", "emails", "phones", "usernames"]}}
 ```
 
 Tauri's `prepare_project_bundle` accepts the same options. Secrets remain a
-separate mandatory stage. The processing order is secrets → participants →
+separate mandatory stage. The processing order is secrets → PII →
 selected infrastructure rules. Legacy one-shot Markdown export is unchanged.
+Enabling only contacts does not discover or replace participants, including when
+a Project already retains PERSON mappings. Participant sender fields use their
+native identity before contact-shape rules. Prose contacts are indivisible for
+participant matching even when their contact category is disabled.
 
 A PERSON mapping identity is the versioned tuple `pii/1/person`, platform,
 account-local namespace and native sender ID. The conversation is not part of
@@ -56,8 +59,8 @@ have no persistent identity; they are reconstructed from the selected messages.
 Existing labels never renumber. Enlarging scope or learning a new alias can make
 prose ambiguous while preserving each sender's header label. Reset starts a new
 epoch; historical bundles still resolve their original mappings. Newly allocated
-labels follow deterministic observation order; first allocation in independently
-created Projects is not promised to use identical numbers.
+labels follow deterministic field/batch order (identities within each allocation
+batch are sorted); independently created Projects need not use identical numbers.
 
 Aliases match exact UTF-8 bytes and case, with Unicode word-character boundaries
 including combining marks. No normalization, transliteration, name-component
@@ -71,16 +74,82 @@ dependency. A contiguous NFA emits bounded overlapping candidates. Boundary and
 container checks run before choosing leftmost, longest valid non-overlapping
 spans. An invalid longer alias cannot hide a valid shorter overlapping name.
 
-URL, email/SSH-like contact, `@handle` and path-shaped containers protect their
+URL, email/SSH-like contact, phone, `@handle` and path-shaped containers protect their
 contents from participant alias matching. This includes malformed URL candidates
 and quoted absolute paths. Guards do not validate contacts or paths and do not
 anonymize them: other category rules own that content. Names containing controls,
 empty names and aliases containing the secrets replacement marker are not used
 for prose matching. Their sender fields can still be replaced by native ID.
 
+## Email shapes
+
+EMAIL identity is `pii/1/email`, exact local-part bytes and the domain normalized
+by the locked `url::Host` parser (case and IDNA). `Alice` and `alice` remain
+distinct; no provider-specific plus/tag or dot merging runs. Unicode and ASCII
+punycode forms of the same accepted domain share a label. Email identity is
+Project-wide, independent of the conversation/platform where it was mentioned.
+
+Supported shapes have a nonempty dot-atom-like local part of at most 64 UTF-8
+bytes and a dotted DNS-shaped domain. Unicode local-part bytes are retained;
+controls, whitespace, leading/trailing/consecutive dots and unsupported ASCII
+syntax are rejected. Domain labels are 1–63 ASCII bytes after parsing, with no
+edge hyphens or underscores; the whole domain is at most 253 bytes. Prose quotes,
+angle brackets and terminal punctuation are retained outside the replacement.
+
+Quoted local parts, domain literals, undotted domains and malformed candidates
+are outside coverage. Broad lexical candidates prevent replacing just a valid
+ASCII suffix of an unsupported address. URLs (including `mailto:`), direct
+SSH/SCP/SFTP operands and paths are excluded; optional infrastructure rules own
+those containers. These are conservative text shapes, not a complete RFC email
+validator or proof of deliverability. No network resolution runs.
+
+## Phone shapes
+
+PHONE identity is `pii/1/phone`, normalized `+digits` and an optional extension.
+Only explicit `+`, a first ASCII digit 1–9 and 8–15 total ASCII digits are
+accepted. Spaces, tabs, NBSP/narrow NBSP, dots, hyphens and balanced non-nested
+parentheses are presentation separators. Wrapping punctuation stays outside the
+replacement. Obvious signed `YYYY-MM-DD`/`YYYY.MM.DD` shapes are excluded.
+
+Supported extension markers are `ext`, `ext.`, `extension`, `x`, `доб`, `доб.`
+and `;ext=` (case insensitive). Word markers require a boundary; `x123` is also
+supported. An extension has 1–10 ASCII digits, retains leading zeros in its
+identity, and is hidden with the base number. Equal base/extension pairs reuse a
+label; a different extension or no extension is a different endpoint. An explicit
+malformed/duplicate supported marker rejects the candidate instead of masking
+only its base.
+
+The lower bound, extension bound and date exclusion are TGSUM heuristics, not
+E.164 requirements. No region is guessed: national numbers, `00`, Unicode digits,
+vanity numbers and unsupported formats remain outside coverage. Oversized digit
+runs are not truncated to a valid prefix. Candidates do not cross newlines or
+adjoining words; URL/`tel:`, email, handle and path containers are protected.
+Phone recognition does not establish ownership, assignment or reachability.
+
+## Standalone usernames
+
+USER identity is `pii/1/username`, platform, account-local namespace and handle.
+Conversation is excluded. Telegram handles use ASCII lowercase; other platform
+namespaces retain exact case without claiming platform-specific validity.
+Supported free-text shapes are `@` plus 1–32 ASCII letters, digits or underscores.
+This lexical range accommodates short handles; it does not verify registration
+or implement every platform's username grammar. Unicode, dotted, hyphenated,
+oversized or other malformed shapes are not partially replaced.
+
+Email/SSH, URL, phone and path containers shield their contents; `@handle` in
+prose quotes remains detectable. Source titles, message bodies and sender/service
+fields receive explicit source scope. A handle in unscoped Project metadata is
+replaced with `[REDACTED_USERNAME]` and counted unresolved; no platform identity
+or private USER entry is invented for it.
+
+USER is independent of PERSON: matching spelling never links a handle to a
+participant. Handles can change owners; their repeated spelling is evidence of
+the same observed handle, not the same human. No typed entity target is recovered
+from flattened text and no network identity lookup runs.
+
 ## Mapping, Review and export
 
-Participants and infrastructure share one private `MappingDraft`. Discovery and
+Participants, contacts and infrastructure share one private `MappingDraft`. Discovery and
 replacement allocate in memory; preparation stages one immutable map and commits
 one Project revision only after bundle files, preview and cancellation checks.
 Repeated preparation without new entries/aliases leaves the revision unchanged.
@@ -94,10 +163,11 @@ in [mapping persistence](pseudonyms.md). No automatic orphan cleanup is added.
 
 Private bundle schema 4 pins `pii_policy` and the exact mapping; schemas 1–3 remain
 readable. Public `manifest.pii` records rules version `pii/1`, enabled categories,
-total/per-category replacements, ambiguous and unresolved counts. It contains no
+total/per-category replacements, ambiguous and unresolved counts (including
+unscoped usernames). It contains no
 names or native identities. Export verifies the policy/summary/version binding.
 
-Medium-secret finding positions are projected through both participant and
+Medium-secret finding positions are projected through both PII and
 infrastructure replacements. Excerpts come from final transformed text. A PERSON
 replacement does not silently clear a pending secret review requirement. The
 existing bounded preview/excerpts and explicit redaction flow still apply.
@@ -115,14 +185,22 @@ span candidates to 100,000 each; each protected container to 16 KiB. Errors omit
 input values. Oversized input fails before public preparation succeeds. These
 limits bound processing; this is not a constant-memory snapshot reader. Enabled
 participant discovery makes an additional pass over selected source snapshots.
+Contact scanners also bound each candidate to 16 KiB and attempts to 100,000 per
+category/field. Unsupported bounded shapes are skipped; exceeded budgets fail
+preparation without publishing the mapping. These rules do not guarantee removal
+of every identifier, arbitrary PII, entity in an attachment or disguised contact.
 
 `core/tests/pii_bundle.rs` exercises public ProjectStore/SnapshotStore interfaces:
 collisions, unresolved senders, observed renames, repeated preparation/restart,
 Unicode/case/platform/account distinctions, overlapping aliases, protected
 containers, selected dates, shared mapping publication, Review offsets, private
 export exclusion, budgets and late cancellation/CAS. Tauri command tests exercise
-the combined participant/infrastructure options and returned revision. Fixtures
+all category options and returned revision. `core/tests/pii_contacts.rs` covers
+email case/IDNA, complete contact shapes and punctuation, phone extensions and
+false positives, username scope/case growth, restart and disabled categories,
+unscoped generic redaction, shared publication, secret Review/export exclusion
+and contact budgets. Fixtures
 are synthetic; no preset UI or real-account qualification is implied.
 
-Primary facts and proposed later contact rules are in the
+Primary facts and implementation decisions are in the
 [dated research](../research/participant-pii-2026-09-27.md).

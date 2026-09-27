@@ -252,3 +252,31 @@ Dictionary/field/candidate/matcher budgets и фактическая Project-wid
 зафиксированы в [контракте реализации](../development/pii.md). Это более
 консервативная область ambiguity, чем предложенная выше conversation-only модель;
 она сохраняет коллизии исторических aliases без выдуманной принадлежности к чату.
+
+## 8. Реализованный contact scope
+
+Backend теперь поддерживает независимые `emails`, `phones`, `usernames` вместе
+с `participants`. Полный контракт и намеренно неподдержанные формы перечислены
+в [PII implementation](../development/pii.md); UI presets остаются отдельной
+задачей. Это локальные детерминированные правила, без новой acquisition/API,
+credentials, DNS, SMS или проверок реальных аккаунтов.
+
+Email сохраняет local-part bytes, нормализует domain через locked `url::Host`;
+quoted local/domain literal/недостаточно определённые формы пропускаются целиком.
+Телефон имеет отдельную identity для extension: нормализуются только явно
+поддержанные разделители, `+` и ASCII digits. Ограничение extension 1–10 digits
+и исключение date-shaped candidates — эвристики TGSUM. Они не являются новыми
+утверждениями о стандарте E.164.
+
+Username получает platform/account namespace, Telegram ASCII case fold и
+отдельную USER category; короткий handle не отвергается только из-за требований
+к регистрации basic usernames. В Project title без source scope поддержанный
+`@handle` скрывается generic marker, без выдуманной платформы или PERSON link.
+Остальные платформы сохраняют точный ASCII case; это lexical fallback, не
+подтверждение их username grammar или production support.
+
+Synthetic public-boundary fixtures (`core/tests/pii_contacts.rs`,
+`core/tests/pii_bundle.rs`) проверяют контакты, quoted wrappers, malformed tails,
+scope growth/restart, generic metadata, budget failures и взаимодействие всех
+категорий с secret Review и приватным mapping. Tauri mock IPC использует те же
+опции. Ни эти fixtures, ни наличие detector не доказывают полную анонимизацию.

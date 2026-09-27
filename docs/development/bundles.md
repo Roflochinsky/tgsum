@@ -25,8 +25,8 @@ Tauri exposes the first two as `prepare_project_bundle` and
 are retained for local review or hidden alongside high-confidence findings.
 `BundleOptions.infrastructure` selects optional, independent infrastructure
 categories and private names; see [infrastructure](infrastructure.md). Secrets
-run first. `BundleOptions.pii.categories: ["participants"]` enables known sender
-and alias replacement before infrastructure; see [participants](pii.md).
+run first. `BundleOptions.pii.categories` independently enables `participants`,
+`emails`, `phones` and `usernames` before infrastructure; see [PII](pii.md).
 New mapping entries/aliases publish one Project revision at the end
 of successful preparation. Always use the returned `project_revision` for
 export/analysis, reloading Project state when it changes. No-op preparation
@@ -58,7 +58,7 @@ Only `context`'s manifest and its named Markdown files are exported. The private
 index, key, configuration, native identifiers, raw paths, exporter provenance,
 credentials references and unselected message contents are excluded by schema.
 Text fields such as project/source titles, names, timestamps, service metadata
-and message bodies pass through secrets, selected participant and infrastructure rules before
+and message bodies pass through secrets, selected PII and infrastructure rules before
 emission.
 
 The public manifest records sanitized titles, opaque source IDs, coverage level,
@@ -70,7 +70,8 @@ pseudonym detector ran. An optional `infrastructure` summary records actual rule
 version, selected categories and replacement counts, never configured names.
 Private bundle schema 4 pins the full mapping reference and private policies;
 schemas 1–3 remain readable without inventing policy or mapping. An optional
-`pii` summary records actual participant replacements/ambiguity without names.
+`pii` summary records actual category replacements/ambiguity/unresolved counts
+without names or contact values.
 The manifest explicitly identifies
 `export_only` as the destination. Coverage never becomes complete merely because
 all selected records were written.
@@ -119,9 +120,9 @@ counts and the local-folder recipient. Selected topic counts, changes-only mode,
 date basis and included unknown dates remain visible. It states the scanner's limited coverage.
 See [sanitization](sanitization.md): absence of findings does not prove anonymity
 or absence of credentials. Expanded secret rules are `secrets/2` and private
-mapping persistence is implemented. Optional infrastructure and participant rules
-are connected to the backend pipeline. Email/phone/messenger-username rules,
-custom terms and preset controls remain work in the Privacy epic.
+mapping persistence is implemented. Optional infrastructure and participant,
+email, phone and standalone username rules are connected to the backend pipeline.
+Custom terms and preset controls remain work in the Privacy epic.
 
 ## Filesystem and resource behavior
 

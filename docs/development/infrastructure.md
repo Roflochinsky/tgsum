@@ -36,7 +36,7 @@ them in public agent manifests or logs.
 ## Preparation and Review
 
 Each selected field passes through secrets rules first, optional
-[participant replacement](pii.md), then infrastructure recognition. A shared
+[participant/contact replacement](pii.md), then infrastructure recognition. A shared
 private in-memory mapping draft reuses committed labels and
 allocates new ones across fields; every allocation checks the aggregate mapping
 budgets. New identities are sorted within each field's batch. Source/message

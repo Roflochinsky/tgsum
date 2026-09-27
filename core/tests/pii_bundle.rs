@@ -126,6 +126,37 @@ fn participant_aliases_respect_unicode_boundaries_and_other_structured_values() 
 }
 
 #[test]
+fn participant_aliases_never_split_phone_or_unsupported_handle_candidates() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = add_source(
+        &store,
+        store.create("PII fixture").unwrap(),
+        "work",
+        SourceScope::telegram("synthetic", "1"),
+        json!([
+            {"id":1,"from":"202","from_id":"user1","text":"202 +1 (202) 555-0100 ext.202 @202foo-bar"},
+            {"id":2,"from":"bar","from_id":"user2","text":"bar"}
+        ]),
+    );
+    let review = store
+        .prepare_bundle(
+            &project.project_id,
+            project.revision,
+            participants(),
+            || false,
+        )
+        .unwrap();
+    assert!(review
+        .preview
+        .contains("> PERSON_0001 +1 (202) 555-0100 ext.202 @202foo-bar"));
+    let review=store.prepare_bundle(&project.project_id,review.project_revision,serde_json::from_value(json!({"redact_candidates":false,"pii":{"categories":["participants","phones","usernames"]}})).unwrap(),||false).unwrap();
+    assert!(review
+        .preview
+        .contains("> PERSON_0001 PHONE_0001 @202foo-bar"));
+}
+
+#[test]
 fn observed_rename_and_new_conversation_reuse_identity_while_other_accounts_do_not() {
     let root = tempfile::tempdir().unwrap();
     let store = ProjectStore::new(root.path());

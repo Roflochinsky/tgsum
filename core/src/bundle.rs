@@ -17,7 +17,7 @@ use crate::project::{AnalysisInput, Project, ProjectStore};
 use crate::pseudonyms::{MappingDraft, MappingRef};
 use crate::sanitize::{sanitize, FindingAction, ReviewPolicy, SecretRule, RULES_VERSION};
 use crate::scope::{select_messages, DateRange, ScopeStats};
-use crate::snapshot::{CanonicalMessage, CoverageLevel, MessageKey};
+use crate::snapshot::{CanonicalMessage, CoverageLevel, MessageKey, SourceScope};
 use files::{
     check_cancel, invalid, load_json, private_dir, read_regular, require_dir, write_json,
     EvidenceKey, MarkdownWriter,
@@ -287,7 +287,7 @@ impl ProjectStore {
             privacy: PrivacySummary::default(),
             files: Vec::new(),
         };
-        manifest.project_title = scan.clean(&project.name, "project_title", None)?;
+        manifest.project_title = scan.clean(&project.name, "project_title", None, None)?;
         let mut output = MarkdownWriter::new(&public, project.settings.max_tokens);
         let mut inputs = Vec::new();
         let snapshots = self.snapshots(project_id)?;
@@ -321,8 +321,14 @@ impl ProjectStore {
                     .unwrap_or("Conversation"),
                 "source_title",
                 None,
+                Some(&source.scope),
             )?;
-            let platform = scan.clean(&source.scope.platform, "platform", None)?;
+            let platform = scan.clean(
+                &source.scope.platform,
+                "platform",
+                None,
+                Some(&source.scope),
+            )?;
             // Replies may point only to messages actually included in this bundle.
             let references: BTreeMap<_, _> = selected
                 .messages
@@ -340,6 +346,7 @@ impl ProjectStore {
                     message.timestamp.as_deref().unwrap_or("Unknown date"),
                     "timestamp",
                     Some(reference),
+                    Some(&source.scope),
                 )?;
                 block.push_str(&format!(
                     "Sender: {}\n\nDate: {}\n\n",
@@ -347,7 +354,8 @@ impl ProjectStore {
                     inline(&timestamp)
                 ));
                 if let Some(edited) = &message.edited_at {
-                    let edited = scan.clean(edited, "edited_at", Some(reference))?;
+                    let edited =
+                        scan.clean(edited, "edited_at", Some(reference), Some(&source.scope))?;
                     block.push_str(&format!("Edited: {}\n\n", inline(&edited)));
                 }
                 if message
@@ -375,14 +383,21 @@ impl ProjectStore {
                         message.service_action.as_deref().unwrap_or("service"),
                         "service_action",
                         Some(reference),
+                        Some(&source.scope),
                     )?;
                     block.push_str(&format!("Service: {}\n\n", inline(&action)));
                     if let Some(title) = &message.service_title {
-                        let title = scan.clean(title, "service_title", Some(reference))?;
+                        let title = scan.clean(
+                            title,
+                            "service_title",
+                            Some(reference),
+                            Some(&source.scope),
+                        )?;
                         block.push_str(&format!("Service title: {}\n\n", inline(&title)));
                     }
                 }
-                let text = scan.clean(&message.text, "text", Some(reference))?;
+                let text =
+                    scan.clean(&message.text, "text", Some(reference), Some(&source.scope))?;
                 // Quote all source lines, including CR-only line endings. This
                 // marks provenance; it is not a prompt-injection defense.
                 for line in text.replace("\r\n", "\n").replace('\r', "\n").split('\n') {
@@ -777,8 +792,8 @@ impl ScanReview {
         };
         let pii = (!options.pii.categories.is_empty()).then(|| PiiReview {
             summary: PiiSummary::new(&options.pii),
+            detector: PiiDetector::new(options.pii.clone()),
             policy: options.pii,
-            detector: PiiDetector::new(),
         });
         Ok(Self {
             policy: if options.redact_candidates {
@@ -803,6 +818,9 @@ impl ScanReview {
         let Some(pii) = &mut self.pii else {
             return Ok(());
         };
+        if !pii.detector.participants_enabled() {
+            return Ok(());
+        }
         let mapping = self.mapping.as_mut().expect("PII enables mapping");
         let snapshots = store.snapshots(&project.project_id)?;
         for source in project.sources.iter().filter(|s| s.selection.enabled) {
@@ -865,8 +883,9 @@ impl ScanReview {
         value: &str,
         field: &'static str,
         evidence: Option<&EvidenceRef>,
+        scope: Option<&SourceScope>,
     ) -> io::Result<String> {
-        self.clean_field(value, field, evidence, None)
+        self.clean_field(value, field, evidence, None, scope)
     }
 
     fn clean_sender(
@@ -879,6 +898,7 @@ impl ScanReview {
             "sender",
             Some(reference),
             Some(message),
+            Some(&message.key.source),
         )
     }
 
@@ -888,6 +908,7 @@ impl ScanReview {
         field: &'static str,
         evidence: Option<&EvidenceRef>,
         sender: Option<&CanonicalMessage>,
+        scope: Option<&SourceScope>,
     ) -> io::Result<String> {
         let result = sanitize(value, self.policy)?;
         self.summary.redacted += result.report.redacted;
@@ -895,8 +916,8 @@ impl ScanReview {
         let mut text = result.text;
         let mut pii_shifts = Vec::new();
         if let Some(pii) = &mut self.pii {
-            let mapping = self.mapping.as_ref().expect("PII enables mapping");
-            let output = pii.detector.replace(&text, sender, mapping.mapping())?;
+            let mapping = self.mapping.as_mut().expect("PII enables mapping");
+            let output = pii.detector.replace(&text, sender, scope, mapping)?;
             pii.summary.record(&output.findings);
             text = output.text;
             pii_shifts = output.findings;

@@ -1,6 +1,8 @@
 //! Bounded local participant replacement. Native identity and display aliases
 //! are separate; ambiguous prose never picks a person by encounter order.
 
+mod contacts;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::ops::Range;
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::pseudonyms::{MappingDraft, PseudonymCategory, PseudonymInput, PseudonymMapping};
 use crate::sanitize::{sanitize, ReviewPolicy, MAX_FIELD_BYTES, MAX_FINDINGS, REPLACEMENT};
-use crate::snapshot::CanonicalMessage;
+use crate::snapshot::{CanonicalMessage, SourceScope};
 
 pub const RULES_VERSION: &str = "pii/1";
 const PERSON_NAMESPACE: &str = "pii/1/person";
@@ -24,6 +26,9 @@ const MAX_ALIAS_BYTES: usize = 1024 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum PiiCategory {
     Participants,
+    Emails,
+    Phones,
+    Usernames,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -84,7 +89,10 @@ enum Owner {
     Ambiguous,
 }
 
+type Replacement = (Range<usize>, PiiCategory, Owner);
+
 pub(crate) struct PiiDetector {
+    policy: PiiPolicy,
     aliases: BTreeMap<String, Owner>,
     alias_bytes: usize,
     matcher: Option<AhoCorasick>,
@@ -92,13 +100,18 @@ pub(crate) struct PiiDetector {
 }
 
 impl PiiDetector {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(policy: PiiPolicy) -> Self {
         Self {
+            policy,
             aliases: BTreeMap::new(),
             alias_bytes: 0,
             matcher: None,
             owners: Vec::new(),
         }
+    }
+
+    pub(crate) fn participants_enabled(&self) -> bool {
+        self.policy.categories.contains(&PiiCategory::Participants)
     }
 
     pub(crate) fn observe(
@@ -186,15 +199,17 @@ impl PiiDetector {
         &self,
         value: &str,
         sender: Option<&CanonicalMessage>,
-        mapping: &PseudonymMapping,
+        scope: Option<&SourceScope>,
+        mapping: &mut MappingDraft,
     ) -> io::Result<PiiText> {
         if value.len() > MAX_FIELD_BYTES {
             return Err(invalid("PII field exceeds limit"));
         }
-        if let Some(message) = sender {
+        if let Some(message) = sender.filter(|_| self.participants_enabled()) {
             let owner = match participant_identity(message)? {
                 Some(identity) => Owner::Known(
                     mapping
+                        .mapping()
                         .lookup(PseudonymCategory::Person, &identity)
                         .ok_or_else(|| invalid("participant mapping is incomplete"))?
                         .into(),
@@ -207,16 +222,23 @@ impl PiiDetector {
                     })
                 }
             };
-            return apply(value, [(0..value.len(), owner)]);
+            return apply(value, [(0..value.len(), PiiCategory::Participants, owner)]);
+        }
+        let mut replacements = if self.policy.categories.contains(&PiiCategory::Emails) {
+            contacts::emails(value, mapping)?
+        } else {
+            Vec::new()
+        };
+        if self.policy.categories.contains(&PiiCategory::Phones) {
+            replacements.extend(contacts::phones(value, mapping)?);
+        }
+        if self.policy.categories.contains(&PiiCategory::Usernames) {
+            replacements.extend(contacts::usernames(value, scope, mapping)?);
         }
         let Some(matcher) = &self.matcher else {
-            return Ok(PiiText {
-                text: value.into(),
-                findings: Vec::new(),
-            });
+            return apply_sorted(value, replacements);
         };
         let protected = protected_spans(value)?;
-        let mut replacements = Vec::new();
         for (attempt, found) in matcher.find_overlapping_iter(value).enumerate() {
             if attempt == MAX_FINDINGS {
                 return Err(invalid("PII match attempts exceed limit"));
@@ -230,23 +252,31 @@ impl PiiDetector {
             {
                 continue;
             }
-            replacements.push((range, self.owners[found.pattern().as_usize()].clone()));
+            replacements.push((
+                range,
+                PiiCategory::Participants,
+                self.owners[found.pattern().as_usize()].clone(),
+            ));
         }
-        // Filter boundaries/containers before selecting longest valid matches.
-        // Otherwise an invalid longer alias could hide a valid shorter one.
-        replacements.sort_unstable_by_key(|(r, _)| (r.start, std::cmp::Reverse(r.end)));
-        let mut end = 0;
-        apply(
-            value,
-            replacements.into_iter().filter(|(range, _)| {
-                if range.start < end {
-                    return false;
-                }
-                end = range.end;
-                true
-            }),
-        )
+        apply_sorted(value, replacements)
     }
+}
+
+fn apply_sorted(value: &str, mut replacements: Vec<Replacement>) -> io::Result<PiiText> {
+    // Filter boundaries/containers before selecting longest valid matches.
+    // Otherwise an invalid longer alias could hide a valid shorter one.
+    replacements.sort_unstable_by_key(|(r, _, _)| (r.start, std::cmp::Reverse(r.end)));
+    let mut end = 0;
+    apply(
+        value,
+        replacements.into_iter().filter(|(range, _, _)| {
+            if range.start < end {
+                return false;
+            }
+            end = range.end;
+            true
+        }),
+    )
 }
 
 fn participant_identity(message: &CanonicalMessage) -> io::Result<Option<String>> {
@@ -271,23 +301,21 @@ fn participant_identity(message: &CanonicalMessage) -> io::Result<Option<String>
     Ok(Some(identity))
 }
 
-fn apply(
-    value: &str,
-    replacements: impl IntoIterator<Item = (Range<usize>, Owner)>,
-) -> io::Result<PiiText> {
+fn apply(value: &str, replacements: impl IntoIterator<Item = Replacement>) -> io::Result<PiiText> {
     let mut text = String::new();
     let mut findings = Vec::new();
     let mut cursor = 0;
-    for (input, owner) in replacements {
+    for (input, category, owner) in replacements {
         text.push_str(&value[cursor..input.start]);
         let start = text.len();
         text.push_str(match &owner {
             Owner::Known(label) => label,
+            _ if category == PiiCategory::Usernames => "[REDACTED_USERNAME]",
             _ => UNKNOWN,
         });
         cursor = input.end;
         findings.push(PiiFinding {
-            category: PiiCategory::Participants,
+            category,
             input,
             output: start..text.len(),
             ambiguous: owner == Owner::Ambiguous,
@@ -309,17 +337,83 @@ fn boundary(value: &str, range: &Range<usize>) -> bool {
 /// Other category containers are indivisible for participant alias matching.
 /// These are lexical guards, not assertions that the URL/contact/path is valid.
 fn protected_spans(value: &str) -> io::Result<BTreeMap<usize, usize>> {
-    static RULES: OnceLock<Vec<Regex>> = OnceLock::new();
-    let rules =
-        RULES.get_or_init(|| {
-            [
-        r#"(?i)\b(?:[a-z][a-z0-9+.-]{0,31}://|mailto:|tel:)[^\s<>"'`]+"#,
-        r#"(?:"[^"\r\n]+"|[\p{L}\p{M}\p{N}._%+!#$&*/=?^`{|}~-]+)@[\p{L}\p{M}\p{N}_.:\[\]-]+"#,
-        r"@[\p{L}\p{M}\p{N}_]+",
-        r#"(?:~?/|[A-Za-z]:[\\/]|\\\\)[^\s<>"'`]+"#,
-        r#""(?:~?/|[A-Za-z]:[\\/]|\\\\)[^"\r\n]+"|'(?:~?/|[A-Za-z]:[\\/]|\\\\)[^'\r\n]+'"#,
-    ].into_iter().map(|r| Regex::new(r).expect("PII container guard")).collect()
-        });
+    let rules = guards();
+    collect_spans(
+        value,
+        rules
+            .opaque
+            .iter()
+            .chain(&rules.contacts)
+            .chain([&rules.phone]),
+    )
+}
+
+fn opaque_spans(value: &str) -> io::Result<BTreeMap<usize, usize>> {
+    collect_spans(value, &guards().opaque)
+}
+
+fn username_protected_spans(value: &str) -> io::Result<BTreeMap<usize, usize>> {
+    let mut ranges = collect_candidates(value, guards().opaque.iter().chain([&guards().phone]))?;
+    let count = ranges.len();
+    for (attempt, found) in contacts::email_matcher().captures_iter(value).enumerate() {
+        let whole = found.get(0).expect("email guard");
+        if count + attempt >= MAX_FINDINGS || whole.len() > 16 * 1024 {
+            return Err(invalid("PII protected spans exceed limits"));
+        }
+        // The broad email guard also sees the opening quote in “@handle”.
+        // A lone prose wrapper is not an email local part; real UTF-8 locals,
+        // including emoji, must still shield their complete contact candidate.
+        if !matches!(
+            found.name("local").expect("email local").as_str(),
+            "“" | "‘" | "«" | "'" | "`"
+        ) {
+            ranges.push(whole.range());
+        }
+    }
+    Ok(merge_spans(ranges))
+}
+
+fn phone_protected_spans(value: &str) -> io::Result<BTreeMap<usize, usize>> {
+    collect_spans(value, guards().opaque.iter().chain(&guards().contacts))
+}
+
+struct Guards {
+    opaque: Vec<Regex>,
+    contacts: Vec<Regex>,
+    phone: Regex,
+}
+
+fn guards() -> &'static Guards {
+    static RULES: OnceLock<Guards> = OnceLock::new();
+    RULES.get_or_init(|| Guards {
+        opaque: [
+            r#"(?i)\b(?:[a-z][a-z0-9+.-]{0,31}://|mailto:|tel:)[^\s<>"'`]+"#,
+            r#"(?:~?/|[A-Za-z]:[\\/]|\\\\)[^\s<>"'`]+"#,
+            r#""(?:~?/|[A-Za-z]:[\\/]|\\\\)[^"\r\n]+"|'(?:~?/|[A-Za-z]:[\\/]|\\\\)[^'\r\n]+'"#,
+            r#"\b(?:ssh|scp|sftp)[ \t]+[^\s<>"'`]+"#,
+        ]
+        .into_iter()
+        .map(|r| Regex::new(r).expect("PII opaque guard"))
+        .collect(),
+        contacts: vec![
+            contacts::email_matcher().clone(),
+            contacts::username_matcher().clone(),
+        ],
+        phone: Regex::new(r#"\+[0-9][0-9 \t\u{00A0}\u{202F}().-]*(?:(?i:;ext=|extension\b\.?|ext\b\.?|доб\b\.?|x)[ \t]*[^\s<>"'`;,]+)?"#).expect("PII phone guard"),
+    })
+}
+
+fn collect_spans<'a>(
+    value: &str,
+    rules: impl IntoIterator<Item = &'a Regex>,
+) -> io::Result<BTreeMap<usize, usize>> {
+    Ok(merge_spans(collect_candidates(value, rules)?))
+}
+
+fn collect_candidates<'a>(
+    value: &str,
+    rules: impl IntoIterator<Item = &'a Regex>,
+) -> io::Result<Vec<Range<usize>>> {
     let mut ranges = Vec::new();
     for rule in rules {
         for found in rule.find_iter(value) {
@@ -329,6 +423,10 @@ fn protected_spans(value: &str) -> io::Result<BTreeMap<usize, usize>> {
             ranges.push(found.range());
         }
     }
+    Ok(ranges)
+}
+
+fn merge_spans(mut ranges: Vec<Range<usize>>) -> BTreeMap<usize, usize> {
     ranges.sort_unstable_by_key(|r| r.start);
     let mut merged = BTreeMap::<usize, usize>::new();
     for range in ranges {
@@ -342,7 +440,7 @@ fn protected_spans(value: &str) -> io::Result<BTreeMap<usize, usize>> {
             }
         }
     }
-    Ok(merged)
+    merged
 }
 
 fn word(c: char) -> bool {

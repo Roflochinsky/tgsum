@@ -3,8 +3,8 @@
 Implemented storage contract for `tgsum-af2.5`, 2026-09-27. The core can allocate,
 retain, resolve and reset labels. Infrastructure rules now use this mapping
 during opted-in bundle preparation; see [infrastructure](infrastructure.md).
-Known [participant replacement](pii.md) also uses the shared draft. Contact PII,
-custom-term detectors and Privacy preset/reset controls remain work in the
+Known [participant and contact replacement](pii.md) also uses the shared draft.
+Custom-term detectors and Privacy preset/reset controls remain work in the
 Privacy epic. Creating a mapping alone does not replace strings: replacement
 requires an enabled detector. Legacy one-shot export is unchanged.
 
