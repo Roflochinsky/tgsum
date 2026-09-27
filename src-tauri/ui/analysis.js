@@ -1,6 +1,8 @@
 // Reviewed run IDs are capabilities owned by the desktop controller. Changing
 // options discards that capability before another preparation can begin.
-export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, endJob, show, toast }) {
+import { preferredAgent } from './onboarding.js'
+
+export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, endJob, show, toast, navigate, changed }) {
   const $ = (s) => document.querySelector(s)
   const states = { interrupted: 'Запуск прерван — повторный запуск только вручную', cancelled: 'Отменён', failed: 'Не завершён', uncommitted: 'Результат сохранён; точка анализа не обновлена', succeeded: 'Готово · точка анализа обновлена', unavailable: 'Запись недоступна' }
   const sections = { overview: 'Обзор', topics: 'Темы', open_questions: 'Открытые вопросы', worked: 'Что получилось', failed: 'Что не получилось', lessons: 'Выводы', next_steps: 'Следующие шаги', decisions: 'Решения', reversals: 'Изменённые решения', unresolved: 'Незавершённые действия', timeline: 'Хронология', symptoms: 'Симптомы', hypotheses: 'Гипотезы', actions_taken: 'Принятые меры', resolution: 'Решение проблемы', context: 'Контекст', people: 'Участники', systems: 'Системы' }
@@ -18,6 +20,19 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
 
   function configureAgent() {
     const selectedAgent = agent()
+    const exportOnly = !selectedAgent
+    $('#analysis-export-only').hidden = !exportOnly
+    $('#analysis-task-fields').hidden = exportOnly
+    $('#btn-analysis-prepare').hidden = exportOnly
+    $('#analysis-run-hint').hidden = exportOnly
+    $('#analysis-executable').value = ''
+    $('#analysis-auth').value = ''
+    $('#analysis-model').value = ''
+    if (exportOnly) {
+      $('#analysis-runtime-fields').hidden = true
+      $('#analysis-status').textContent = 'Export only · получатель: локальная папка. Аккаунты и AI-агент не нужны.'
+      return
+    }
     $('#analysis-executable').value = selectedAgent.executables[0] || ''
     $('#analysis-auth').value = ''
     $('#analysis-model').value = catalog.fixtures ? 'fixture-success' : ''
@@ -45,6 +60,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     reviewed = null
     $('#analysis-review').hidden = true
     $('#btn-analysis-run').disabled = true
+    changed()
     invalidation = invalidation.then(() => invoke('discard_analysis_review')).catch((e) => toast(e.message || String(e), 'error'))
     return invalidation
   }
@@ -64,11 +80,12 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
         option.value = r.id
         return option
       }))
-      $('#analysis-agent').replaceChildren(...catalog.agents.map((a) => {
+      $('#analysis-agent').replaceChildren(new Option('Export only · сохранить локально', 'export'), ...catalog.agents.map((a) => {
         const option = node('option', a.title)
         option.value = a.id
         return option
       }))
+      $('#analysis-agent').value = preferredAgent()
       configureAgent()
     }
     availability()
@@ -94,6 +111,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
   function result(view) {
     selected = view
     $('#analysis-result').hidden = false
+    navigate('result')
     $('#analysis-result-status').textContent = states[view.state]
     $('#analysis-result-origin').textContent = `${view.spec.agent} · ${view.spec.model} · ${view.spec.recipe} v${view.spec.recipe_version} · ${view.spec.destination} · ${view.run_id}`
     const coverage = { complete: 'полнота подтверждена', partial: 'неполная история', own_messages_only: 'только собственные сообщения', future_only: 'только новые события', unknown: 'полнота не подтверждена' }
@@ -162,6 +180,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
       : `Агент получит проверенный выше контекст и выбранный файл авторизации только для чтения: ${options.auth_file}. ${agent().title}: ${options.executable}.`
     $('#analysis-review').hidden = false
     $('#btn-analysis-run').disabled = false
+    navigate('review')
     $('#analysis-review').scrollIntoView({ block: 'start' })
   }))
   $('#btn-analysis-run').addEventListener('click', () => act(async () => {
@@ -188,5 +207,5 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
       result(view)
     }))
   }
-  return { reset, invalidate, availability }
+  return { reset, invalidate, availability, hasReview: () => reviewed !== null }
 }

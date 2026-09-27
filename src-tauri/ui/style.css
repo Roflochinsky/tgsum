@@ -202,7 +202,16 @@ body:not([data-screen="start"]) .constellation { display: none; }
 .steps li.is-active { color: var(--text); background: var(--surface-2); }
 .steps li.is-active .dot { background: var(--primary); color: var(--on-primary); }
 .steps li.is-done .dot { background: var(--sky); color: var(--bg); }
-.titlebar-end { display: flex; justify-content: flex-end; }
+.titlebar-end { display: flex; gap: 10px; justify-content: flex-end; }
+body[data-screen="projects"] .titlebar { grid-template-columns: auto 1fr; }
+#project-steps { align-items: center; }
+#project-steps [aria-current="step"] { color: var(--on-primary); background: var(--primary); }
+#onboarding { width: min(650px, calc(100% - 40px)); max-height: calc(100% - 40px); padding: 28px; color: var(--text); overflow: auto; }
+#onboarding::backdrop { background: #050a20b8; }
+#onboarding form { text-align: right; }
+#onboarding p, #onboarding li { line-height: 1.6; }
+#onboarding li { margin-block: 10px; }
+#onboarding .project-actions { justify-content: space-between; margin-top: 24px; margin-bottom: 0; }
 .local-badge {
   display: inline-flex; align-items: center; gap: 7px;
   font-size: 13.5px; font-weight: 500; color: var(--muted);

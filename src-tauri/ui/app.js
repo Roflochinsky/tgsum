@@ -3,6 +3,7 @@
 
 import { mountPaintings } from './paint.js'
 import { mountProjects } from './projects.js'
+import { mountOnboarding } from './onboarding.js'
 
 const { invoke } = window.__TAURI__.core
 const { listen } = window.__TAURI__.event
@@ -130,10 +131,12 @@ const STEPS = { start: 1, select: 2, save: 3, done: 3 }
 const projects = mountProjects({ invoke, show, pickFile, startJob,
   endJob: () => { state.job = null }, busy: () => Boolean(state.job),
   selection: () => [...state.selected.values()], index: () => state.index, toast })
+const onboarding = mountOnboarding({ invoke, busy: () => projects.busy() })
 
 function show(name) {
   state.screen = name
   document.body.dataset.screen = name
+  document.querySelector('.steps').hidden = name === 'projects' || projects.isConnecting()
   for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== `screen-${name}`
   const step = name === 'progress' ? (state.job?.phase === 'extract' ? 3 : 1) : STEPS[name]
   for (const li of document.querySelectorAll('.steps li')) {
@@ -620,6 +623,7 @@ window.addEventListener('drop', (e) => e.preventDefault())
 document.addEventListener('keydown', (e) => {
   const mod = IS_MAC ? e.metaKey : e.ctrlKey
   if (mod && e.code === 'KeyO') {
+    if ($('#onboarding').open) return
     e.preventDefault()
     pickFile()
   } else if (mod && e.code === 'KeyF' && state.screen === 'select') {
@@ -738,5 +742,8 @@ mountPaintings()
 
 // ---------- boot ----------
 
-show('start')
-invoke('initial_path').then((path) => { if (path) openExport(path) })
+show('projects')
+invoke('initial_path').then(async (path) => {
+  if (path) await openExport(path)
+  else { await projects.open(); await onboarding.firstRun() }
+}).catch((e) => toast(errText(e), 'error'))

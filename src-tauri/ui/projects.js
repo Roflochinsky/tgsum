@@ -1,5 +1,6 @@
 // Persistent Project scope editor. Archive parsing and filtering stay in Rust.
 import { mountAnalysis } from './analysis.js'
+import { recentProjects, rememberProject } from './onboarding.js'
 
 export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, selection, index, toast }) {
   const $ = (s) => document.querySelector(s)
@@ -10,10 +11,32 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   let renderEpoch = 0
   let review = null
   let exportedDirectory = null
+  let step = 'source'
+  let privacyVisible = false
   const error = (e) => toast(e?.message || String(e), 'error')
   const analysis = mountAnalysis({ invoke, act, project: () => current, bundle: () => review,
     reload: async () => { current = await invoke('open_project', { projectId: current.project_id }); await render() },
-    startJob, endJob, show, toast })
+    startJob, endJob, show, toast, navigate, changed: syncSteps })
+
+  function syncSteps() {
+    const enabled = { source: !!current, privacy: privacyVisible,
+      analyze: !!review && review.manifest.privacy.needs_review === 0,
+      review: analysis.hasReview(), result: !!current }
+    if (!enabled[step]) step = enabled.analyze ? 'analyze' : 'source'
+    for (const button of $('#project-steps').querySelectorAll('[data-go]')) {
+      button.disabled = !enabled[button.dataset.go]
+      if (button.dataset.go === step) button.setAttribute('aria-current', 'step')
+      else button.removeAttribute('aria-current')
+    }
+    for (const panel of document.querySelectorAll('[data-project-panel]')) panel.hidden = panel.dataset.projectPanel !== step
+    $('#btn-project-destination').disabled = !enabled.analyze
+    $('#btn-project-export').disabled = !enabled.analyze
+  }
+  function navigate(next) {
+    step = next
+    syncSteps()
+    $('#project-steps').scrollIntoView({ block: 'start' })
+  }
 
   async function act(job) {
     if (working || busy()) return
@@ -22,12 +45,19 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#screen-projects').inert = true
     try { await job() } catch (e) {
       error(e)
-      if (e?.kind === 'conflict' && current) current = await invoke('open_project', { projectId: current.project_id }).catch(() => current)
-      if (!$('#screen-projects').hidden) await render().catch(error)
+      // Keep draft scope/model/options on failure. A conflict requires an
+      // explicit reload, which is the only error path that discards form edits.
+      if (e?.kind === 'conflict' && current) {
+        review = null
+        await analysis.invalidate()
+        analysis.availability()
+        $('#project-conflict').hidden = false
+      }
     } finally {
       working = false
       $('#screen-projects').setAttribute('aria-busy', 'false')
       $('#screen-projects').inert = false
+      syncSteps()
     }
   }
 
@@ -42,6 +72,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#btn-next').textContent = 'Далее'
     show('projects')
     const entries = await invoke('list_projects')
+    const recent = recentProjects()
+    const rank = (entry) => { const i = recent.indexOf(entry.project?.project_id); return i < 0 ? Infinity : i }
+    entries.sort((a, b) => rank(a) - rank(b))
     if (current) current = await invoke('open_project', { projectId: current.project_id })
     $('#project-list').innerHTML = entries.map((entry) => entry.state === 'ready'
       ? `<button type="button" class="btn btn-ghost" data-project="${esc(entry.project.project_id)}">${esc(entry.project.name)}</button>`
@@ -53,9 +86,15 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   async function render() {
     const epoch = ++renderEpoch
     $('#project-detail').hidden = !current
+    $('#project-home').hidden = !!current
+    $('#projects-title').textContent = current?.name || 'Проекты'
+    $('#project-conflict').hidden = true
+    step = 'source'
+    privacyVisible = false
+    review = null
     await analysis.invalidate()
     if (!current) return
-    review = null
+    rememberProject(current.project_id)
     exportedDirectory = null
     $('#project-review').hidden = true
     $('#project-unsaved').hidden = true
@@ -104,6 +143,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       syncTopics()
     }
     await analysis.reset()
+    syncSteps()
   }
 
   async function refresh(sourceId) {
@@ -152,8 +192,10 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#project-review-preview').textContent = review.preview
     $('#project-review-truncated').hidden = !review.preview_truncated
     $('#project-review').hidden = false
+    privacyVisible = true
     $('#btn-project-export').disabled = m.privacy.needs_review > 0
     analysis.availability()
+    navigate('privacy')
     $('#project-review').scrollIntoView({ block: 'start' })
   }
 
@@ -165,9 +207,11 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     analysis.availability()
     $('#btn-project-export').disabled = true
     $('#project-review-privacy').textContent = 'Настройка изменена. Обновите проверку перед сохранением.'
+    syncSteps()
   })
   $('#project-sources').addEventListener('input', () => {
     review = null
+    privacyVisible = false
     analysis.invalidate()
     analysis.availability()
     $('#project-review').hidden = true
@@ -187,13 +231,20 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       $('#project-export-result').textContent = `Контекст сохранён: ${result.directory}`
       $('#project-export-result').hidden = false
       $('#btn-project-open-export').hidden = false
+      navigate('result')
     } finally { endJob(); show('projects') }
   }))
   $('#btn-project-open-export').addEventListener('click', () => {
     if (exportedDirectory) invoke('open_folder', { path: exportedDirectory }).catch(error)
   })
 
-  $('#btn-projects').addEventListener('click', () => act(open))
+  $('#btn-projects').addEventListener('click', () => act(async () => { current = null; await open() }))
+  $('#btn-project-reload').addEventListener('click', () => act(open))
+  $('#project-steps').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-go]')
+    if (button && !button.disabled && !working) navigate(button.dataset.go)
+  })
+  $('#btn-project-destination').addEventListener('click', () => navigate('analyze'))
   $('#btn-projects-back').addEventListener('click', () => {
     if (working) return
     connecting = false
@@ -260,6 +311,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   })
 
   return {
+    open: () => act(open),
+    busy: () => working || busy(),
     isConnecting: () => connecting,
     async attachSelected() {
       await act(async () => {

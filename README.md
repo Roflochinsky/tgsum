@@ -351,6 +351,9 @@ native Codex 0.155.1 или Claude Code 2.1.280, bubblewrap 0.12.0 и соотв
 relay. Другие ОС сохраняют контекст в файл.
 [Инструкция и пределы квалификации](docs/development/desktop-analysis.md).
 Реальные аккаунты пока не проверялись; эта ветка не является объявлением релиза.
+Обычный запуск открывает Projects; первый Project создаётся без credentials.
+Пошаговый flow предлагает Export only по умолчанию, помощь можно повторить.
+[Onboarding и воспроизводимый UI smoke test](docs/development/onboarding.md).
 
 - [Архитектурное решение](docs/adr/0001-local-context-gateway.md) и
   [проект следующего pipeline](docs/specs/context-gateway.md).
