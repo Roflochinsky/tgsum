@@ -1,6 +1,6 @@
 # TGSUM: полный состав для согласования
 
-Снимок Beads от 2026-09-27 МСК, после завершения `tgsum-hzm.11`.
+Снимок Beads от 2026-09-27 МСК, после завершения `tgsum-hzm.12`.
 Решение по этой сверке: `tgsum-9x6`. Первоначальный снимок от 14:44 UTC обновлён
 после повторной проверки всех 118 записей: 12 эпиков и 106 дочерних задач.
 
@@ -11,8 +11,9 @@
 ## Текущее исполнение на 2026-09-27
 
 Повторная сверка Beads подтверждает прежний состав: **12 эпиков / 106 задач**,
-из них 12 closed, 0 in_progress, 94 open; **35 verification**, включая **17
-user-controlled backlog**. Все 12 эпиков остаются незавершёнными. Текущая активная
+из них 13 closed, 0 in_progress, 93 open; **35 verification**, включая **17
+user-controlled backlog**. Context Engine завершён (13/13); 11 эпиков остаются
+незавершёнными. Текущая активная
 цель — выполнять все эпики по установленным правилам; состав и критерии ниже не
 расширены. Beads остаётся источником актуального состояния.
 
@@ -81,10 +82,20 @@ conflict требует явного reload. Воспроизводимый actu
 baseline только после успеха. Пустая delta и оборванный архив отклоняются; история
 читается новым app instance. Финальный gate — **189 passed / 26 ignored**.
 
+`hzm.12` завершён: [матрица adversarial qualification](../development/runner-qualification.md)
+покрывает read/write/network/tool ограничения пяти реализованных Linux profiles.
+Все **27** environment tests выполнены отдельно: 8 isolation, 6 Codex process,
+5 Claude process, 7 native HTTPS suites (32 сценария) и 1 Claude manifest test.
+Полный gate — **189 passed / 27 ignored**, ошибки отсутствуют. Synthetic hostile
+files/env, hooks/MCP, traversal/symlink, неправильные protocol/tool events и
+отказ неизвестным profiles проверены без реальных аккаунтов. Production runner
+не менялся. После сверки всех 13 задач Context Engine закрыт; следующий эпик —
+Privacy & Files. Полная цель и user-controlled QA остаются открыты.
+
 ## Что согласовываем
 
 - 12 продуктовых и сквозных эпиков, 106 дочерних задач. Задача согласования не добавляет продуктовый эпик или функциональный срез.
-- Из 106 задач: 12 выполнены, 0 в работе, 94 открыты. Все 12 эпиков остаются незавершёнными.
+- Из 106 задач: 13 выполнены, 0 в работе, 93 открыты. Context Engine завершён; 11 эпиков остаются незавершёнными.
 - 35 отдельных задач с меткой verification: 18 автономных проверок и 17 проверок/действий с участием пользователя. Это число задач, а не выполненных тестов.
 - Закрытая основа `tgsum-d9b` переиспользуется: Telegram full/single JSON, snapshots/diff и offline Bridge simulator. Работающий экспорт через настоящий Telegram Desktop этим не доказан.
 - Эпик закрывается только после выполнения всех задач согласованного состава. Перенос проверки в backlog не доказывает совместимость.
@@ -95,10 +106,10 @@ baseline только после успеха. Пустая delta и оборв�
 
 ## Уже начатая реализация
 
-- В `tgsum-hzm` завершены 12 из 13 задач: `hzm.1` (Project store), `hzm.2` (canonical schema), `hzm.3` (scope, период, delta), `hzm.4` (интерфейсы источников), `hzm.5` (минимальный sanitizer), `hzm.6` (общий изолированный runner), `tgsum-ax6` (evidence и Export only bundle), `hzm.9` (шесть recipes), `hzm.7` (Codex adapter), `hzm.8` (Claude Code adapter), `hzm.10` (Home/onboarding) и `hzm.11` (сквозной IPC suite).
+- В `tgsum-hzm` завершены все 13 задач: `hzm.1` (Project store), `hzm.2` (canonical schema), `hzm.3` (scope, период, delta), `hzm.4` (интерфейсы источников), `hzm.5` (минимальный sanitizer), `hzm.6` (общий изолированный runner), `tgsum-ax6` (evidence и Export only bundle), `hzm.9` (шесть recipes), `hzm.7` (Codex adapter), `hzm.8` (Claude Code adapter), `hzm.10` (Home/onboarding), `hzm.11` (сквозной IPC suite) и `hzm.12` (adversarial qualification).
 - Предыдущая реализация — commit `056859e`: сохранение результатов Codex и атомарное обновление baseline после проверки ответа. Общий offline runner Linux x86_64 реализован ранее в `41b285d`; выбранный auth mount и HTTPS transport — последующими срезами. Review и Export only ранее проверены на synthetic данных через настоящий Linux Tauri UI (`f97a53f`). Эти проверки не подтверждают работу настоящего аккаунта или Windows/macOS runner.
-- `hzm.7` (Codex adapter) завершён на описанном Linux профиле; `hzm.8` (Claude adapter) также завершён в техническом scope. Onboarding (`hzm.10`) и E2E (`hzm.11`) завершены; adversarial suite (`hzm.12`) открыт. Реальная квалификация Codex/Claude — отдельная backlog-задача `t8t.19` под контролем пользователя.
-- На момент сверки задач в работе нет, 94 открыты. Все 12 эпиков незавершены. Закрытый `tgsum-d9b` — предшествующая основа, отдельно от этих 106 задач.
+- `hzm.7` (Codex adapter) завершён на описанном Linux профиле; `hzm.8` (Claude adapter) также завершён в техническом scope. Onboarding (`hzm.10`) и E2E (`hzm.11`) завершены; adversarial suite (`hzm.12`) завершён для пяти реализованных Linux profiles. Реальная квалификация Codex/Claude — отдельная backlog-задача `t8t.19` под контролем пользователя.
+- На момент сверки задач в работе нет, 93 открыты. Context Engine завершён; 11 эпиков незавершены. Закрытый `tgsum-d9b` — предшествующая основа, отдельно от этих 106 задач.
 - Все задачи плана уже имеют родительские эпики в Beads; недостающих задач не обнаружено, дубликаты не создавались. Изменения реализации описаны выше; состав roadmap не расширен. Проверки на реальных аккаунтах не проводились.
 - Видимые в текущей сессии исследовательские субагенты завершены. Продолжающих работу субагентов при этой сверке нет.
 
@@ -110,7 +121,7 @@ Context Engine → Privacy & Files → Telegram Bridge → Archive Pack → Live
 
 | Эпик | Результат | Состояние | Срезов | Выполнено | Проверок | Требуют пользователя |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| [tgsum-hzm](#tgsum-hzm) | v0.3 — Context Engine, Projects и первые агенты | В работе | 13 | 12 | 2 | 0 |
+| [tgsum-hzm](#tgsum-hzm) | v0.3 — Context Engine, Projects и первые агенты | Завершён | 13 | 13 | 2 | 0 |
 | [tgsum-af2](#tgsum-af2) | v0.4 — Privacy, псевдонимы и выбранные вложения | Открыт | 9 | 0 | 2 | 0 |
 | [tgsum-i1w](#tgsum-i1w) | v0.5 — Telegram 2.0 и Official Client Bridge | Открыт | 8 | 0 | 2 | 0 |
 | [tgsum-b5v](#tgsum-b5v) | v0.6 — Archive Pack: WhatsApp, Slack, Яндекс, Signal, LINE, Google Chat | Открыт | 11 | 0 | 1 | 0 |
@@ -285,7 +296,7 @@ Recent Projects → Source & Scope → Privacy → Recipe/Agent → Review → R
 
 #### tgsum-hzm.12 — Тестирование runner: prompt injection и попытки выхода за scope
 
-**На момент сверки:** Открыта · проверка.
+**На момент сверки:** Выполнена · проверка.
 
 Adversarial synthetic chat/attachment content, malicious file names, repo hooks/MCP inheritance и fake executables для каждого заявленного isolation profile.
 

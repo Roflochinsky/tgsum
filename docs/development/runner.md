@@ -1,7 +1,7 @@
 # Изолированный runner
 
 `tgsum-runner` — отдельный workspace crate вне offline core. Он реализует
-границу процесса для adapters. Codex подключён к Desktop Prepare/Review/Run;
+границу процесса для adapters. Codex и Claude подключены к Desktop Prepare/Review/Run;
 [реализованный flow и пределы проверки](desktop-analysis.md). Для Codex добавлены
 [подготовка запроса и проверка structured result](codex-adapter.md): fake CLI
 и установленный 0.155.1 проверены с локальным сервером готовых ответов внутри
@@ -16,9 +16,10 @@ credentials. Исходный offline контракт описан ниже. Н
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).
 
-Для Claude 2.1.280 добавлены [offline protocol и отдельный профиль](claude-adapter.md);
-выбранный offline auth и synthetic HTTPS transport проверены. Public cloud runner,
-исходная managed policy и UI Run пока не подключены.
+Для Claude 2.1.280 реализованы [offline protocol и отдельные профили](claude-adapter.md),
+public network runner, исходная managed policy и same-process settings preflight.
+Выбранный auth, synthetic HTTPS transport, durable result/baseline и Desktop Run
+проверены в описанном техническом scope. Реальные аккаунты не квалифицированы.
 
 ## Контракт
 
@@ -47,14 +48,15 @@ credentials. Исходный offline контракт описан ниже. Н
 6. `RunOutput` содержит сырые байты, exit code и причину завершения. Его Debug
    показывает только размеры, не содержимое. Exit 0 **не** подтверждает schema,
    evidence или качество анализа. Runner не записывает результат в Project
-   и не меняет baseline. Для Codex это выполняет отдельный
+    и не меняет baseline. Для Codex и Claude это выполняет отдельный
    [managed analysis lifecycle](analyses.md) после проверки process/transport,
    typed recipe/evidence и сохранения result artifact.
 
 Revision проверяется непосредственно перед подготовкой запуска. Выданный bundle
 является снимком согласованного scope; изменение Project во время выполнения
-не меняет его байты. Будущий UI должен отменять/пересматривать запуск при изменении
-настроек. Caller вызывает синхронный runner на выделенном worker и держит этот
+не меняет его байты. Desktop сбрасывает подготовленный Review при изменении
+настроек; stale revision не позволяет commit результата. Caller вызывает
+синхронный runner на выделенном worker и держит этот
 поток живым до возврата: Linux parent-death signal относится к создавшему thread.
 
 ## Реализованные профили
@@ -118,7 +120,8 @@ Pin не защищает байты от записи другого host-пр�
 capability заново для каждого запуска; изменения permissions/типа/размера дают
 отказ. Нельзя обещать неизменный снимок auth или использовать этот механизм с
 разрешённым OAuth refresh: ротация на сервере может предшествовать ошибке записи.
-Пока внешняя сеть полностью закрыта. Основание и следующий сетевой срез —
+В этом offline profile внешняя сеть полностью закрыта. Отдельный egress profile
+имеет собственные ограничения receiver/refresh. Основание —
 [auth research](../research/codex-auth-boundary-2026-09-27.md).
 
 ## Лимиты и завершение
@@ -152,10 +155,10 @@ bash scripts/check.sh
 cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored --nocapture
 ```
 
-Вторая команда обязана запускаться отдельно: семь isolation tests помечены
+Вторая команда обязана запускаться отдельно: восемь isolation tests помечены
 `ignored`, поскольку обычная CI-матрица не устанавливает этот backend и не
 гарантирует доступность namespace. Пропуск не считается успешной квалификацией.
-На Linux x86_64 с нужным backend suite должен реально выполнить семь тестов;
+На Linux x86_64 с нужным backend suite должен реально выполнить восемь тестов;
 на другой архитектуре он не является проверкой поддержки.
 
 Покрыты:
@@ -178,10 +181,10 @@ cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored
 
 ## Границы доказанного
 
-- Это generic **offline** runner. Облачные CLI не работают через этот профиль;
+- Описанная выше базовая граница — **offline** runner. Облачные CLI не работают через этот профиль;
   нельзя расширять mounts, копировать их auth-профиль или включать сеть ради
   успешного запуска. Конкретные adapters и их разрешённый доступ к inference
-  исследуются отдельно (`tgsum-hzm.7/.8`).
+  реализованы отдельными egress profiles (`tgsum-hzm.7/.8`).
 - macOS/Windows и другие архитектуры пока возвращают Export only. Кандидаты
   механизмов описаны в research, но не являются реализованными backend.
 - Нет общего ограничения RAM/CPU/числа процессов payload, seccomp allowlist
@@ -193,9 +196,10 @@ cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored
 - TempDir удаляет staging при обычном Drop; авария host может оставить файлы.
   Общая retention/crash-cleanup политика остаётся отдельной задачей Workspace.
 - Core manifest пока содержит `destination: export_only`. Подготовленный здесь
-  context сам по себе не разрешает отправку. Codex managed adapter связывает
-  отдельный Run ticket с фактическим получателем и Review; Claude пока имеет
-  offline protocol/auth и synthetic HTTPS qualification без public cloud Run.
+  context сам по себе не разрешает отправку. Codex и Claude managed adapters
+  связывают отдельный Run ticket с фактическим получателем и Review.
 
-Полные agent/OS adversarial suites и проверка настоящих integrations остаются
-`tgsum-hzm.12` и `tgsum-t8t.19/.20`. Реальные аккаунты требуют контроля пользователя.
+Матрица adversarial-проверок пяти реализованных профилей и единая команда
+отдельного запуска — [runner qualification](runner-qualification.md).
+Другие ОС и настоящие integrations остаются в QA, включая `tgsum-t8t.19/.20`.
+Реальные аккаунты требуют контроля пользователя.

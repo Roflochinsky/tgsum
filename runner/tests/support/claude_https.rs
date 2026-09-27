@@ -1,4 +1,5 @@
 //! Test-only child of the production relay; no key or endpoint override.
+mod hostile_probe;
 use std::{path::Path, process::Command, time::Duration};
 
 fn main() {
@@ -7,6 +8,7 @@ fn main() {
         assert!(!Path::new("/gateway/proxy.sock").exists());
         assert!(!Path::new("/home/agent/.claude/.credentials.json").exists());
     } else {
+        hostile_probe::inspect();
         assert_eq!(std::fs::read_dir("/context").unwrap().count(), 0);
         let proxy = std::env::var("HTTPS_PROXY").unwrap();
         assert!(proxy.starts_with("http://127.0.0.1:"));

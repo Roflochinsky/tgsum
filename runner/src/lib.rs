@@ -10,6 +10,9 @@ mod context;
 mod discovery;
 #[cfg(target_os = "linux")]
 pub mod egress;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "../tests/support/hostile_files.rs"]
+mod hostile_files;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]

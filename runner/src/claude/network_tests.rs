@@ -1,6 +1,7 @@
 //! Native synthetic qualification of network runner and durable lifecycle.
 use super::*;
 use crate::egress::{Destination, InferenceGateway, Limits};
+use crate::hostile_files;
 use crate::{Cancellation, PreparedContext, RuntimeFile};
 use serde_json::{json, Value};
 use std::{
@@ -300,6 +301,10 @@ fn runtime(directory: &Path, cancel: &Cancellation) -> ClaudeNetworkRunner {
         ),
         (directory.join("ca.pem"), "/runtime/provider-ca.pem"),
         (directory.join("peer-address"), "/runtime/peer-address"),
+        (
+            directory.join("hostile-host.json"),
+            "/runtime/hostile-host.json",
+        ),
     ] {
         files.push(RuntimeFile {
             source,
@@ -456,6 +461,7 @@ fn qualify(mode: &str) {
             .unwrap(),
     );
     let temp = tempfile::tempdir().unwrap();
+    let _host_socket = hostile_files::stage(temp.path(), context.root.path());
     let trust = if mode == "wrong-ca" {
         rcgen::generate_simple_self_signed(vec!["unrelated.test".into()])
             .unwrap()

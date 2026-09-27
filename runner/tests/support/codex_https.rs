@@ -1,4 +1,5 @@
 //! Test-only child of the production relay. All inputs/accounts are synthetic.
+mod hostile_probe;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -18,6 +19,7 @@ fn main() {
         );
     }
     let proxy = std::env::var("HTTPS_PROXY").unwrap();
+    hostile_probe::inspect();
     assert!(proxy.starts_with("http://127.0.0.1:"));
     for key in ["HTTP_PROXY", "https_proxy", "http_proxy"] {
         assert_eq!(std::env::var(key).unwrap(), proxy);

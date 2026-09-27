@@ -1,5 +1,6 @@
 use super::*;
 use crate::egress::Failure;
+use crate::hostile_files;
 use crate::{PreparedContext, Termination};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
@@ -424,6 +425,10 @@ fn runtime(request: &CodexRequest<'_>, directory: &std::path::Path) -> CodexNetw
             source: directory.join("setup.json"),
             guest: "/runtime/https-test.json".into(),
         },
+        RuntimeFile {
+            source: directory.join("hostile-host.json"),
+            guest: "/runtime/hostile-host.json".into(),
+        },
     ]);
     CodexNetworkRunner::qualify(
         std::env::var_os("TGSUM_RELAY_TEST_BINARY")
@@ -498,6 +503,7 @@ fn qualify(mode: &str, auth: FixtureAuth) {
         )
         .unwrap();
     let temporary = tempfile::tempdir().unwrap();
+    let _host_socket = hostile_files::stage(temporary.path(), fixture.root.path());
     let trust = if mode == "wrong-ca" {
         rcgen::generate_simple_self_signed(vec!["unrelated.test".into()])
             .unwrap()
