@@ -24,6 +24,8 @@ fn run() -> io::Result<bool> {
     let mut inventory = None;
     let mut today = None;
     let mut mode = ValidationMode::Development;
+    let mut reminders = false;
+    let mut within_days = None;
     while let Some(arg) = args.next() {
         let value = |args: &mut std::iter::Skip<std::env::Args>| {
             args.next().ok_or_else(|| invalid("missing option value"))
@@ -40,12 +42,23 @@ fn run() -> io::Result<bool> {
                 today = Some(date);
             }
             "--release" => mode = ValidationMode::Release,
+            "--reminders" => reminders = true,
+            "--within-days" => {
+                let days = value(&mut args)?.parse::<u16>().map_err(invalid)?;
+                if days > 365 {
+                    return Err(invalid("reminder horizon must be 0..=365 days"));
+                }
+                within_days = Some(days);
+            }
             "--help" | "-h" => {
-                println!("Usage: connector-registry [--repo DIR] [--inventory FILE] [--today YYYY-MM-DD] [--release]\n\nRead-only local validation, JSON report on stdout. FILE is relative to DIR.\nExit 0: valid (may have research reminders); 1: validation findings; 2: invalid input.\nRelease mode requires current review of enabled shipping profiles.\nNo network requests, data deletion or local-import runtime gating.");
+                println!("Usage: connector-registry [--repo DIR] [--inventory FILE] [--today YYYY-MM-DD] [--release] [--reminders [--within-days 14]]\n\nRead-only local validation, JSON report on stdout. FILE is relative to DIR.\nExit 0: valid (may have research reminders); 1: validation findings; 2: invalid input.\nRelease mode requires current review of enabled shipping profiles.\nReminders include overdue/unknown and upcoming work; horizon 0..=365 days.\nNo network requests, data deletion or local-import runtime gating.");
                 return Ok(true);
             }
             _ => return Err(invalid(format!("unknown argument: {arg}"))),
         }
+    }
+    if within_days.is_some() && !reminders {
+        return Err(invalid("--within-days requires --reminders"));
     }
     let today = match today {
         Some(date) => date,
@@ -69,7 +82,18 @@ fn run() -> io::Result<bool> {
         .read_to_end(&mut bytes)?;
     let registry = Registry::parse(&bytes)?;
     let report = registry.validate_repository(&root, &inventory, today, mode)?;
-    serde_json::to_writer_pretty(io::stdout().lock(), &report).map_err(invalid)?;
+    if reminders {
+        let days = within_days.unwrap_or(14);
+        let reminder_report = serde_json::json!({
+            "as_of": today.to_string(),
+            "within_days": days,
+            "reminders": registry.review_reminders(today, days),
+            "validation": report,
+        });
+        serde_json::to_writer_pretty(io::stdout().lock(), &reminder_report).map_err(invalid)?;
+    } else {
+        serde_json::to_writer_pretty(io::stdout().lock(), &report).map_err(invalid)?;
+    }
     println!();
     Ok(report.passed())
 }

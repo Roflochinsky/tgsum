@@ -4,6 +4,7 @@
 //! use, delete data or disable an existing local importer on a policy deadline.
 
 mod model;
+mod reminders;
 mod validation;
 
 use std::io;
@@ -14,6 +15,7 @@ use serde::Serialize;
 use crate::connector::{ArchiveImporter, ConnectorDescriptor, TelegramJson};
 
 pub use model::*;
+pub use reminders::ReviewReminder;
 pub use validation::{Finding, Severity, ValidationMode, ValidationReport};
 
 /// Runtime observations are supplied by a host, never read from the inventory.

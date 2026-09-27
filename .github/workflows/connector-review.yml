@@ -1,0 +1,37 @@
+name: Connector review reminders
+
+on:
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Check recorded deadlines without changing the inventory
+        run: cargo run --locked -p tgsum-core --bin connector-registry -- --reminders --within-days 14 > connector-review.json
+      - name: Summarize maintainer work
+        if: always()
+        shell: bash
+        run: python scripts/connector-review-summary.py connector-review.json | tee connector-review.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connector-review-reminders
+          path: |
+            connector-review.json
+            connector-review.md
+          if-no-files-found: error
+          retention-days: 30

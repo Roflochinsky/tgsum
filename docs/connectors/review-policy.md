@@ -1,8 +1,9 @@
 # Обязательный цикл проверки connector
 
-Владелец решения: maintainer TGSUM. Текущий review: 2026-09-26.
+Владелец решения: maintainer TGSUM. Процесс обновлён: 2026-09-27.
 Проверять отдельно каждый `(platform, acquisition_method)` из
 [registry.json](registry.json). Поля описаны [JSON Schema](registry.schema.json).
+Для записи исследования использовать [шаблон review](review-template.md).
 
 Это внутренний процесс выбора и выпуска интеграций. По
 [продуктовому принципу](../adr/0002-user-controlled-content.md) пользователь
@@ -59,12 +60,13 @@
 `excluded` — несовместим с выбранным use case; `deferred` — не в текущей очереди.
 `supported` требует проверенной реализации; в текущих исходниках это Telegram
 full-export и single-chat JSON import с синтетическими regression fixtures.
-Offline snapshot/diff не означает, что реализованы автоматическая выгрузка или
-Project UI. Ни один новый network/AI путь этим registry не включён.
+Project/snapshot/diff и assisted export не доказывают автоматическую выгрузку
+официальным клиентом. Новые network/AI пути этим registry не включаются.
 
 Дата `last_policy_reviewed_at` означает чтение перечисленных источников,
 не юридическое одобрение. `review_level: initial` оставляет открытые вопросы.
-При недоступном источнике не обновлять дату успешной проверки без пометки причины.
+При недоступном обязательном источнике записать неудачную попытку и причину в
+исследование/Beads; сохранить прежние дату успешной проверки и её deadline.
 
 Просроченный review, существенное изменение условий или новый blocker требуют
 повторной проверки перед выпуском/расширением затронутой capability. Дата review
@@ -86,7 +88,37 @@ Runtime получает реализованные возможности из 
 Coverage остаётся фактом конкретного snapshot. `ai_policy` не разрешает/запрещает
 Run. Изменение JSON не выключает существующий локальный импорт и не удаляет данные.
 Remote kill switch и автоматическое обновление дат не реализованы. Отдельный
-UI статуса и плановые напоминания — следующие срезы `2ty.2` и `2ty.1`.
+UI статуса — отдельный срез `2ty.2`.
+
+## Напоминания о сроках
+
+Локально и в CI используется один offline validator:
+
+```sh
+cargo run --locked -p tgsum-core --bin connector-registry -- --reminders --within-days 14 > /tmp/connector-review.json
+python scripts/connector-review-summary.py /tmp/connector-review.json
+```
+
+Отчёт включает overdue, unknown и upcoming review; deadline в точности через
+14 дней входит в выборку. Даты считаются по UTC. `--today YYYY-MM-DD` позволяет
+воспроизвести отчёт; `--within-days 0` показывает только due/unknown.
+У каждой строки есть owner, успешная дата, deadline, evidence, primary URLs
+и признак реализации из кода. Unknown не исчезает из списка из-за будущего deadline.
+Никаких запросов к источникам, изменений registry или создания GitHub Issues нет.
+
+CI `connectors` сохраняет JSON и Markdown summary на каждом обычном прогоне.
+Workflow `Connector review reminders` задаёт еженедельную проверку в понедельник
+08:17 UTC с горизонтом 14 дней. GitHub запускает schedule только с default branch;
+пока изменения находятся на рабочей ветке, этот schedule ещё не активен. Возможны
+задержки GitHub и отключение schedule при длительном отсутствии активности, поэтому
+release-check независимо проверяет актуальную дату на каждом выпуске.
+[GitHub schedule, проверено 2026-09-27](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
+Reminder не является успешным research. Maintainer читает первичные источники,
+заполняет шаблон, фиксирует решение и только затем обновляет даты/evidence.
+Перед выпуском `--release` сохраняет прежнее строгое поведение, включая ошибку
+для просроченной реализации. Обычная просрочка в reminder-режиме — work item,
+не запрет на локальную обработку данных.
 
 ## Запись в Beads
 

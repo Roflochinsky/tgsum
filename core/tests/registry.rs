@@ -311,3 +311,73 @@ fn missing_or_escaped_artifacts_and_future_evidence_cannot_pass_release_validati
         }
     }
 }
+
+#[test]
+fn review_reminder_cli_includes_upcoming_and_due_work_without_updating_dates() {
+    let before = std::fs::read(inventory()).unwrap();
+    let command = |today: &str, within: &str, release: bool| {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_connector-registry"));
+        command.arg("--repo").arg(repo()).args([
+            "--today",
+            today,
+            "--reminders",
+            "--within-days",
+            within,
+        ]);
+        if release {
+            command.arg("--release");
+        }
+        command.output().unwrap()
+    };
+    let upcoming = command("2026-10-20", "6", false);
+    assert!(
+        upcoming.status.success(),
+        "{}",
+        String::from_utf8_lossy(&upcoming.stderr)
+    );
+    let upcoming: Value = serde_json::from_slice(&upcoming.stdout).unwrap();
+    let rows = upcoming["reminders"].as_array().unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r["days_until_due"] == 6));
+    assert!(rows
+        .iter()
+        .all(|r| !r["owner"].as_str().unwrap().is_empty()));
+    assert!(!rows
+        .iter()
+        .any(|r| r["connector"] == "telegram_full_export"));
+    let before_due = command("2026-10-20", "5", false);
+    let report: Value = serde_json::from_slice(&before_due.stdout).unwrap();
+    assert!(report["reminders"].as_array().unwrap().is_empty());
+    let expired = command("2027-01-01", "0", false);
+    assert!(expired.status.success());
+    let expired: Value = serde_json::from_slice(&expired.stdout).unwrap();
+    let rows = expired["reminders"].as_array().unwrap();
+    assert_eq!(rows.len(), value()["connectors"].as_array().unwrap().len());
+    assert!(rows.iter().all(|r| r["state"] == "due"));
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r["shipping_implementation"] == true)
+            .count(),
+        2
+    );
+    assert_eq!(command("2027-01-01", "0", true).status.code(), Some(1));
+    assert_eq!(command("2026-10-20", "-1", false).status.code(), Some(2));
+    assert_eq!(command("2026-10-20", "366", false).status.code(), Some(2));
+    assert_eq!(std::fs::read(inventory()).unwrap(), before);
+}
+
+#[test]
+fn missing_successful_review_stays_unknown_even_with_a_future_deadline() {
+    let mut input = value();
+    input["connectors"][0]["last_policy_reviewed_at"] = Value::Null;
+    input["connectors"][0]["review_level"] = "not_reviewed".into();
+    let registry = parse(&input);
+    let before = serde_json::to_vec(&registry).unwrap();
+    let rows = registry.review_reminders(date("2026-09-27"), 0);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state, ReviewState::Unknown);
+    assert!(rows[0].last_policy_reviewed_at.is_none());
+    assert!(rows[0].shipping_implementation);
+    assert_eq!(serde_json::to_vec(&registry).unwrap(), before);
+    assert!(load_importer("telegram_full_export", &observed()).is_ok());
+}

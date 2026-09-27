@@ -32,11 +32,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Validate offline connector inventory
         run: cargo run --locked -p tgsum-core --bin connector-registry -- > connector-report.json
+      - name: Upcoming connector reviews
+        shell: bash
+        run: |
+          cargo run --locked -p tgsum-core --bin connector-registry -- --reminders --within-days 14 > connector-review.json
+          python scripts/connector-review-summary.py connector-review.json | tee connector-review.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: connector-inventory-report
-          path: connector-report.json
+          path: |
+            connector-report.json
+            connector-review.json
+            connector-review.md
           if-no-files-found: error
 
   lint:

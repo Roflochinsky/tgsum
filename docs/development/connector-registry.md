@@ -64,6 +64,8 @@ cargo run --locked -p tgsum-core --bin connector-registry --
 cargo run --locked -p tgsum-core --bin connector-registry -- --release
 # Воспроизводимая проверка даты (не обновляет дату review):
 cargo run --locked -p tgsum-core --bin connector-registry -- --release --today 2026-09-27
+# Предстоящие/просроченные review; даты не изменяются:
+cargo run --locked -p tgsum-core --bin connector-registry -- --reminders --within-days 14
 ```
 
 `--repo DIR`, `--inventory FILE` позволяют выбрать локальный checkout/inventory;
@@ -71,6 +73,15 @@ FILE задаётся относительно DIR. Выход — JSON. Код�
 `1` — ошибки в отчёте, `2` — ошибка чтения/структуры/аргументов. Без `--today`
 используется текущая UTC-дата. CLI предназначен для checkout репозитория,
 не запускается фоном установленным приложением.
+
+`--reminders` возвращает envelope `as_of`, `within_days`, `reminders`,
+`validation`. Внутри `validation` — тот же полный отчёт и те же exit codes;
+`--release` по-прежнему проваливает просроченную shipping capability.
+Горизонт — 0..365 дней (по умолчанию 14), граница включительна. Без `--reminders`
+параметр `--within-days` отклоняется. Публичный `Registry::review_reminders`
+возвращает owner/due/evidence и shipping-признак из compiled catalog. Даты или
+сетевые источники не меняются. Порядок действий и расписание описаны в
+[review cycle](../connectors/review-policy.md#напоминания-о-сроках).
 
 Проверяются строгая schema/version и неизвестные поля, уникальность IDs/операций,
 обязательные owner/dates, реальные календарные даты, cadence не более 30 дней
