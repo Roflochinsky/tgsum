@@ -302,6 +302,7 @@ fn expanded_rules_hide_provider_tokens_and_block_unreviewed_candidates() {
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )
@@ -520,6 +521,7 @@ fn privacy_review_stale_selection_and_cancel_never_publish_or_advance_baseline()
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )
@@ -725,6 +727,7 @@ fn findings_beyond_preview_are_reviewed_and_cr_cannot_forge_evidence_headers() {
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )

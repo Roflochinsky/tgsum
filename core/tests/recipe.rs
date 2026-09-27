@@ -50,6 +50,7 @@ fn fixture() -> (
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )

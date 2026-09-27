@@ -59,6 +59,7 @@ fn context() -> Context {
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )
@@ -141,6 +142,7 @@ fn analysis_job_binds_context_model_receiver_version_and_profile_before_launch()
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )

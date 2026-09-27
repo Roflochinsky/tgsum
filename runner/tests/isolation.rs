@@ -122,6 +122,7 @@ fn context_from(root: tempfile::TempDir, archive: &str) -> ContextFixture {
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )

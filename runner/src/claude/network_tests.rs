@@ -55,6 +55,7 @@ fn context() -> Context {
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )
@@ -123,6 +124,7 @@ fn review_binds_agent_version_model_receiver_profile_bundle_and_recipe() {
                     project.revision,
                     BundleOptions {
                         redact_candidates: true,
+                        ..Default::default()
                     },
                     || false,
                 )

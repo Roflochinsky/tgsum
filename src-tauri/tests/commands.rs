@@ -222,6 +222,7 @@ mod analysis_flow {
                     project.revision,
                     BundleOptions {
                         redact_candidates: true,
+                        ..Default::default()
                     },
                     || false,
                 )
@@ -684,3 +685,57 @@ fn project_review_and_export_commands_enforce_privacy_scope_and_revision() {
 #[cfg(all(feature = "analysis-fixtures", debug_assertions))]
 #[path = "commands/project_e2e.rs"]
 mod project_e2e;
+
+#[test]
+fn infrastructure_policy_prepare_returns_the_revision_required_for_export() {
+    use tgsum_core::project::{ProjectChange, ProjectSource, ProjectStore};
+    use tgsum_core::snapshot::SourceScope;
+    let root = tempfile::tempdir().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = store.create("Synthetic infrastructure").unwrap();
+    let scope = SourceScope::telegram("synthetic", "1");
+    store
+        .snapshots(&project.project_id)
+        .unwrap()
+        .import_telegram(
+            "initial",
+            &scope,
+            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"text":"db.local 10.0.0.2"}]}"#),
+        )
+        .unwrap();
+    let project = store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(ProjectSource {
+                source_id: "work".into(),
+                connector_id: "telegram_export".into(),
+                scope,
+                archive_path: None,
+                latest_snapshot_id: Some("initial".into()),
+                selection: Default::default(),
+            }),
+        )
+        .unwrap();
+    let app = tgsum_app::app(command_builder().manage(store))
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let w = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":project.revision,"options":{"redact_candidates":false,"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
+    assert_eq!(review["project_revision"], project.revision + 1);
+    assert_eq!(review["manifest"]["infrastructure"]["replacements"], 2);
+    assert!(review["preview"]
+        .as_str()
+        .unwrap()
+        .contains("HOST_0001 IP_0001"));
+    assert!(!review.to_string().contains("unmentioned-private-host"));
+    let stale = invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":project.revision,"outDir":destination.path()})).unwrap_err();
+    assert_eq!(stale["kind"], "conflict");
+    invoke(&w, "export_project_bundle", json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":review["project_revision"],"outDir":destination.path()})).unwrap();
+    let current = invoke(&w, "open_project", json!({"projectId":project.project_id})).unwrap();
+    assert_eq!(current["revision"], review["project_revision"]);
+    assert_eq!(current["baselines"], json!([]));
+}

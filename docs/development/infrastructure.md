@@ -1,11 +1,11 @@
 # Infrastructure recognition and Project pseudonyms
 
-Detector milestone of `tgsum-af2.2`, 2026-09-27. Core recognition, category
-selection and use with the private Project mapping are implemented. The task
-remains in progress: transactional allocation during bundle preparation and
-Privacy Review integration are not yet connected. The current desktop bundle
-pipeline still runs its existing secrets rules only. No support promotion or
-messenger acquisition changes are implied by this module.
+Core and bundle integration for `tgsum-af2.2`, 2026-09-27. Recognition, independent
+category selection and stable Project pseudonyms are connected to Prepare,
+Review and Export through `BundleOptions.infrastructure`, including the Tauri
+backend command. Categories default to off. Desktop preset controls remain
+`tgsum-af2.7`; the existing screen does not yet enable these categories. Legacy
+one-shot export is unchanged. This adds no messenger acquisition capability.
 
 ## Interface
 
@@ -32,6 +32,43 @@ Policy categories are independently selectable: `ip`, `host`, `domain`, `url`,
 leaves text unchanged without invoking identifier rules. Private
 `internal_domains` and `hostnames` extend the recognized scope; do not include
 them in public agent manifests or logs.
+
+## Preparation and Review
+
+Each selected field passes through secrets rules first, then infrastructure
+recognition. A private in-memory mapping draft reuses committed labels and
+allocates new ones across fields; every allocation checks the aggregate mapping
+budgets. New identities are sorted within each field's batch. Source/message
+order can affect labels only for previously unseen identities, never existing
+ones. Preparing an already observed corpus is a mapping no-op.
+
+Preparation stages at most one immutable map version. It writes and validates
+the bundle metadata, computes the bounded preview, checks cancellation, and
+finally publishes the mapping with the Project revision CAS. The returned
+`BundleReview.project_revision` is authoritative for subsequent export or
+analysis: allocating new entries or aliases increments it once. No-op and
+unmatched selections keep the original revision. Source snapshots and successful
+analysis baselines do not change during preparation.
+
+Cancellation, budget failure or a lost CAS leaves the current mapping untouched
+and removes the staged bundle. A late failure may leave an unreferenced immutable
+map; it is never selected by directory order. As with other Project mutations,
+an I/O error during revision publication can happen after that revision becomes
+visible; reread the Project after an error. Retention/cleanup is separate work.
+
+Private bundle schema 3 pins the exact mapping and private infrastructure policy.
+The public manifest exposes only the random mapping ID, rules version, enabled
+categories, replacement total and counts per category. It never serializes the
+configured names, map entries or map digest. Export validates the binding and
+historical reference. Old bundles resolve their original mapping even after a
+refresh, scope extension or reset; stale Review cannot be exported as current.
+
+Review excerpts use the final transformed text with relocated UTF-8 positions.
+Nearby high-confidence secrets and replaced infrastructure stay hidden. A
+medium-confidence secret finding still requires review even if a whole-URL
+replacement also hides it. Choosing candidate redaction and preparing again
+resolves those findings. Full-selection counts include findings beyond the
+Markdown preview; the normal excerpt/count bounds still apply.
 
 ## Recognition and normalization, infrastructure/1
 
@@ -143,13 +180,22 @@ SSH account identity, Unicode, size/count budgets and diagnostic exclusions.
 All corpus expectations pass; this is a regression corpus, not a measured
 real-world false-positive or recall rate. No real account data was used.
 
+`core/tests/infrastructure_bundle.rs` covers actual preparation/export, all seven
+category toggles, unmatched/no-op preparation, one-version publication, private
+configuration/digest exclusion, secrets-before-mapping, late Unicode Review
+findings, aggregate alias limits, late cancellation/CAS conflict, refresh with
+earlier newly seen messages, preserved evidence and historical mappings.
+`src-tauri/tests/commands.rs` exercises the opt-in JSON policy and resulting
+revision through backend IPC. These tests do not exercise a preset UI or a
+real messenger/agent account.
+
 Primary sources and uncertainty are recorded in the
 [dated research](../research/infrastructure-pseudonyms-2026-09-27.md).
 
-The final workspace gate (`bash scripts/check.sh`, Rust 1.98.1) passes with
-217 tests and 27 environment tests ignored by default, including Clippy and
-default doctest selection. A separate
+Verification uses the workspace gate (`bash scripts/check.sh`, Rust 1.98.1),
+including Clippy and default doctest selection. A separate
 `CARGO_TARGET_DIR=/tmp/tgsum-core-msrv-188 cargo +1.88.0 test --locked --offline -p tgsum-core`
-run passes on the declared minimum. It verifies core on Linux; it does not
+run checks the declared minimum. It verifies core on Linux; it does not
 qualify the desktop app or other OSes on that toolchain. No runner launch or
-isolation code changed in this milestone.
+isolation code changed in this feature; their environment qualification remains
+separate from the default gate.

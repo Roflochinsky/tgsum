@@ -189,7 +189,150 @@ impl PseudonymMapping {
     }
 }
 
+/// Private transaction state shared by multi-field bundle preparation. A failed
+/// allocation poisons the draft; callers cannot accidentally stage partial data.
+pub(crate) struct MappingDraft {
+    mapping: PseudonymMapping,
+    previous: Option<MappingRef>,
+    counters: BTreeMap<PseudonymCategory, usize>,
+    aliases: usize,
+    bytes: usize,
+    changed: bool,
+    poisoned: bool,
+}
+
+impl MappingDraft {
+    pub(crate) fn mapping(&self) -> &PseudonymMapping {
+        &self.mapping
+    }
+
+    pub(crate) fn allocate(&mut self, inputs: &[PseudonymInput<'_>]) -> io::Result<Vec<String>> {
+        if self.poisoned {
+            return Err(invalid("private mapping draft already failed"));
+        }
+        self.poisoned = true;
+        let result = self.allocate_inner(inputs);
+        if result.is_ok() {
+            self.poisoned = false;
+        }
+        result
+    }
+
+    fn allocate_inner(&mut self, inputs: &[PseudonymInput<'_>]) -> io::Result<Vec<String>> {
+        validate_inputs(inputs)?;
+        let sorted: BTreeSet<_> = inputs
+            .iter()
+            .map(|i| (i.category, i.identity, i.original))
+            .collect();
+        for (category, identity, original) in sorted {
+            let key = (category, identity.to_owned());
+            if let Some(index) = self.mapping.identities.get(&key).copied() {
+                let originals = &self.mapping.data.entries[index].originals;
+                if originals.contains(original) {
+                    continue;
+                }
+                if originals.len() == MAX_ALIASES_PER_IDENTITY || self.aliases == MAX_ALIASES {
+                    return Err(invalid("private mapping exceeds alias limits"));
+                }
+                self.mark_changed()?;
+                self.reserve(encoded_size(original)? + 1)?; // Existing alias array needs a comma.
+                self.mapping.data.entries[index]
+                    .originals
+                    .insert(original.to_owned());
+            } else {
+                if self.mapping.data.entries.len() == MAX_ENTRIES || self.aliases == MAX_ALIASES {
+                    return Err(invalid("private mapping exceeds entry limit"));
+                }
+                let counter = self.counters.get(&category).copied().unwrap_or(0) + 1;
+                let entry = Entry {
+                    category,
+                    identity: identity.into(),
+                    originals: BTreeSet::from([original.to_owned()]),
+                    pseudonym: label(category, counter),
+                };
+                let bytes =
+                    encoded_size(&entry)? + usize::from(!self.mapping.data.entries.is_empty());
+                self.mark_changed()?;
+                self.reserve(bytes)?;
+                let index = self.mapping.data.entries.len();
+                self.mapping.identities.insert(key, index);
+                self.mapping.labels.insert(entry.pseudonym.clone(), index);
+                self.mapping.data.entries.push(entry);
+                self.counters.insert(category, counter);
+            }
+            self.aliases += 1;
+        }
+        Ok(inputs
+            .iter()
+            .map(|i| {
+                self.mapping
+                    .lookup(i.category, i.identity)
+                    .expect("allocated above")
+                    .to_owned()
+            })
+            .collect())
+    }
+
+    fn mark_changed(&mut self) -> io::Result<()> {
+        if !self.changed {
+            if let Some(previous) = &self.previous {
+                let generation = previous
+                    .generation
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("private mapping generation exhausted"))?;
+                self.reserve(generation.to_string().len() - previous.generation.to_string().len())?;
+                self.mapping.data.generation = generation;
+                self.mapping.data.id = random_id("map-")?;
+            }
+            self.changed = true;
+        }
+        Ok(())
+    }
+
+    fn reserve(&mut self, extra: usize) -> io::Result<()> {
+        self.bytes = self
+            .bytes
+            .checked_add(extra)
+            .filter(|size| *size <= MAX_BYTES)
+            .ok_or_else(|| invalid("private mapping exceeds storage limit"))?;
+        Ok(())
+    }
+}
+
 impl ProjectStore {
+    pub(crate) fn draft_pseudonyms(&self, project: &Project) -> io::Result<MappingDraft> {
+        let mapping = match &project.pseudonyms {
+            Some(reference) => self.load_pseudonyms(&project.project_id, reference)?,
+            None => PseudonymMapping::checked(empty_mapping(&project.project_id)?)?,
+        };
+        let mut counters = BTreeMap::new();
+        for entry in &mapping.data.entries {
+            *counters.entry(entry.category).or_default() += 1;
+        }
+        Ok(MappingDraft {
+            aliases: mapping.data.entries.iter().map(|e| e.originals.len()).sum(),
+            bytes: encoded_size(&mapping.data)?,
+            mapping,
+            counters,
+            previous: project.pseudonyms.clone(),
+            changed: false,
+            poisoned: false,
+        })
+    }
+
+    /// Stage at most one immutable map. Project CAS remains the caller's final
+    /// commit, after all dependent bundle files/checks have succeeded.
+    pub(crate) fn stage_pseudonyms(&self, draft: MappingDraft) -> io::Result<Option<MappingRef>> {
+        if draft.poisoned {
+            return Err(invalid("private mapping draft already failed"));
+        }
+        if draft.changed {
+            self.store_pseudonyms(&draft.mapping.data).map(Some)
+        } else {
+            Ok(draft.previous)
+        }
+    }
+
     /// Explicit reset: publish an empty new epoch and invalidate old Review via
     /// the Project revision. Historical mappings and analysis references remain
     /// readable. This is not erasure; deleting retained private data is separate.
@@ -221,73 +364,15 @@ impl ProjectStore {
         validate_inputs(inputs)?;
         let project = self.open(project_id)?;
         check_revision(project.revision, expected_revision)?;
-        let mut mapping = match &project.pseudonyms {
-            Some(reference) => self.load_pseudonyms(project_id, reference)?,
-            None => PseudonymMapping::checked(empty_mapping(project_id)?)?,
-        };
-        let mut counters = BTreeMap::<PseudonymCategory, usize>::new();
-        for entry in &mapping.data.entries {
-            *counters.entry(entry.category).or_default() += 1;
-        }
-        let sorted: BTreeSet<_> = inputs
-            .iter()
-            .map(|i| (i.category, i.identity, i.original))
-            .collect();
-        let mut changed = false;
-        let mut aliases: usize = mapping.data.entries.iter().map(|e| e.originals.len()).sum();
-        for (category, identity, original) in sorted {
-            let key = (category, identity.to_owned());
-            if let Some(index) = mapping.identities.get(&key) {
-                let originals = &mut mapping.data.entries[*index].originals;
-                if !originals.contains(original) {
-                    if originals.len() == MAX_ALIASES_PER_IDENTITY || aliases == MAX_ALIASES {
-                        return Err(invalid("private mapping exceeds alias limits"));
-                    }
-                    originals.insert(original.to_owned());
-                    aliases += 1;
-                    changed = true;
-                }
-            } else {
-                if mapping.data.entries.len() == MAX_ENTRIES || aliases == MAX_ALIASES {
-                    return Err(invalid("private mapping exceeds entry limit"));
-                }
-                aliases += 1;
-                let counter = counters.entry(category).or_default();
-                *counter += 1;
-                let pseudonym = label(category, *counter);
-                let index = mapping.data.entries.len();
-                mapping.identities.insert(key, index);
-                mapping.labels.insert(pseudonym.clone(), index);
-                mapping.data.entries.push(Entry {
-                    category,
-                    identity: identity.into(),
-                    originals: BTreeSet::from([original.to_owned()]),
-                    pseudonym,
-                });
-                changed = true;
-            }
-        }
-        let labels = inputs
-            .iter()
-            .map(|i| {
-                mapping
-                    .lookup(i.category, i.identity)
-                    .expect("allocated above")
-                    .to_owned()
-            })
-            .collect();
-        if !changed {
+        let mut draft = self.draft_pseudonyms(&project)?;
+        let labels = draft.allocate(inputs)?;
+        if !draft.changed {
             check_revision(self.open(project_id)?.revision, expected_revision)?;
             return Ok(PseudonymAssignment { project, labels });
         }
-        if let Some(previous) = &project.pseudonyms {
-            mapping.data.id = random_id("map-")?;
-            mapping.data.generation = previous
-                .generation
-                .checked_add(1)
-                .ok_or_else(|| invalid("private mapping generation exhausted"))?;
-        }
-        let reference = self.store_pseudonyms(&mapping.data)?;
+        let reference = self
+            .stage_pseudonyms(draft)?
+            .expect("changed draft has a mapping");
         let project = self.publish_pseudonyms(project_id, expected_revision, reference)?;
         Ok(PseudonymAssignment { project, labels })
     }
@@ -441,6 +526,28 @@ fn check_revision(actual: u64, expected: u64) -> io::Result<()> {
 }
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+fn encoded_size(value: &(impl Serialize + ?Sized)) -> io::Result<usize> {
+    let mut counter = ByteCount(0);
+    serde_json::to_writer(&mut counter, value)
+        .map_err(|_| invalid("private mapping exceeds storage limit"))?;
+    Ok(counter.0)
+}
+
+struct ByteCount(usize);
+impl Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_add(bytes.len())
+            .filter(|size| *size <= MAX_BYTES)
+            .ok_or_else(|| invalid("private mapping exceeds storage limit"))?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 struct BoundedBytes(Vec<u8>);

@@ -732,6 +732,7 @@ fn context(text: &str) -> Fixture {
             project.revision,
             BundleOptions {
                 redact_candidates: true,
+                ..Default::default()
             },
             || false,
         )

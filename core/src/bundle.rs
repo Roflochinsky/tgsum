@@ -10,7 +10,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::project::{AnalysisInput, ProjectStore};
+use crate::infrastructure::{
+    InfrastructureCategory, InfrastructureDetector, InfrastructureFinding, InfrastructurePolicy,
+};
+use crate::project::{AnalysisInput, Project, ProjectStore};
+use crate::pseudonyms::{MappingDraft, MappingRef};
 use crate::sanitize::{sanitize, FindingAction, ReviewPolicy, SecretRule, RULES_VERSION};
 use crate::scope::{select_messages, DateRange, ScopeStats};
 use crate::snapshot::{CanonicalMessage, CoverageLevel, MessageKey};
@@ -23,9 +27,12 @@ const PREVIEW_BYTES: usize = 24 * 1024;
 const INDEX_LINE_BYTES: u64 = 4 * 1024 * 1024;
 const REVIEW_FINDINGS: usize = 20;
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct BundleOptions {
     pub redact_candidates: bool,
+    /// Private policy; names must never be copied into the public manifest.
+    #[serde(default)]
+    pub infrastructure: InfrastructurePolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +74,8 @@ pub struct BundleManifest {
     /// Opaque version binding, not a claim that any pseudonym detector ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pseudonym_mapping_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub infrastructure: Option<InfrastructureSummary>,
     pub sanitizer_version: String,
     pub destination: String,
     pub project_title: String,
@@ -76,6 +85,15 @@ pub struct BundleManifest {
     pub included_attachments: usize,
     pub privacy: PrivacySummary,
     pub files: Vec<BundleFile>,
+}
+
+/// Public execution metadata contains categories/counts, never configured names.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InfrastructureSummary {
+    pub rules_version: String,
+    pub categories: std::collections::BTreeSet<InfrastructureCategory>,
+    pub replacements: usize,
+    pub by_category: BTreeMap<InfrastructureCategory, usize>,
 }
 
 #[derive(Serialize)]
@@ -114,6 +132,8 @@ struct PrivateBundle {
     inputs: Vec<AnalysisInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pseudonyms: Option<crate::pseudonyms::MappingRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    infrastructure_policy: Option<InfrastructurePolicy>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -229,9 +249,7 @@ impl ProjectStore {
         check_revision(project.revision, expected_revision)?;
         check_cancel(&cancelled)?;
         let directory = self.directory(project_id)?;
-        if let Some(reference) = &project.pseudonyms {
-            self.load_pseudonyms(project_id, reference)?;
-        }
+        let mut scan = ScanReview::new(options, self, &project)?;
         let key = EvidenceKey::load_or_create(&directory)?;
         let drafts = private_dir(&directory.join("bundles"))?;
         let staging = tempfile::Builder::new()
@@ -250,6 +268,7 @@ impl ProjectStore {
         let mut manifest = BundleManifest {
             schema_version: 1,
             pseudonym_mapping_id: project.pseudonyms.as_ref().map(|r| r.id().to_owned()),
+            infrastructure: None,
             sanitizer_version: RULES_VERSION.into(),
             destination: "export_only".into(),
             project_title: String::new(),
@@ -260,7 +279,6 @@ impl ProjectStore {
             privacy: PrivacySummary::default(),
             files: Vec::new(),
         };
-        let mut scan = ScanReview::new(options);
         manifest.project_title = scan.clean(&project.name, "project_title", None)?;
         let mut output = MarkdownWriter::new(&public, project.settings.max_tokens);
         let mut inputs = Vec::new();
@@ -423,36 +441,59 @@ impl ProjectStore {
             return Err(invalid("no messages match the current selection"));
         }
         manifest.files = output.finish()?;
-        let omitted_findings = scan
-            .summary
-            .needs_review
-            .saturating_sub(scan.findings.len());
-        manifest.privacy = scan.summary;
         index.flush()?;
         index.get_ref().sync_all()?;
         drop(index);
+        check_cancel(&cancelled)?;
+        let privacy = scan.finish(self, &project)?;
+        let changed_mapping = privacy.reference != project.pseudonyms;
+        let reviewed_revision = if changed_mapping {
+            expected_revision
+                .checked_add(1)
+                .ok_or_else(|| invalid("project revision exhausted"))?
+        } else {
+            expected_revision
+        };
+        let omitted_findings = privacy
+            .summary
+            .needs_review
+            .saturating_sub(privacy.findings.len());
+        manifest.privacy = privacy.summary;
+        manifest.infrastructure = privacy.infrastructure;
+        manifest.pseudonym_mapping_id = privacy.reference.as_ref().map(|r| r.id().to_owned());
         write_json(&public.join("manifest.json"), &manifest)?;
         let private = PrivateBundle {
-            schema_version: 2,
+            schema_version: 3,
             project_id: project_id.into(),
-            project_revision: expected_revision,
+            project_revision: reviewed_revision,
             manifest_sha256: files::digest_file(&public.join("manifest.json"), &cancelled)?,
             index_sha256: files::digest_file(&staging.path().join("evidence.jsonl"), &cancelled)?,
             inputs,
-            pseudonyms: project.pseudonyms,
+            pseudonyms: privacy.reference.clone(),
+            infrastructure_policy: privacy.policy,
         };
         write_json(&staging.path().join("private.json"), &private)?;
-        check_cancel(&cancelled)?;
-        check_revision(self.open(project_id)?.revision, expected_revision)?;
         let (preview, preview_truncated) = files::preview(&public, &manifest.files, PREVIEW_BYTES)?;
+        // Nothing fallible follows a successful Project publication. Until this
+        // point, errors/cancellation discard the bundle and leave the pointer.
+        check_cancel(&cancelled)?;
+        if changed_mapping {
+            self.publish_pseudonyms(
+                project_id,
+                expected_revision,
+                privacy.reference.expect("changed mapping exists"),
+            )?;
+        } else {
+            check_revision(self.open(project_id)?.revision, expected_revision)?;
+        }
         let _retained = staging.keep();
         Ok(BundleReview {
             bundle_id,
-            project_revision: expected_revision,
+            project_revision: reviewed_revision,
             manifest,
             preview,
             preview_truncated,
-            findings: scan.findings,
+            findings: privacy.findings,
             omitted_findings,
         })
     }
@@ -591,7 +632,7 @@ impl ProjectStore {
         let directory = root.join(bundle_id);
         require_dir(&directory)?;
         let private: PrivateBundle = load_json(&directory.join("private.json"))?;
-        if !matches!(private.schema_version, 1..=2) || private.project_id != project_id {
+        if !matches!(private.schema_version, 1..=3) || private.project_id != project_id {
             return Err(invalid("private bundle identity/version mismatch"));
         }
         let project = self.read_revision(project_id, private.project_revision)?;
@@ -619,6 +660,29 @@ impl ProjectStore {
         if manifest.pseudonym_mapping_id.as_deref() != private.pseudonyms.as_ref().map(|r| r.id()) {
             return Err(invalid("bundle public mapping reference changed"));
         }
+        match (&private.infrastructure_policy, &manifest.infrastructure) {
+            (None, None) => {}
+            (Some(policy), Some(summary)) if private.schema_version >= 3 => {
+                InfrastructureDetector::new(policy.clone())?;
+                if summary.rules_version != "infrastructure/1"
+                    || policy.categories.is_empty()
+                    || summary.categories != policy.categories
+                    || summary
+                        .by_category
+                        .keys()
+                        .any(|c| !summary.categories.contains(c))
+                    || summary
+                        .by_category
+                        .values()
+                        .try_fold(0usize, |n, v| n.checked_add(*v))
+                        != Some(summary.replacements)
+                    || (summary.replacements > 0 && private.pseudonyms.is_none())
+                {
+                    return Err(invalid("bundle infrastructure metadata mismatch"));
+                }
+            }
+            _ => return Err(invalid("bundle infrastructure policy mismatch")),
+        }
         files::validate_files(&manifest.files)?;
         Ok((directory, private, manifest))
     }
@@ -628,11 +692,46 @@ struct ScanReview {
     policy: ReviewPolicy,
     summary: PrivacySummary,
     findings: Vec<ReviewFinding>,
+    infrastructure: Option<InfrastructureReview>,
+}
+
+struct InfrastructureReview {
+    policy: InfrastructurePolicy,
+    detector: InfrastructureDetector,
+    mapping: MappingDraft,
+    summary: InfrastructureSummary,
+}
+
+struct PreparedPrivacy {
+    summary: PrivacySummary,
+    findings: Vec<ReviewFinding>,
+    reference: Option<MappingRef>,
+    infrastructure: Option<InfrastructureSummary>,
+    policy: Option<InfrastructurePolicy>,
 }
 
 impl ScanReview {
-    fn new(options: BundleOptions) -> Self {
-        Self {
+    fn new(options: BundleOptions, store: &ProjectStore, project: &Project) -> io::Result<Self> {
+        let detector = InfrastructureDetector::new(options.infrastructure.clone())?;
+        let infrastructure = if options.infrastructure.categories.is_empty() {
+            if let Some(reference) = &project.pseudonyms {
+                store.load_pseudonyms(&project.project_id, reference)?;
+            }
+            None
+        } else {
+            Some(InfrastructureReview {
+                summary: InfrastructureSummary {
+                    rules_version: crate::infrastructure::RULES_VERSION.into(),
+                    categories: options.infrastructure.categories.clone(),
+                    replacements: 0,
+                    by_category: BTreeMap::new(),
+                },
+                policy: options.infrastructure,
+                detector,
+                mapping: store.draft_pseudonyms(project)?,
+            })
+        };
+        Ok(Self {
             policy: if options.redact_candidates {
                 ReviewPolicy::RedactCandidates
             } else {
@@ -640,7 +739,28 @@ impl ScanReview {
             },
             summary: PrivacySummary::default(),
             findings: Vec::new(),
-        }
+            infrastructure,
+        })
+    }
+
+    fn finish(self, store: &ProjectStore, project: &Project) -> io::Result<PreparedPrivacy> {
+        let (reference, infrastructure, policy) = if let Some(infrastructure) = self.infrastructure
+        {
+            (
+                store.stage_pseudonyms(infrastructure.mapping)?,
+                Some(infrastructure.summary),
+                Some(infrastructure.policy),
+            )
+        } else {
+            (project.pseudonyms.clone(), None, None)
+        };
+        Ok(PreparedPrivacy {
+            summary: self.summary,
+            findings: self.findings,
+            reference,
+            infrastructure,
+            policy,
+        })
     }
 
     fn clean(
@@ -652,6 +772,23 @@ impl ScanReview {
         let result = sanitize(value, self.policy)?;
         self.summary.redacted += result.report.redacted;
         self.summary.needs_review += result.report.needs_review;
+        let mut text = result.text;
+        let mut shifts = Vec::new();
+        if let Some(infrastructure) = &mut self.infrastructure {
+            let scan = infrastructure.detector.scan(&text)?;
+            infrastructure.mapping.allocate(&scan.inputs())?;
+            let output = scan.apply(infrastructure.mapping.mapping())?;
+            for finding in &output.findings {
+                infrastructure.summary.replacements += 1;
+                *infrastructure
+                    .summary
+                    .by_category
+                    .entry(finding.category)
+                    .or_default() += 1;
+            }
+            text = output.text;
+            shifts = output.findings;
+        }
         for finding in result
             .report
             .findings
@@ -663,15 +800,16 @@ impl ScanReview {
             }
             // Slice sanitized UTF-8, never the raw input, so nearby high-confidence
             // values stay hidden. Bound both the number and size of excerpts.
-            let start = result.text[..finding.output.start]
+            let position = transformed_position(&shifts, finding.output.start);
+            let start = text[..position]
                 .char_indices()
                 .rev()
                 .nth(48)
                 .map_or(0, |(i, _)| i);
-            let end = result.text[finding.output.start..]
+            let end = text[position..]
                 .char_indices()
                 .nth(200)
-                .map_or(result.text.len(), |(i, _)| finding.output.start + i);
+                .map_or(text.len(), |(i, _)| position + i);
             self.findings.push(ReviewFinding {
                 field,
                 rule: finding.rule,
@@ -679,12 +817,25 @@ impl ScanReview {
                 excerpt: format!(
                     "{}{}{}",
                     if start > 0 { "…" } else { "" },
-                    &result.text[start..end],
-                    if end < result.text.len() { "…" } else { "" }
+                    &text[start..end],
+                    if end < text.len() { "…" } else { "" }
                 ),
             });
         }
-        Ok(result.text)
+        Ok(text)
+    }
+}
+
+fn transformed_position(findings: &[InfrastructureFinding], original: usize) -> usize {
+    let index = findings.partition_point(|f| f.input.end <= original);
+    if let Some(finding) = findings.get(index).filter(|f| f.input.start <= original) {
+        return finding.output.start;
+    }
+    if index == 0 {
+        original
+    } else {
+        let preceding = &findings[index - 1];
+        preceding.output.end + (original - preceding.input.end)
     }
 }
 

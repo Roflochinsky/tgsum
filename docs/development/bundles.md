@@ -23,6 +23,12 @@ Tauri exposes the first two as `prepare_project_bundle` and
 `export_project_bundle`. Arguments use camelCase; results use snake_case.
 `BundleOptions.redact_candidates` selects whether medium-confidence findings
 are retained for local review or hidden alongside high-confidence findings.
+`BundleOptions.infrastructure` selects optional, independent infrastructure
+categories and private names; see [infrastructure](infrastructure.md). Secrets
+run first. New mapping entries/aliases publish one Project revision at the end
+of successful preparation. Always use the returned `project_revision` for
+export/analysis, reloading Project state when it changes. No-op preparation
+does not advance the revision. The desktop preset UI is a separate task.
 
 Preparation rejects missing snapshots, scope mismatches, an empty selection,
 cancellation and concurrent Project edits. Export requires the same reviewed
@@ -50,15 +56,18 @@ Only `context`'s manifest and its named Markdown files are exported. The private
 index, key, configuration, native identifiers, raw paths, exporter provenance,
 credentials references and unselected message contents are excluded by schema.
 Text fields such as project/source titles, names, timestamps, service metadata
-and message bodies pass through the minimum sanitizer before emission.
+and message bodies pass through secrets and selected infrastructure rules before
+emission.
 
 The public manifest records sanitized titles, opaque source IDs, coverage level,
 gap counts, selected date ranges/topic counts, scope/diff counts, sanitizer
 version, privacy counts and file sizes/SHA-256 digests. An optional
 `pseudonym_mapping_id` binds an opaque mapping version; identities, aliases and
 the plaintext map digest remain private. This field does not claim that any
-pseudonym detector ran. Private bundle schema 2 pins the full mapping reference;
-schema 1 remains readable without one. It explicitly identifies
+pseudonym detector ran. An optional `infrastructure` summary records actual rules
+version, selected categories and replacement counts, never configured names.
+Private bundle schema 3 pins the full mapping reference and private policy;
+schemas 1–2 remain readable without inventing policy or mapping. The manifest explicitly identifies
 `export_only` as the destination. Coverage never becomes complete merely because
 all selected records were written.
 
@@ -106,15 +115,17 @@ counts and the local-folder recipient. Selected topic counts, changes-only mode,
 date basis and included unknown dates remain visible. It states the scanner's limited coverage.
 See [sanitization](sanitization.md): absence of findings does not prove anonymity
 or absence of credentials. Expanded secret rules are `secrets/2` and private
-mapping persistence is implemented. PII/infrastructure/custom-term detectors
-and their preset controls remain subsequent tasks in the Privacy epic.
+mapping persistence is implemented. Optional infrastructure rules are connected
+to the backend pipeline. PII/custom-term detectors and preset controls remain
+subsequent tasks in the Privacy epic.
 
 ## Filesystem and resource behavior
 
 - Private JSON manifests are bounded to 4 MiB; index lines to 4 MiB. Individual
   text fields use the scanner's 16 MiB limit. Oversized data fails explicitly.
 - Processing holds the current and optional baseline conversation in memory,
-  plus selected references. It is not a constant-memory message-store reader.
+  plus selected references and a bounded mapping draft when enabled. It is not
+  a constant-memory message-store reader.
 - Markdown splits at message boundaries with the existing estimated **soft**
   token budget. An oversized single message remains whole; no hard tokenizer
   limit is promised. Text is scanned before splitting; CR/CRLF lines are quoted.
@@ -130,6 +141,11 @@ and their preset controls remain subsequent tasks in the Privacy epic.
   hostile concurrent writes by another process with the same user's privileges.
 - Drafts remain private on disk, including unresolved medium candidates.
   Retention/cleanup belongs to `tgsum-6gf.4`; no automatic purge is implemented.
+- Mapping publication is the final preparation CAS after bundle files and preview
+  are ready. Cancellation or a concurrent Project edit discards the bundle but
+  can leave an unreferenced immutable map. An I/O failure during publication may
+  occur after the revision is visible; reread Project state rather than assuming
+  rollback. Preparation never advances successful-analysis baselines.
 
 Markdown quotation indicates source provenance. It cannot prevent prompt
 injection by itself. Agent isolation and output validation belong to the runner.

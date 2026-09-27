@@ -1,10 +1,11 @@
 # Private Project pseudonyms
 
 Implemented storage contract for `tgsum-af2.5`, 2026-09-27. The core can allocate,
-retain, resolve and reset labels. Infrastructure/PII/custom-term detectors and
-Privacy preset/reset controls are subsequent Privacy tasks. Creating a mapping
-does not by itself replace strings in prepared Markdown. Legacy one-shot export
-is unchanged.
+retain, resolve and reset labels. Infrastructure rules now use this mapping
+during opted-in bundle preparation; see [infrastructure](infrastructure.md).
+PII/custom-term detectors and Privacy preset/reset controls are subsequent
+Privacy tasks. Creating a mapping alone does not replace strings: replacement
+requires an enabled detector. Legacy one-shot export is unchanged.
 
 ## Interface and identity
 
@@ -47,7 +48,7 @@ projects/project-.../
   pseudonyms/
     map-<128-bit random ID>.json       # immutable full mapping generation
   bundles/bundle-.../
-    private.json                      # schema 2, exact MappingRef
+    private.json                      # schema 3, exact MappingRef + private policy
     context/manifest.json             # optional opaque pseudonym_mapping_id
 ```
 
@@ -83,7 +84,8 @@ become stale, while saved results retain their bundle/version and evidence.
 
 Project schemas 1–3 load without a mapping and migrate in memory to schema 4;
 the next write creates a separate revision. Original bytes remain unchanged.
-Private bundle schema 1 remains readable without inventing a mapping. Unknown
+Private bundle schemas 1–2 remain readable without inventing a mapping or
+infrastructure policy. Unknown
 versions are rejected. Older apps that accept only Project schemas through 3
 must reject a schema 4 project instead of dropping its mapping on write.
 
@@ -104,6 +106,12 @@ bounded and digest-checked; owner, IDs, epoch, generation, category labels and
 entry uniqueness are validated. Symlink substitutions detected at inspection
 are rejected. New Unix directories/files use `0700`/`0600`; other OSes rely on
 the application-data directory's access controls.
+
+Bundle preparation uses a private mapping draft across fields. It checks the
+aggregate serialized size, alias and entry limits on each allocation without
+serializing/writing a new file per field. A failed allocation poisons the draft;
+partial state cannot be staged. Only one immutable map is staged when the entire
+scan succeeds, and the Project CAS follows bundle and preview completion.
 
 Mapping data is plaintext private data. Pseudonyms do not guarantee anonymity
 or encrypt the Project. Memory is bounded by these budgets but holds the full
