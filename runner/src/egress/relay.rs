@@ -14,24 +14,82 @@ use super::{transport, Failure, Limits, Stop, SOCKET_PATH};
 use crate::Cancellation;
 
 pub const RELAY_VERSION: &str = "tgsum-codex-relay 1";
+pub const CLAUDE_RELAY_VERSION: &str = "tgsum-claude-relay 1";
+
+#[derive(Clone, Copy)]
+enum Agent {
+    Codex,
+    Claude,
+}
+impl Agent {
+    fn executable(self) -> &'static str {
+        match self {
+            Self::Codex => "/runtime/codex",
+            Self::Claude => "/runtime/claude",
+        }
+    }
+    fn home(self) -> &'static str {
+        match self {
+            Self::Codex => "/home/agent/.codex",
+            Self::Claude => "/home/agent/.claude",
+        }
+    }
+    fn environment(self, command: &mut Command) {
+        let config = match self {
+            Self::Codex => "CODEX_HOME",
+            Self::Claude => "CLAUDE_CONFIG_DIR",
+        };
+        command.env(config, self.home());
+        if let Self::Claude = self {
+            for (key, value) in crate::claude::RUNTIME_ENV {
+                command.env(key, value);
+            }
+        }
+    }
+}
 
 /// Launcher entry point, not a host-side adapter interface. Fixed child and
 /// socket paths; no inherited auth/endpoint/proxy/config environment.
 pub fn codex_relay(args: Vec<OsString>) -> Result<i32, &'static str> {
+    relay(Agent::Codex, args)
+}
+
+/// Fixed Claude launcher. This transport primitive alone does not qualify
+/// managed policy, account support, or authorize a public cloud Run.
+pub fn claude_relay(args: Vec<OsString>) -> Result<i32, &'static str> {
+    relay(Agent::Claude, args)
+}
+
+fn relay(agent: Agent, args: Vec<OsString>) -> Result<i32, &'static str> {
     if args == ["--version"] {
-        println!("{RELAY_VERSION}");
-        let status = Command::new("/runtime/codex")
-            .env_clear()
+        println!(
+            "{}",
+            match agent {
+                Agent::Codex => RELAY_VERSION,
+                Agent::Claude => CLAUDE_RELAY_VERSION,
+            }
+        );
+        let mut command = Command::new(agent.executable());
+        command.env_clear();
+        if let Agent::Claude = agent {
+            command
+                .env("HOME", "/home/agent")
+                .env("TMPDIR", "/tmp")
+                .env("PATH", "/runtime")
+                .env("LANG", "C");
+            agent.environment(&mut command);
+        }
+        let status = command
             .arg("--version")
             // The version runner supplies an empty pipe; /dev is not mounted.
             .status()
-            .map_err(|_| "Codex version probe failed")?;
+            .map_err(|_| "Agent version probe failed")?;
         return Ok(status.code().unwrap_or(125));
     }
     if !Path::new(SOCKET_PATH).exists() {
         return Err("gateway socket is absent");
     }
-    std::fs::create_dir_all("/home/agent/.codex").map_err(|_| "private Codex home setup failed")?;
+    std::fs::create_dir_all(agent.home()).map_err(|_| "private agent home setup failed")?;
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|_| "relay bind failed")?;
     listener
         .set_nonblocking(true)
@@ -55,32 +113,36 @@ pub fn codex_relay(args: Vec<OsString>) -> Result<i32, &'static str> {
     };
     let total = Arc::new(AtomicU64::new(0));
     let mut workers: Vec<JoinHandle<Result<(), Failure>>> = Vec::new();
-    let mut command = Command::new("/runtime/codex");
+    let mut command = Command::new(agent.executable());
     command
         .env_clear()
         .current_dir("/context")
         .args(args)
         .env("HOME", "/home/agent")
-        .env("CODEX_HOME", "/home/agent/.codex")
         .env("TMPDIR", "/tmp")
         .env("PATH", "/runtime")
         .env("LANG", "C")
         .env("PWD", "/context")
         .env("NO_PROXY", "")
         .env("no_proxy", "");
+    agent.environment(&mut command);
     for name in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
         command.env(name, &proxy);
     }
     // A separately staged public trust bundle. No host CA/env discovery here.
     if Path::new("/runtime/provider-ca.pem").is_file() {
-        command.env("CODEX_CA_CERTIFICATE", "/runtime/provider-ca.pem");
+        let variable = match agent {
+            Agent::Codex => "CODEX_CA_CERTIFICATE",
+            Agent::Claude => "NODE_EXTRA_CA_CERTS",
+        };
+        command.env(variable, "/runtime/provider-ca.pem");
     }
-    let mut child = command.spawn().map_err(|_| "Codex launch failed")?;
+    let mut child = command.spawn().map_err(|_| "Agent launch failed")?;
     let mut accepted = 0;
     let result = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status.code().unwrap_or(125)),
-            Err(_) => break Err("Codex wait failed"),
+            Err(_) => break Err("Agent wait failed"),
             _ => {}
         }
         if stop.check().is_err() {

@@ -86,8 +86,22 @@ impl Backend {
             LINUX_OFFLINE_PROC_PROFILE
                 | crate::codex::LINUX_EGRESS_PROFILE
                 | crate::claude::LINUX_OFFLINE_PROFILE
+                | crate::claude::LINUX_EGRESS_PROFILE
         );
-        backend.claude_runtime = contract.isolation_profile == crate::claude::LINUX_OFFLINE_PROFILE;
+        backend.claude_runtime = matches!(
+            contract.isolation_profile.as_str(),
+            crate::claude::LINUX_OFFLINE_PROFILE | crate::claude::LINUX_EGRESS_PROFILE
+        );
+        if contract.isolation_profile == crate::claude::LINUX_EGRESS_PROFILE {
+            // Qualification-only network profile: this added restriction is
+            // NOT inheritance of an organization's original managed settings.
+            let policy = backend._staging.path().join("claude-policy");
+            fs::write(&policy, b"{\"forceRemoteSettingsRefresh\":true}")?;
+            fs::set_permissions(&policy, fs::Permissions::from_mode(0o400))?;
+            backend
+                .mounts
+                .push((policy, "/etc/claude-code/managed-settings.json".into()));
+        }
         let empty = tempfile::tempdir()?;
         let output = backend.run(
             empty.path(),
@@ -296,7 +310,8 @@ impl Backend {
         if self.claude_runtime {
             // Bun 1.4.3 in Claude 2.1.280 aborts without /dev/urandom. Bind
             // only these two character devices, never the host /dev tree.
-            // This opt-in profile retains the private offline network/PIDs.
+            // Both profiles retain private network/PIDs. Egress is possible
+            // only through an explicitly mounted gateway socket.
             command.args([
                 "--dev-bind",
                 "/dev/null",
@@ -304,19 +319,10 @@ impl Backend {
                 "--dev-bind",
                 "/dev/urandom",
                 "/dev/urandom",
-                "--setenv",
-                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-                "1",
-                "--setenv",
-                "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
-                "1",
-                "--setenv",
-                "ENABLE_CLAUDEAI_MCP_SERVERS",
-                "false",
-                "--setenv",
-                "CLAUDE_CODE_MAX_RETRIES",
-                "0",
             ]);
+            for (key, value) in crate::claude::RUNTIME_ENV {
+                command.args(["--setenv", key, value]);
+            }
         }
         command.arg("--ro-bind").arg(context).arg("/context");
         command.args([

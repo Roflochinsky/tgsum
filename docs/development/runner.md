@@ -17,7 +17,8 @@ credentials. Исходный offline контракт описан ниже. Н
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).
 
 Для Claude 2.1.280 добавлены [offline protocol и отдельный профиль](claude-adapter.md);
-его auth/egress и UI Run пока не реализованы.
+выбранный offline auth и synthetic HTTPS transport проверены. Public cloud runner,
+исходная managed policy и UI Run пока не подключены.
 
 ## Контракт
 
@@ -78,12 +79,12 @@ Host procfs не монтируется. Первый профиль по-пре
 | `/runtime/agent` и перечисленные runtime-файлы | Read-only отдельные копии, проверенные до передачи context |
 | `/home/agent`, `/tmp` | Пустые отдельные tmpfs для каждого запуска, по 64 MiB |
 | Host HOME, Project store, исходные exports, connector secrets | Не монтируются |
-| Явно выбранный Codex `auth.json` | Только `run_codex_with_auth`: один read-only файл, offline |
+| Явно выбранный agent auth | `run_codex_with_auth` / `run_claude_with_auth`: один read-only файл в соответствующем offline profile |
 | Host `/proc`, `/sys`, `/run`, sockets | Не монтируются |
 | `/dev/null`, `/dev/urandom` | Только `claude-offline-v1`, два device bind; другие host devices отсутствуют |
 | Собственный `/proc` | Явные `offline-proc-v1` и `claude-offline-v1`, read-only, процессы private PID namespace |
 | Сеть | Отдельный namespace, доступа к host loopback/сокетам нет |
-| Окружение | HOME, TMPDIR, PATH, LANG и PWD; при auth-mount фиксированный CODEX_HOME; Claude profile добавляет четыре фиксированных переменных, перечисленных в его контракте; env_clear также у helper |
+| Окружение | HOME, TMPDIR, PATH, LANG и PWD; при auth-mount фиксированный CODEX_HOME либо CLAUDE_CONFIG_DIR; Claude profile добавляет четыре фиксированных переменных, перечисленных в его контракте; env_clear также у helper |
 | Дополнительные FD | CLOEXEC на FD > 2; единственный auth O_PATH fd передаётся helper для монтажа и закрывается до payload |
 
 Root filesystem read-only, capabilities сброшены, новые user namespaces
@@ -194,7 +195,7 @@ cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored
 - Core manifest пока содержит `destination: export_only`. Подготовленный здесь
   context сам по себе не разрешает отправку. Codex managed adapter связывает
   отдельный Run ticket с фактическим получателем и Review; Claude пока имеет
-  только offline protocol.
+  offline protocol/auth и synthetic HTTPS qualification без public cloud Run.
 
 Полные agent/OS adversarial suites и проверка настоящих integrations остаются
 `tgsum-hzm.12` и `tgsum-t8t.19/.20`. Реальные аккаунты требуют контроля пользователя.

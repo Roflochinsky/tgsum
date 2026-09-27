@@ -230,23 +230,25 @@ fn gateway_failures_cannot_be_hidden_by_valid_json_and_exit_zero() {
 
 #[test]
 fn offline_runner_rejects_network_profile_before_opening_runtime() {
-    let result = crate::OfflineRunner::qualify(
-        AdapterContract {
-            id: "codex".into(),
-            isolation_profile: LINUX_EGRESS_PROFILE.into(),
-            version_probe: super::super::version_probe(),
-            expected_version_output: VERSION_STDOUT.into(),
-        },
-        RuntimeSpec {
-            executable: "/nonexistent-runtime".into(),
-            files: vec![],
-        },
-        &Cancellation::default(),
-    );
-    assert!(matches!(
-        result,
-        Err(RunnerError::ExportOnly("unknown isolation profile"))
-    ));
+    for profile in [LINUX_EGRESS_PROFILE, crate::claude::LINUX_EGRESS_PROFILE] {
+        let result = crate::OfflineRunner::qualify(
+            AdapterContract {
+                id: "codex".into(),
+                isolation_profile: profile.into(),
+                version_probe: super::super::version_probe(),
+                expected_version_output: VERSION_STDOUT.into(),
+            },
+            RuntimeSpec {
+                executable: "/nonexistent-runtime".into(),
+                files: vec![],
+            },
+            &Cancellation::default(),
+        );
+        assert!(matches!(
+            result,
+            Err(RunnerError::ExportOnly("unknown isolation profile"))
+        ));
+    }
 }
 
 fn sse(answer: &str) -> String {

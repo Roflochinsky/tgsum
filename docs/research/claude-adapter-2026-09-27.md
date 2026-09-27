@@ -251,7 +251,9 @@ canned 401 штатно завершает CLI с exit 1, decoder отверга
 процессы, произвольные устройства и environment остаются вне namespace.
 Подробности/команды: [контракт реализации](../development/claude-adapter.md).
 
-Не квалифицированы subscription OAuth, read-only auth capability, TLS/proxy/refresh
-контракт, egress destinations, enterprise managed policy, persisted result/baseline
-flow и UI для Claude. Эти части остаются работой `tgsum-hzm.8`; реальные аккаунты
-и OS-проверки остаются backlog `tgsum-t8t.19`. Статус messenger connectors не повышен.
+Продолжение: [auth/egress research и runtime evidence](claude-auth-egress-2026-09-27.md).
+После этого offline среза добавлены выбранный read-only auth и synthetic HTTPS
+qualification на default hostname. Реальный subscription/refresh lifecycle,
+исходная enterprise managed policy, persisted result/baseline и UI остаются
+работой `tgsum-hzm.8`; реальные аккаунты и OS-проверки — backlog `tgsum-t8t.19`.
+Статус messenger connectors не повышен.

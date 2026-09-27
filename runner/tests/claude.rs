@@ -124,6 +124,19 @@ fn native_transcript_requires_structured_output_and_local_evidence_validation() 
     assert_eq!(claude::version_probe().args, ["--version"]);
 }
 #[test]
+fn feedback_policy_metadata_does_not_claim_that_feedback_was_sent() {
+    for flag in [true, false] {
+        let mut events = records();
+        events[0]["product_feedback_disabled"] = json!(flag);
+        decode(&stream(&events)).unwrap();
+    }
+    for invalid in [Value::Null, json!("false"), json!(0)] {
+        let mut events = records();
+        events[0]["product_feedback_disabled"] = invalid;
+        assert!(decode(&stream(&events)).is_err());
+    }
+}
+#[test]
 fn process_failure_wins_over_a_valid_early_result() {
     for termination in [
         Termination::Cancelled,

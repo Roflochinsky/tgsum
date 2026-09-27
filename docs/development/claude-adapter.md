@@ -1,11 +1,12 @@
-# Claude Code: offline protocol и проверка результата
+# Claude Code: protocol, выбранный auth и TLS qualification
 
 Срез `tgsum-hzm.8`, CLI **2.1.280**, Linux x86_64.
 [Первичные источники и ограничения](../research/claude-adapter-2026-09-27.md).
 Реализованы `tgsum_runner::claude::{ClaudeRequest, RecipeRequest, decode}` и
-отдельный offline профиль с явным выбором одного auth-файла. **HTTPS gateway,
-managed lifecycle и Desktop Run пока не подключены.** Этот срез не подтверждает
-облачный запуск. [Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md).
+отдельный offline профиль с явным выбором одного auth-файла. Fixed HTTPS relay и
+внутренний network profile проверены на synthetic TLS peer. **Public cloud runner,
+наследование исходной managed policy, managed lifecycle и Desktop Run пока не
+подключены.** [Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md).
 
 ## Запрос
 
@@ -65,8 +66,42 @@ Claude offline profile. Один файл монтируется read-only в pr
 
 Это capability выбранного файла, не проверка входа. `O_PATH` закрепляет inode,
 но не защищает от одновременной записи в него на host. Read-only mount не запрещает
-серверную ротацию токена; сеть в этом профиле изолирована. Сохранение managed policy,
-default-hostname HTTPS, expiry/revoke и refresh требуют следующих срезов.
+серверную ротацию токена; сеть в этом профиле изолирована. Сохранение исходной managed
+policy и поддержка реального refresh требуют следующих срезов; результаты synthetic
+HTTPS qualification приведены ниже.
+
+## HTTPS: внутренний профиль квалификации
+
+`tgsum-claude-relay` запускает только `/runtime/claude` с очищенным env, private
+HOME, фиксированными proxy variables, пустым NO_PROXY и необязательным публичным
+CA через `NODE_EXTRA_CA_CERTS`. Auth берётся из выбранного read-only файла. Gateway
+пропускает CONNECT и TLS SNI только для `api.anthropic.com:443`. Refresh/revoke
+host `platform.claude.com` запрещён. На разрешённом host есть не только inference,
+но и metadata/policy: TLS pass-through не различает HTTP paths.
+
+Внутренний `linux-x86_64-bwrap-claude-egress-v1` используется только тестами.
+`OfflineRunner` его отклоняет; public `ClaudeNetworkRunner` ещё нет. Профиль
+содержит постоянный managed file с `forceRemoteSettingsRefresh:true`. Это
+добавочное ограничение для проверки startup, **не перенос исходной host policy**.
+
+Native CLI проверен с TLS peer, SAN `api.anthropic.com`, synthetic OAuth и без
+`ANTHROPIC_BASE_URL`. Проверены 13 сценариев в трёх suites:
+
+- Pro success; Team settings 200/204/404, затем policy_limits и Messages.
+- Settings 403, 304 без cache и 200 с `requiredMinimumVersion:99.0.0`: штатный
+  exit 1, **ни одного Messages**.
+- Неверный CA, другой receiver, HTTP 401, expired token, cancel и timeout.
+
+На expired token native CLI пытается refresh через запрещённый host, но затем
+может получить canned Messages result и выйти с 0. `NetworkOutput::decode`
+проверяет процесс, затем gateway failures/наличие transport, затем protocol и
+еvidence validator. Поэтому такой результат отклоняется. Полный refresh lifecycle
+не реализован; реальный токен не обновлялся.
+
+`policy_limits` — отдельный endpoint от managed settings. Synthetic reply имеет
+пустые `restrictions`/`compliance_taints`; это не доказательство поддержки настоящей
+организации. Перед публичным Run остаются исходная endpoint policy, все её
+требования/совместимость и binding Review/result/baseline.
 
 ## Результат
 
@@ -87,11 +122,16 @@ EOF + exit 0
 числу пользовательских запросов: в записанном успешном transcript значение 2.
 
 Decoder проверяет версию, cwd, точный model ID, dontAsk, отсутствие MCP/plugins/
-skills/slash commands, отключённые analytics/feedback, единственный StructuredOutput
+skills/slash commands, отключённые analytics, единственный StructuredOutput
 и его подтверждение. Принятый `structured_output` должен совпадать с его input;
 строка `result` не используется как результат анализа. `success + is_error:true`,
 permission denials, subagents, server tools, очередь следующего turn или другая
 модель не принимаются. Невалидный exit/timeout/cancel имеет приоритет над JSON.
+
+`product_feedback_disabled` проверяется как boolean: это metadata об организационной
+политике, а не факт отправки feedback. При пустой policy_limits restriction он false
+даже с отключёнными nonessential traffic и slash commands. Отдельная regression
+fixture воспроизводит этот случай; analytics по-прежнему требуется disabled.
 
 Все JSON objects проверяются на повторные ключи **до** перехода к `Value`,
 включая вложенный результат. Затем выполняются typed deserialize и обязательный
@@ -112,6 +152,16 @@ TGSUM_CLAUDE_TEST_BINARY=/absolute/path/to/native/claude \
   cargo test -p tgsum-runner --all-features --locked --test claude installed_cli -- --ignored --nocapture
 cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored --nocapture
 bash scripts/check.sh
+```
+
+Для HTTPS suites сначала собрать fixture binaries, затем передать точные пути:
+
+```sh
+cargo build -p tgsum-runner --all-features --bins --locked
+TGSUM_CLAUDE_TEST_BINARY=/absolute/path/to/native/claude \
+TGSUM_CLAUDE_RELAY_TEST_BINARY="$PWD/target/debug/tgsum-claude-relay" \
+TGSUM_CLAUDE_HTTPS_FIXTURE_BINARY="$PWD/target/debug/tgsum-claude-https-fixture" \
+  cargo test -p tgsum-runner --all-features --locked --lib installed_claude_https -- --ignored --nocapture
 ```
 
 Последняя process fixture запускает **реальный executable с вымышленным ключом**

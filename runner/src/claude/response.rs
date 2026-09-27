@@ -170,7 +170,10 @@ fn init(v: &Value, model: &str) -> bool {
             .all(|k| empty_array(&v[k]))
         && v["agents"] == serde_json::json!(["claude", "Explore", "general-purpose", "Plan"])
         && v["analytics_disabled"] == true
-        && v["product_feedback_disabled"] == true
+        // This is org policy metadata (allow_product_feedback), not a claim
+        // that feedback ran. Reviewed traffic env + empty tools/slash commands
+        // disable the action; an unrestricted Team policy legitimately says false.
+        && v["product_feedback_disabled"].is_boolean()
         && v["fast_mode_state"] == "off"
         && matches!(
             v["apiKeySource"].as_str(),

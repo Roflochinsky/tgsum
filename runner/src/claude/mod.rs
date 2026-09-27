@@ -1,9 +1,15 @@
 //! Reviewed Claude Code print protocol. Preparation/decoding and the offline
-//! runtime do not authorize inference or reuse a user's login. No Claude auth
-//! or network profile is qualified yet; the desktop remains Export only.
+//! runtime do not authorize inference. Selected auth is qualified offline;
+//! the desktop remains Export only until network/lifecycle qualification.
 
 #[cfg(target_os = "linux")]
 pub(crate) mod auth;
+#[cfg(target_os = "linux")]
+mod network;
+#[cfg(target_os = "linux")]
+pub use network::{NetworkDecodeError, NetworkOutput};
+#[cfg(all(test, target_os = "linux"))]
+mod network_tests;
 mod recipe;
 mod request;
 mod response;
@@ -21,8 +27,18 @@ use std::fmt;
 pub const VERSION: &str = "2.1.280";
 pub const VERSION_STDOUT: &[u8] = b"2.1.280 (Claude Code)\n";
 /// Private read-only procfs, only null/urandom devices, empty HOME and fixed
-/// traffic-disable variables. No auth mounts, host network, shell or settings.
+/// traffic-disable variables. Optional selected auth; no host network/shell/settings.
 pub const LINUX_OFFLINE_PROFILE: &str = "linux-x86_64-bwrap-claude-offline-v1";
+// Internal qualification profile; no public ClaudeNetworkRunner yet.
+#[cfg(target_os = "linux")]
+pub(crate) const LINUX_EGRESS_PROFILE: &str = "linux-x86_64-bwrap-claude-egress-v1";
+#[cfg(target_os = "linux")]
+pub(crate) const RUNTIME_ENV: [(&str, &str); 4] = [
+    ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
+    ("CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL", "1"),
+    ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
+    ("CLAUDE_CODE_MAX_RETRIES", "0"),
+];
 pub const MAX_INPUT_BYTES: usize = 1024 * 1024;
 pub const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_EVENT_BYTES: usize = 2 * 1024 * 1024;

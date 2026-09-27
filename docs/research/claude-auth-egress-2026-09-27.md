@@ -223,3 +223,57 @@ read-only mount, отсутствие mount FD в payload и отказ при �
 задаёт `ANTHROPIC_BASE_URL` на private HTTP loopback, поэтому не проверяет
 HTTPS/proxy/default-host policy eligibility/refresh/реальную подписку. Для этих
 свойств остаются проверки из таблицы выше; облачная поддержка не объявлена.
+
+## Следующий срез: native default-hostname HTTPS
+
+`runner/src/claude/network_tests.rs` и `runner/tests/support/claude_https.rs`
+проверяют production relay с native **2.1.280**, выбранным synthetic auth и
+локальным TLS peer. SAN равен `api.anthropic.com`; используется только явный
+test CA через `NODE_EXTRA_CA_CERTS`. `ANTHROPIC_BASE_URL`/API key/token env
+отсутствуют. DNS override существует только у `#[cfg(test)]` gateway. Host loopback
+недоступен payload напрямую; auth и mount FD проверки проходят.
+
+| Fixture | Наблюдение native CLI |
+| --- | --- |
+| Fresh Pro | Один Messages, validated structured result, clean gateway |
+| Team settings 200 | Settings → policy_limits → Messages, result принят |
+| Team settings 204/404 | Такой же порядок; policy отсутствует, result принят |
+| Settings 403/304 без cache | Exit 1, ни одного Messages |
+| Settings 200, requiredMinimumVersion 99.0.0 | Exit 1 до Messages: remote constraint применён |
+| Wrong CA / receiver | Запуск завершается ошибкой, inference peer не получает HTTP Messages |
+| Messages 401 | Один Messages, exit 1 |
+| Expired token | Два запрещённых CONNECT, затем один canned Messages и exit 0; TGSUM отклоняет по gateway report |
+| Cancel / timeout | Соответствующая termination, gateway/namespace очищены |
+
+Это **13 сценариев в трёх ignored suites**, запущенных явно. Ошибка forbidden
+refresh имеет приоритет над успешным JSON/exit; это проверено через
+`NetworkOutput::decode`. Refresh/revoke destination остаётся запрещённым, host
+auth не меняется, sentinel credentials отсутствуют в stdout/stderr.
+
+Профиль добавляет read-only `forceRemoteSettingsRefresh:true` в Linux managed
+file. Проверки выше доказывают применимость этого ограничения к synthetic Team
+startup; исходная host policy и настоящая организационная среда не переносились.
+Public cloud runner/lifecycle/UI пока не добавлены. В частности, policy helpers,
+managed hooks, локальные admin restrictions и замена модели требуют собственного
+контракта до Run. Описанная в docs
+[область model restrictions](https://code.claude.com/docs/en/model-config#restrict-model-selection)
+не заменяет native квалификацию именно выбранной версии.
+
+### Два уточнения по публичному артефакту и runtime
+
+- Обнаружен `GET /api/claude_code/policy_limits`, отдельно от `/settings`.
+  В том же публичном SHA путь находится по offset **191932502**; parser около
+  **193693343** принимает `restrictions`, `compliance_taints`, `monitoring_notice`,
+  `defaults`. Canned peer возвращает пустые ограничения. Нельзя обобщать эту
+  fixture на все организационные правила.
+- Schema comment около **192440274** описывает `product_feedback_disabled` как
+  состояние организационного `allow_product_feedback`. При пустых restrictions
+  native init содержит `false`, хотя analytics disabled и nonessential traffic
+  выключен. Поле не означает факт отправки feedback. Decoder теперь требует
+  boolean вместо обязательного true; env/tool/slash restrictions сохранены.
+  Отдельный regression-тест падал до исправления.
+
+Первые эксперименты не засчитаны: неполный runtime manifest не прошёл version
+probe; первая Team fixture не знала `/policy_limits`; затем обнаружилось неверное
+предположение decoder о feedback metadata. После исправления причин все сценарии
+повторены. Реальных аккаунтов и обращений к провайдеру не было.

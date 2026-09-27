@@ -23,19 +23,21 @@ use std::time::{Duration, Instant};
 
 use crate::{Cancellation, RunnerError};
 
-pub use relay::{codex_relay, RELAY_VERSION};
+pub use relay::{claude_relay, codex_relay, CLAUDE_RELAY_VERSION, RELAY_VERSION};
 pub(crate) const SOCKET_PATH: &str = "/gateway/proxy.sock";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
     OpenAiApi,
     ChatGpt,
+    Anthropic,
 }
 impl Destination {
     pub fn host(self) -> &'static str {
         match self {
             Self::OpenAiApi => "api.openai.com",
             Self::ChatGpt => "chatgpt.com",
+            Self::Anthropic => "api.anthropic.com",
         }
     }
 }

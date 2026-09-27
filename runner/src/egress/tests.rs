@@ -60,8 +60,26 @@ fn begin(client: &mut UnixStream) {
 
 #[test]
 fn authority_headers_and_plaintext_auth_are_rejected_before_dns() {
-    for destination in [Destination::OpenAiApi, Destination::ChatGpt] {
+    for destination in [
+        Destination::OpenAiApi,
+        Destination::ChatGpt,
+        Destination::Anthropic,
+    ] {
         policy::connect_request(&request(destination.host()), destination).unwrap();
+        for forbidden in [
+            "auth.openai.com",
+            "platform.claude.com",
+            "api.openai.com",
+            "chatgpt.com",
+            "api.anthropic.com",
+        ] {
+            if forbidden != destination.host() {
+                assert_eq!(
+                    policy::connect_request(&request(forbidden), destination),
+                    Err(Failure::ConnectRequest)
+                );
+            }
+        }
     }
     let valid = String::from_utf8(request("api.openai.com")).unwrap();
     for invalid in [

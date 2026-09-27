@@ -123,6 +123,9 @@ impl CodexNetworkRunner {
         limits: RunLimits,
         cancel: &Cancellation,
     ) -> Result<NetworkOutput, RunnerError> {
+        if !matches!(destination, Destination::OpenAiApi | Destination::ChatGpt) {
+            return Err(RunnerError::InvalidRequest("unsupported Codex destination"));
+        }
         let invocation = network_invocation(request)?;
         limits.validate(&invocation)?;
         auth.validate()?;

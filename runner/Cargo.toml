@@ -33,6 +33,15 @@ name = "tgsum-codex-relay"
 path = "src/bin/codex_relay.rs"
 
 [[bin]]
+name = "tgsum-claude-relay"
+path = "src/bin/claude_relay.rs"
+
+[[bin]]
+name = "tgsum-claude-https-fixture"
+path = "tests/support/claude_https.rs"
+required-features = ["test-fixtures"]
+
+[[bin]]
 name = "tgsum-codex-https-fixture"
 path = "tests/support/codex_https.rs"
 required-features = ["test-fixtures"]
