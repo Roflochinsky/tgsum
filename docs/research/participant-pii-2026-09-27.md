@@ -232,3 +232,23 @@ characters. Слишком длинный numeric run отвергается ц�
 Эти проверки доказывают конкретные поддержанные формы. Они не доказывают
 универсальную анонимизацию, распознавание ФИО/адресов/банковских реквизитов,
 всех контактов в attachments, исторических имён или entity targets после flatten.
+
+## 7. Реализация поиска aliases: проверка зависимости
+
+В первом participant milestone используется уже зафиксированный в Cargo.lock
+`aho-corasick` **1.1.5**, теперь как прямая dependency core. Проверены локальные
+исходники locked crate: `src/ahocorasick.rs` (`kind`, `match_kind`,
+`find_overlapping_iter`, `memory_usage`) и `src/util/search.rs` (`MatchKind`).
+Страницы docs.rs именно этой версии не удалось прочитать через web tool; факты
+о конкретном интерфейсе сверены с исходниками установленного crate и компиляцией.
+[Upstream README](https://github.com/BurntSushi/aho-corasick) подтверждает назначение
+алгоритма, поддержку overlapping matches и разные match semantics.
+
+Решение TGSUM: contiguous NFA, Standard overlapping candidates с явным лимитом;
+после Unicode/container checks выбираются leftmost/longest **валидные** spans.
+Прямой LeftmostLongest до boundary checks пропускал допустимое короткое имя,
+перекрытое недопустимым длинным alias; synthetic regression воспроизвёл случай.
+Dictionary/field/candidate/matcher budgets и фактическая Project-wide ambiguity
+зафиксированы в [контракте реализации](../development/pii.md). Это более
+консервативная область ambiguity, чем предложенная выше conversation-only модель;
+она сохраняет коллизии исторических aliases без выдуманной принадлежности к чату.

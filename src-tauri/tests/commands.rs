@@ -687,7 +687,7 @@ fn project_review_and_export_commands_enforce_privacy_scope_and_revision() {
 mod project_e2e;
 
 #[test]
-fn infrastructure_policy_prepare_returns_the_revision_required_for_export() {
+fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
     use tgsum_core::project::{ProjectChange, ProjectSource, ProjectStore};
     use tgsum_core::snapshot::SourceScope;
     let root = tempfile::tempdir().unwrap();
@@ -701,7 +701,7 @@ fn infrastructure_policy_prepare_returns_the_revision_required_for_export() {
         .import_telegram(
             "initial",
             &scope,
-            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"text":"db.local 10.0.0.2"}]}"#),
+            std::io::Cursor::new(br#"{"id":1,"messages":[{"id":1,"from":"Alice","from_id":"user1","text":"Alice db.local 10.0.0.2"}]}"#),
         )
         .unwrap();
     let project = store
@@ -724,9 +724,11 @@ fn infrastructure_policy_prepare_returns_the_revision_required_for_export() {
     let w = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
-    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":project.revision,"options":{"redact_candidates":false,"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
+    let review = invoke(&w, "prepare_project_bundle", json!({"projectId":project.project_id,"expectedRevision":project.revision,"options":{"redact_candidates":false,"pii":{"categories":["participants"]},"infrastructure":{"categories":["host","ip"],"hostnames":["unmentioned-private-host"]}}})).unwrap();
     assert_eq!(review["project_revision"], project.revision + 1);
     assert_eq!(review["manifest"]["infrastructure"]["replacements"], 2);
+    assert_eq!(review["manifest"]["pii"]["replacements"], 2);
+    assert!(!review.to_string().contains("Alice"));
     assert!(review["preview"]
         .as_str()
         .unwrap()

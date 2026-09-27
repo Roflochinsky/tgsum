@@ -132,6 +132,17 @@ pub struct PseudonymMapping {
 }
 
 impl PseudonymMapping {
+    pub(crate) fn category_entries(
+        &self,
+        category: PseudonymCategory,
+    ) -> impl Iterator<Item = (&str, &str, &BTreeSet<String>)> {
+        self.data
+            .entries
+            .iter()
+            .filter(move |e| e.category == category)
+            .map(|e| (e.identity.as_str(), e.pseudonym.as_str(), &e.originals))
+    }
+
     pub fn lookup(&self, category: PseudonymCategory, identity: &str) -> Option<&str> {
         let index = self.identities.get(&(category, identity.to_owned()))?;
         Some(&self.data.entries[*index].pseudonym)

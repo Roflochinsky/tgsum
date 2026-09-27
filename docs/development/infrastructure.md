@@ -35,8 +35,9 @@ them in public agent manifests or logs.
 
 ## Preparation and Review
 
-Each selected field passes through secrets rules first, then infrastructure
-recognition. A private in-memory mapping draft reuses committed labels and
+Each selected field passes through secrets rules first, optional
+[participant replacement](pii.md), then infrastructure recognition. A shared
+private in-memory mapping draft reuses committed labels and
 allocates new ones across fields; every allocation checks the aggregate mapping
 budgets. New identities are sorted within each field's batch. Source/message
 order can affect labels only for previously unseen identities, never existing
@@ -56,7 +57,8 @@ map; it is never selected by directory order. As with other Project mutations,
 an I/O error during revision publication can happen after that revision becomes
 visible; reread the Project after an error. Retention/cleanup is separate work.
 
-Private bundle schema 3 pins the exact mapping and private infrastructure policy.
+Private bundle schema 4 pins the exact mapping and private infrastructure/PII
+policies; schema 3 infrastructure bundles remain readable.
 The public manifest exposes only the random mapping ID, rules version, enabled
 categories, replacement total and counts per category. It never serializes the
 configured names, map entries or map digest. Export validates the binding and

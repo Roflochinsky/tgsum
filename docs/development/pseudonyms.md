@@ -3,8 +3,9 @@
 Implemented storage contract for `tgsum-af2.5`, 2026-09-27. The core can allocate,
 retain, resolve and reset labels. Infrastructure rules now use this mapping
 during opted-in bundle preparation; see [infrastructure](infrastructure.md).
-PII/custom-term detectors and Privacy preset/reset controls are subsequent
-Privacy tasks. Creating a mapping alone does not replace strings: replacement
+Known [participant replacement](pii.md) also uses the shared draft. Contact PII,
+custom-term detectors and Privacy preset/reset controls remain work in the
+Privacy epic. Creating a mapping alone does not replace strings: replacement
 requires an enabled detector. Legacy one-shot export is unchanged.
 
 ## Interface and identity
@@ -48,7 +49,7 @@ projects/project-.../
   pseudonyms/
     map-<128-bit random ID>.json       # immutable full mapping generation
   bundles/bundle-.../
-    private.json                      # schema 3, exact MappingRef + private policy
+    private.json                      # schema 4, exact MappingRef + private policies
     context/manifest.json             # optional opaque pseudonym_mapping_id
 ```
 
@@ -84,8 +85,8 @@ become stale, while saved results retain their bundle/version and evidence.
 
 Project schemas 1–3 load without a mapping and migrate in memory to schema 4;
 the next write creates a separate revision. Original bytes remain unchanged.
-Private bundle schemas 1–2 remain readable without inventing a mapping or
-infrastructure policy. Unknown
+Private bundle schemas 1–3 remain readable without inventing a mapping or
+infrastructure/PII policy. Unknown
 versions are rejected. Older apps that accept only Project schemas through 3
 must reject a schema 4 project instead of dropping its mapping on write.
 

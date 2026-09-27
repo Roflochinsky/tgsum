@@ -3832,6 +3832,7 @@ dependencies = [
 name = "tgsum-core"
 version = "0.2.0"
 dependencies = [
+ "aho-corasick",
  "base64 0.22.1",
  "chrono",
  "getrandom 0.3.4",

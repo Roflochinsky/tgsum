@@ -6,13 +6,13 @@ mod files;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::infrastructure::{
-    InfrastructureCategory, InfrastructureDetector, InfrastructureFinding, InfrastructurePolicy,
-};
+use crate::infrastructure::{InfrastructureCategory, InfrastructureDetector, InfrastructurePolicy};
+use crate::pii::{PiiDetector, PiiPolicy, PiiSummary};
 use crate::project::{AnalysisInput, Project, ProjectStore};
 use crate::pseudonyms::{MappingDraft, MappingRef};
 use crate::sanitize::{sanitize, FindingAction, ReviewPolicy, SecretRule, RULES_VERSION};
@@ -33,6 +33,8 @@ pub struct BundleOptions {
     /// Private policy; names must never be copied into the public manifest.
     #[serde(default)]
     pub infrastructure: InfrastructurePolicy,
+    #[serde(default)]
+    pub pii: PiiPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +78,8 @@ pub struct BundleManifest {
     pub pseudonym_mapping_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub infrastructure: Option<InfrastructureSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pii: Option<PiiSummary>,
     pub sanitizer_version: String,
     pub destination: String,
     pub project_title: String,
@@ -134,6 +138,8 @@ struct PrivateBundle {
     pseudonyms: Option<crate::pseudonyms::MappingRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     infrastructure_policy: Option<InfrastructurePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pii_policy: Option<PiiPolicy>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -250,6 +256,7 @@ impl ProjectStore {
         check_cancel(&cancelled)?;
         let directory = self.directory(project_id)?;
         let mut scan = ScanReview::new(options, self, &project)?;
+        scan.discover_participants(self, &project, &cancelled)?;
         let key = EvidenceKey::load_or_create(&directory)?;
         let drafts = private_dir(&directory.join("bundles"))?;
         let staging = tempfile::Builder::new()
@@ -269,6 +276,7 @@ impl ProjectStore {
             schema_version: 1,
             pseudonym_mapping_id: project.pseudonyms.as_ref().map(|r| r.id().to_owned()),
             infrastructure: None,
+            pii: None,
             sanitizer_version: RULES_VERSION.into(),
             destination: "export_only".into(),
             project_title: String::new(),
@@ -327,11 +335,7 @@ impl ProjectStore {
                 let mut block =
                     format!("\n## Evidence {}@{}\n\n", reference.id, reference.revision);
                 block.push_str(&format!("Source: {} · {}\n\n", source_ref, inline(&title)));
-                let sender = scan.clean(
-                    message.sender_name.as_deref().unwrap_or("Unknown sender"),
-                    "sender",
-                    Some(reference),
-                )?;
+                let sender = scan.clean_sender(message, reference)?;
                 let timestamp = scan.clean(
                     message.timestamp.as_deref().unwrap_or("Unknown date"),
                     "timestamp",
@@ -460,10 +464,11 @@ impl ProjectStore {
             .saturating_sub(privacy.findings.len());
         manifest.privacy = privacy.summary;
         manifest.infrastructure = privacy.infrastructure;
+        manifest.pii = privacy.pii;
         manifest.pseudonym_mapping_id = privacy.reference.as_ref().map(|r| r.id().to_owned());
         write_json(&public.join("manifest.json"), &manifest)?;
         let private = PrivateBundle {
-            schema_version: 3,
+            schema_version: 4,
             project_id: project_id.into(),
             project_revision: reviewed_revision,
             manifest_sha256: files::digest_file(&public.join("manifest.json"), &cancelled)?,
@@ -471,6 +476,7 @@ impl ProjectStore {
             inputs,
             pseudonyms: privacy.reference.clone(),
             infrastructure_policy: privacy.policy,
+            pii_policy: privacy.pii_policy,
         };
         write_json(&staging.path().join("private.json"), &private)?;
         let (preview, preview_truncated) = files::preview(&public, &manifest.files, PREVIEW_BYTES)?;
@@ -632,7 +638,7 @@ impl ProjectStore {
         let directory = root.join(bundle_id);
         require_dir(&directory)?;
         let private: PrivateBundle = load_json(&directory.join("private.json"))?;
-        if !matches!(private.schema_version, 1..=3) || private.project_id != project_id {
+        if !matches!(private.schema_version, 1..=4) || private.project_id != project_id {
             return Err(invalid("private bundle identity/version mismatch"));
         }
         let project = self.read_revision(project_id, private.project_revision)?;
@@ -683,6 +689,30 @@ impl ProjectStore {
             }
             _ => return Err(invalid("bundle infrastructure policy mismatch")),
         }
+        match (&private.pii_policy, &manifest.pii) {
+            (None, None) => {}
+            (Some(policy), Some(summary)) if private.schema_version >= 4 => {
+                let generic = summary.ambiguous.checked_add(summary.unresolved);
+                if summary.rules_version != "pii/1"
+                    || policy.categories.is_empty()
+                    || summary.categories != policy.categories
+                    || summary
+                        .by_category
+                        .keys()
+                        .any(|c| !summary.categories.contains(c))
+                    || summary
+                        .by_category
+                        .values()
+                        .try_fold(0usize, |n, v| n.checked_add(*v))
+                        != Some(summary.replacements)
+                    || generic.is_none_or(|n| n > summary.replacements)
+                    || (summary.replacements > generic.unwrap_or(0) && private.pseudonyms.is_none())
+                {
+                    return Err(invalid("bundle PII metadata mismatch"));
+                }
+            }
+            _ => return Err(invalid("bundle PII policy mismatch")),
+        }
         files::validate_files(&manifest.files)?;
         Ok((directory, private, manifest))
     }
@@ -693,13 +723,20 @@ struct ScanReview {
     summary: PrivacySummary,
     findings: Vec<ReviewFinding>,
     infrastructure: Option<InfrastructureReview>,
+    pii: Option<PiiReview>,
+    mapping: Option<MappingDraft>,
 }
 
 struct InfrastructureReview {
     policy: InfrastructurePolicy,
     detector: InfrastructureDetector,
-    mapping: MappingDraft,
     summary: InfrastructureSummary,
+}
+
+struct PiiReview {
+    policy: PiiPolicy,
+    detector: PiiDetector,
+    summary: PiiSummary,
 }
 
 struct PreparedPrivacy {
@@ -708,15 +745,23 @@ struct PreparedPrivacy {
     reference: Option<MappingRef>,
     infrastructure: Option<InfrastructureSummary>,
     policy: Option<InfrastructurePolicy>,
+    pii: Option<PiiSummary>,
+    pii_policy: Option<PiiPolicy>,
 }
 
 impl ScanReview {
     fn new(options: BundleOptions, store: &ProjectStore, project: &Project) -> io::Result<Self> {
         let detector = InfrastructureDetector::new(options.infrastructure.clone())?;
+        let mapping =
+            if options.infrastructure.categories.is_empty() && options.pii.categories.is_empty() {
+                if let Some(reference) = &project.pseudonyms {
+                    store.load_pseudonyms(&project.project_id, reference)?;
+                }
+                None
+            } else {
+                Some(store.draft_pseudonyms(project)?)
+            };
         let infrastructure = if options.infrastructure.categories.is_empty() {
-            if let Some(reference) = &project.pseudonyms {
-                store.load_pseudonyms(&project.project_id, reference)?;
-            }
             None
         } else {
             Some(InfrastructureReview {
@@ -728,9 +773,13 @@ impl ScanReview {
                 },
                 policy: options.infrastructure,
                 detector,
-                mapping: store.draft_pseudonyms(project)?,
             })
         };
+        let pii = (!options.pii.categories.is_empty()).then(|| PiiReview {
+            summary: PiiSummary::new(&options.pii),
+            policy: options.pii,
+            detector: PiiDetector::new(),
+        });
         Ok(Self {
             policy: if options.redact_candidates {
                 ReviewPolicy::RedactCandidates
@@ -740,26 +789,74 @@ impl ScanReview {
             summary: PrivacySummary::default(),
             findings: Vec::new(),
             infrastructure,
+            pii,
+            mapping,
         })
     }
 
-    fn finish(self, store: &ProjectStore, project: &Project) -> io::Result<PreparedPrivacy> {
-        let (reference, infrastructure, policy) = if let Some(infrastructure) = self.infrastructure
-        {
-            (
-                store.stage_pseudonyms(infrastructure.mapping)?,
-                Some(infrastructure.summary),
-                Some(infrastructure.policy),
-            )
-        } else {
-            (project.pseudonyms.clone(), None, None)
+    fn discover_participants(
+        &mut self,
+        store: &ProjectStore,
+        project: &Project,
+        cancelled: &impl Fn() -> bool,
+    ) -> io::Result<()> {
+        let Some(pii) = &mut self.pii else {
+            return Ok(());
         };
+        let mapping = self.mapping.as_mut().expect("PII enables mapping");
+        let snapshots = store.snapshots(&project.project_id)?;
+        for source in project.sources.iter().filter(|s| s.selection.enabled) {
+            check_cancel(cancelled)?;
+            let id = source
+                .latest_snapshot_id
+                .as_ref()
+                .ok_or_else(|| invalid("refresh every selected source before preparing context"))?;
+            let snapshot = snapshots.load(id)?;
+            if snapshot.source != source.scope {
+                return Err(invalid("bundle source mismatch"));
+            }
+            let baseline = project
+                .baselines
+                .iter()
+                .find(|b| b.source_id == source.source_id);
+            let previous = baseline
+                .map(|b| snapshots.load(&b.snapshot_id))
+                .transpose()?;
+            let selected = select_messages(
+                &snapshot,
+                &source.selection,
+                previous.as_ref().zip(baseline.map(|b| &b.filter)),
+            )?;
+            for message in selected.messages {
+                check_cancel(cancelled)?;
+                pii.detector.observe(message, mapping, self.policy)?;
+            }
+        }
+        pii.detector.finish_discovery(mapping.mapping())
+    }
+
+    fn finish(self, store: &ProjectStore, project: &Project) -> io::Result<PreparedPrivacy> {
+        let reference = match self.mapping {
+            Some(mapping) => store.stage_pseudonyms(mapping)?,
+            None => project.pseudonyms.clone(),
+        };
+        let (infrastructure, policy) = if let Some(infrastructure) = self.infrastructure {
+            (Some(infrastructure.summary), Some(infrastructure.policy))
+        } else {
+            (None, None)
+        };
+        let (pii, pii_policy) = self
+            .pii
+            .map(|p| (Some(p.summary), Some(p.policy)))
+            .unwrap_or_default();
         Ok(PreparedPrivacy {
             summary: self.summary,
             findings: self.findings,
             reference,
             infrastructure,
             policy,
+            pii,
+            pii_policy,
         })
     }
 
@@ -769,15 +866,50 @@ impl ScanReview {
         field: &'static str,
         evidence: Option<&EvidenceRef>,
     ) -> io::Result<String> {
+        self.clean_field(value, field, evidence, None)
+    }
+
+    fn clean_sender(
+        &mut self,
+        message: &CanonicalMessage,
+        reference: &EvidenceRef,
+    ) -> io::Result<String> {
+        self.clean_field(
+            message.sender_name.as_deref().unwrap_or("Unknown sender"),
+            "sender",
+            Some(reference),
+            Some(message),
+        )
+    }
+
+    fn clean_field(
+        &mut self,
+        value: &str,
+        field: &'static str,
+        evidence: Option<&EvidenceRef>,
+        sender: Option<&CanonicalMessage>,
+    ) -> io::Result<String> {
         let result = sanitize(value, self.policy)?;
         self.summary.redacted += result.report.redacted;
         self.summary.needs_review += result.report.needs_review;
         let mut text = result.text;
+        let mut pii_shifts = Vec::new();
+        if let Some(pii) = &mut self.pii {
+            let mapping = self.mapping.as_ref().expect("PII enables mapping");
+            let output = pii.detector.replace(&text, sender, mapping.mapping())?;
+            pii.summary.record(&output.findings);
+            text = output.text;
+            pii_shifts = output.findings;
+        }
         let mut shifts = Vec::new();
         if let Some(infrastructure) = &mut self.infrastructure {
+            let mapping = self
+                .mapping
+                .as_mut()
+                .expect("infrastructure enables mapping");
             let scan = infrastructure.detector.scan(&text)?;
-            infrastructure.mapping.allocate(&scan.inputs())?;
-            let output = scan.apply(infrastructure.mapping.mapping())?;
+            mapping.allocate(&scan.inputs())?;
+            let output = scan.apply(mapping.mapping())?;
             for finding in &output.findings {
                 infrastructure.summary.replacements += 1;
                 *infrastructure
@@ -800,7 +932,9 @@ impl ScanReview {
             }
             // Slice sanitized UTF-8, never the raw input, so nearby high-confidence
             // values stay hidden. Bound both the number and size of excerpts.
-            let position = transformed_position(&shifts, finding.output.start);
+            let position =
+                transformed_position(&pii_shifts, finding.output.start, |f| (&f.input, &f.output));
+            let position = transformed_position(&shifts, position, |f| (&f.input, &f.output));
             let start = text[..position]
                 .char_indices()
                 .rev()
@@ -826,16 +960,23 @@ impl ScanReview {
     }
 }
 
-fn transformed_position(findings: &[InfrastructureFinding], original: usize) -> usize {
-    let index = findings.partition_point(|f| f.input.end <= original);
-    if let Some(finding) = findings.get(index).filter(|f| f.input.start <= original) {
-        return finding.output.start;
+fn transformed_position<T>(
+    findings: &[T],
+    original: usize,
+    ranges: impl Fn(&T) -> (&Range<usize>, &Range<usize>),
+) -> usize {
+    let index = findings.partition_point(|f| ranges(f).0.end <= original);
+    if let Some(finding) = findings
+        .get(index)
+        .filter(|f| ranges(f).0.start <= original)
+    {
+        return ranges(finding).1.start;
     }
     if index == 0 {
         original
     } else {
         let preceding = &findings[index - 1];
-        preceding.output.end + (original - preceding.input.end)
+        ranges(preceding).1.end + (original - ranges(preceding).0.end)
     }
 }
 
