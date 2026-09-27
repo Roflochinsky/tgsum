@@ -182,6 +182,40 @@ pub(crate) struct AnalysisBundle {
 }
 
 impl ProjectStore {
+    /// Bounded, digest-checked sanitized documents for the offline automation
+    /// executor. Private snapshots and the evidence index are not exposed.
+    pub(crate) fn automation_documents(
+        &self,
+        project_id: &str,
+        bundle_id: &str,
+        limit: u64,
+        cancelled: &impl Fn() -> bool,
+    ) -> io::Result<Vec<String>> {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        let (directory, _, manifest) = self.checked_bundle(project_id, bundle_id, cancelled)?;
+        let mut remaining = limit;
+        let mut documents = Vec::new();
+        for file in &manifest.files {
+            check_cancel(cancelled)?;
+            if file.bytes > remaining {
+                return Err(invalid("automation context exceeds its budget"));
+            }
+            let mut bytes = Vec::new();
+            read_regular(&directory.join("context").join(&file.name))?
+                .take(file.bytes + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() as u64 != file.bytes
+                || format!("{:x}", Sha256::digest(&bytes)) != file.sha256
+            {
+                return Err(invalid("automation context changed"));
+            }
+            remaining -= file.bytes;
+            documents.push(String::from_utf8(bytes).map_err(invalid)?);
+        }
+        Ok(documents)
+    }
+
     /// Use the private policy saved with this exact Project revision.
     pub fn prepare_saved_bundle(
         &self,

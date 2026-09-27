@@ -32,7 +32,7 @@ pub struct AnalysisSpec {
 }
 
 impl AnalysisSpec {
-    fn validate(&self) -> io::Result<()> {
+    pub(crate) fn validate(&self) -> io::Result<()> {
         for value in [
             &self.agent,
             &self.agent_version,
