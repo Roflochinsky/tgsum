@@ -603,6 +603,7 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Jobs::default())
+        .manage(assisted::ExportInboxState::default())
         .setup(|app| {
             if app.try_state::<analysis::AnalysisState>().is_none() {
                 app.manage(analysis::AnalysisState::for_app());
@@ -634,6 +635,7 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             refresh_project_source,
             assisted::pick_assisted_path,
             assisted::launch_assisted_client,
+            assisted::poll_assisted_exports,
             assisted::import_assisted_export,
             prepare_project_bundle,
             privacy::privacy_presets,
@@ -689,7 +691,19 @@ pub fn run() {
         });
     }
 
-    app(builder)
-        .run(tauri::generate_context!())
+    let app = app(builder)
+        .build(tauri::generate_context!())
         .expect("failed to start tgsum");
+    let stop = Arc::new(AtomicBool::new(false));
+    assisted::start_background_watcher(
+        app.handle().clone(),
+        app.state::<ProjectStore>().inner().clone(),
+        Arc::clone(&app.state::<assisted::ExportInboxState>().inner().0),
+        Arc::clone(&stop),
+    );
+    app.run(move |_, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            stop.store(true, Ordering::Relaxed);
+        }
+    });
 }

@@ -22,9 +22,12 @@ access facts; the Telegram explanation is not a generic OAuth explanation.
   original selected conversation. Topic/date/delta selection and sanitization
   narrow the prepared analysis context, not that raw stored snapshot.
 - The local account label is a namespace, not proof of account ownership.
-- Import needs no messenger login. Assisted export is manual: the selected
-  client handles login/export; TGSUM does not read its session store. Automatic
-  export and account safety guarantees are not advertised.
+- Import needs no messenger login. The selected client handles login/export;
+  TGSUM does not read its session store. The selected-folder watcher notices
+  candidate JSON files while the app is running and lists them in the source
+  card, but a human confirms
+  completed export and scope before import. Automatic client export and account
+  safety guarantees are not advertised.
 - Attachment choices are saved selections, not a count of included files.
   Preparation checks them; Review shows the actual included count.
 - Coverage describes the current snapshot. Missing or unreadable snapshots

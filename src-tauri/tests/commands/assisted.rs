@@ -18,6 +18,16 @@ fn assisted_commands_keep_launch_separate_from_confirmed_import() {
     p = invoke(&w,"update_project",json!({"projectId":p["project_id"],"expectedRevision":p["revision"],"change":{"kind":"assisted_export","value":{
         "source_id":"selected","settings":{"directory":root.path(),"client":null}
     }}})).unwrap();
+    assert_eq!(
+        invoke(
+            &w,
+            "poll_assisted_exports",
+            json!({"projectId":p["project_id"],
+        "sourceId":"selected","expectedRevision":p["revision"]})
+        )
+        .unwrap(),
+        json!([])
+    );
     let args =
         json!({"projectId":p["project_id"],"sourceId":"selected","expectedRevision":p["revision"]});
     assert_eq!(
@@ -65,7 +75,9 @@ fn assisted_commands_keep_launch_separate_from_confirmed_import() {
         "failed"
     );
     request["scope_and_completion_confirmed"] = true.into();
-    let updated = invoke(&w, "import_assisted_export", json!({"request":request})).unwrap();
+    let completed = invoke(&w, "import_assisted_export", json!({"request":request})).unwrap();
+    assert!(completed["delta"]["created"].as_u64().unwrap() > 0);
+    let updated = &completed["project"];
     assert!(updated["sources"][0]["latest_snapshot_id"].is_string());
     assert_eq!(
         updated["revision"].as_u64(),

@@ -154,11 +154,11 @@ def exercise(ui, root, report, report_dir):
     access = ui.evaluate("document.querySelector(" + json.dumps(card + " .source-access") + ").innerText")
     assert account_label in access and "ID 222" in access
     for fact in ["JSON целиком", "локальная копия чата хранит исходные", "не получает сессию",
-                 "вручную", "Автовыгрузка не включена", "Полнота истории не подтверждена",
+                 "человек подтверждает", "Автовыгрузка не включена", "Полнота истории не подтверждена",
                  "Автоматического скачивания нет"]:
         assert fact in access, fact
     assert ui.evaluate("document.querySelector('.source-access img')===null && !window.__scopeExecuted")
-    assert "вручную" in ui.evaluate("document.querySelector(" + json.dumps(card + " .assisted-export summary") + ").textContent")
+    assert "Telegram Desktop" in ui.evaluate("document.querySelector(" + json.dumps(card + " .assisted-export summary") + ").textContent")
     ui.screenshot(report_dir / "source-access.png")
     ui.click(card + " .source-access-details summary")
     passed("source access distinguishes whole-file read, stored chat, context scope and manual refresh")
@@ -223,6 +223,53 @@ def exercise(ui, root, report, report_dir):
     ui.stage("source")
     assert ui.evaluate("document.querySelector(" + json.dumps(card + " [name=from]") + ").value") == "2026-06-20"
     passed("single JSON refresh preserves saved scope, invalidates Review and reopens Project")
+
+    # The selected-folder watcher surfaces a candidate, never a completion.
+    ui.command("execute/async", {"script": """
+        const done = arguments[arguments.length - 1];
+        window.__exportCandidateEvents = [];
+        window.__TAURI__.event.listen('assisted-export-candidate', e => __exportCandidateEvents.push(e.payload))
+          .then(() => done(true));
+    """, "args": []})
+    export_dir = root / "telegram-exports"
+    nested = export_dir / "ChatExport_synthetic"
+    nested.mkdir(parents=True)
+    exported = json.loads((root / "single.json").read_text(encoding="utf-8"))
+    exported["messages"][0]["text"] = "Changed in repeated export"
+    exported["messages"].append({"id": 103, "type": "message", "date": "2026-06-20T12:00:00",
+                                 "from": "Synthetic", "from_id": "user-synthetic", "text": "Added in repeated export"})
+    new_archive = nested / "result.json"
+    new_archive.write_text(json.dumps(exported), encoding="utf-8")
+    project = ui.invoke("update_project", {"projectId": pid, "expectedRevision": project["revision"],
+        "change": {"kind": "assisted_export", "value": {"source_id": forum["source_id"],
+            "settings": {"directory": str(export_dir), "client": None}}}})
+    old_snapshot = next(s for s in project["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"]
+    old_analysis = project["analysis_run"]
+    ui.click("#btn-projects")
+    ui.idle()
+    ui.wait("window.__exportCandidateEvents.some(e=>e.project_id===" + json.dumps(pid) + ")", timeout=16)
+    assert ui.invoke("open_project", {"projectId": pid})["revision"] == project["revision"], "Background observation cannot publish"
+    ui.click('[data-project="' + pid + '"]')
+    ui.stage("source")
+    ui.click(card + " .assisted-export summary")
+    ui.wait("document.querySelector(" + json.dumps(card + " [data-assisted-candidate-list] button") + ") !== null", timeout=12)
+    assert ui.evaluate("document.querySelector(" + json.dumps(card + " [data-assisted-archive]") + ").value") == ""
+    assert not ui.evaluate("document.querySelector(" + json.dumps(card + " [data-assisted-confirm]") + ").checked")
+    ui.screenshot(report_dir / "telegram-watcher-candidate.png")
+    observed = ui.invoke("open_project", {"projectId": pid})
+    assert next(s for s in observed["sources"] if s["source_id"] == forum["source_id"])["latest_snapshot_id"] == old_snapshot
+    ui.click(card + " [data-assisted-candidate-list] button")
+    assert os.path.samefile(ui.evaluate("document.querySelector(" + json.dumps(card + " [data-assisted-archive]") + ").value"), new_archive)
+    assert ui.evaluate("document.querySelector(" + json.dumps(card + " [data-assisted-import]") + ").disabled")
+    ui.click(card + " [data-assisted-confirm]")
+    ui.click(card + " [data-assisted-import]")
+    ui.stage("source")
+    project = ui.invoke("open_project", {"projectId": pid})
+    forum = next(s for s in project["sources"] if s["source_id"] == forum["source_id"])
+    assert forum["latest_snapshot_id"] != old_snapshot
+    assert os.path.samefile(forum["archive_path"], new_archive)
+    assert project["analysis_run"] == old_analysis, "Watcher/import must not run the agent"
+    passed("selected-folder candidate requires confirmation; stable repeated Telegram import updates snapshot without Run")
 
     # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.

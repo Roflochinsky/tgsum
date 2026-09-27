@@ -208,3 +208,114 @@ fn v7_migrates_without_rewriting_and_cannot_smuggle_future_settings() {
     std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
     assert!(store.open(&p.project_id).is_err());
 }
+
+#[test]
+fn stable_import_returns_delta_and_rejects_source_mutation_or_cancel_without_advancing_project() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path().join("projects"));
+    let p = store.create("Pilot").unwrap();
+    let p = store
+        .update(
+            &p.project_id,
+            p.revision,
+            ProjectChange::Source(ProjectSource {
+                source_id: "pilot".into(),
+                connector_id: "telegram_json".into(),
+                scope: SourceScope::telegram("work", "42"),
+                archive_path: None,
+                latest_snapshot_id: None,
+                selection: Default::default(),
+            }),
+        )
+        .unwrap();
+    let folder = root.path().join("exports");
+    std::fs::create_dir(&folder).unwrap();
+    let p = store
+        .update(
+            &p.project_id,
+            p.revision,
+            ProjectChange::AssistedExport {
+                source_id: "pilot".into(),
+                settings: Some(AssistedExportSettings {
+                    directory: folder.clone(),
+                    client: None,
+                }),
+            },
+        )
+        .unwrap();
+    let path = folder.join("result.json");
+    let first =
+        r#"{"id":42,"type":"private_group","messages":[{"id":1,"type":"message","text":"one"}]}"#;
+    std::fs::write(&path, first).unwrap();
+    let mut request = AssistedImportRequest {
+        project_id: p.project_id.clone(),
+        expected_revision: p.revision,
+        source_id: "pilot".into(),
+        archive_path: path.clone(),
+        scope_and_completion_confirmed: false,
+    };
+    assert!(store
+        .import_stable_assisted_export(&request, |_, _| panic!("not opened"), || false)
+        .is_err());
+    request.scope_and_completion_confirmed = true;
+    let completed = store
+        .import_stable_assisted_export(&request, |_, _| Ok(()), || false)
+        .unwrap();
+    assert_eq!(completed.delta.created, 1);
+    assert_eq!(completed.delta.unchanged, 0);
+    let current = completed.project;
+    request.expected_revision = current.revision;
+    let second = r#"{"id":42,"type":"private_group","messages":[{"id":1,"type":"message","text":"edited"},{"id":2,"type":"message","text":"two"}]}"#;
+    std::fs::write(&path, second).unwrap();
+    let next = store
+        .import_stable_assisted_export(&request, |_, _| Ok(()), || false)
+        .unwrap();
+    assert_eq!(
+        (
+            next.delta.created,
+            next.delta.edited,
+            next.delta.missing,
+            next.delta.unchanged
+        ),
+        (1, 1, 0, 0)
+    );
+    request.expected_revision = next.project.revision;
+    let unchanged = next.project.clone();
+
+    std::fs::write(&path, first).unwrap();
+    let mut altered = false;
+    let error = store
+        .import_stable_assisted_export(
+            &request,
+            |read, _| {
+                if read > 0 && !altered {
+                    altered = true;
+                    std::fs::write(&path, b"changed while copying, same path and longer").unwrap();
+                }
+                Ok(())
+            },
+            || false,
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(store.open(&p.project_id).unwrap(), unchanged);
+
+    std::fs::write(&path, second).unwrap();
+    assert!(store
+        .import_stable_assisted_export(
+            &request,
+            |_, _| Err(io::Error::other("disk fault")),
+            || false
+        )
+        .is_err());
+    assert_eq!(store.open(&p.project_id).unwrap(), unchanged);
+    assert!(store
+        .import_stable_assisted_export(&request, |_, _| Ok(()), || true)
+        .is_err());
+    assert_eq!(store.open(&p.project_id).unwrap(), unchanged);
+    std::fs::write(&path, b"{\"id\":42,\"messages\":[").unwrap();
+    assert!(store
+        .import_stable_assisted_export(&request, |_, _| Ok(()), || false)
+        .is_err());
+    assert_eq!(store.open(&p.project_id).unwrap(), unchanged);
+}

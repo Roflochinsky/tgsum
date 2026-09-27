@@ -13,6 +13,7 @@ pub mod bundle;
 pub mod connector;
 pub mod custom_terms;
 mod de;
+pub mod export_inbox;
 pub mod extract;
 pub mod format;
 pub mod index;

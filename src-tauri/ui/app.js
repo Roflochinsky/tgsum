@@ -191,6 +191,22 @@ listen('progress', ({ payload }) => {
   if (state.screen === 'progress' && state.job?.phase === payload.phase) setProgress(payload.read, payload.total)
 })
 
+let pendingExportNotice = null
+listen('assisted-export-candidate', ({ payload }) => {
+  pendingExportNotice = payload
+  if (!document.hidden) {
+    toast(`В проекте «${payload.project_name}» замечен новый возможный экспорт. Откройте источник и подтвердите завершение в Telegram Desktop.`)
+    pendingExportNotice = null
+  }
+})
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && pendingExportNotice) {
+    const notice = pendingExportNotice
+    pendingExportNotice = null
+    toast(`В проекте «${notice.project_name}» замечен новый возможный экспорт. Откройте источник и подтвердите завершение в Telegram Desktop.`)
+  }
+})
+
 $('#btn-cancel').addEventListener('click', () => {
   $('#btn-cancel').disabled = true
   invoke('cancel_job')
