@@ -61,3 +61,4 @@ Assert-True ($LASTEXITCODE -ne 0 -and $refused -eq '{"error":"observe_required"}
     'CLI must require explicit observation'
 
 'Windows UIA probe synthetic checks: PASS'
+exit 0
