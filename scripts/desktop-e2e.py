@@ -1,0 +1,313 @@
+"""Real Tauri WebView smoke; Python 3.12+ standard library only.
+
+Build: cargo build --locked -p tgsum --features desktop-e2e
+Run: python scripts/desktop-e2e.py [--cargo-run] [--report-dir DIR]
+On headless Linux use xvfb-run -a. This launches its own isolated application;
+it never attaches to existing apps. Native pickers and agents are synthetic.
+"""
+import argparse
+import base64
+import json
+import os
+from pathlib import Path
+import platform
+import socket
+import subprocess
+import tempfile
+import time
+import traceback
+import urllib.error
+import urllib.request
+import uuid
+
+REPO = Path(__file__).resolve().parents[1]
+ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
+
+
+class WebView:
+    def __init__(self, port):
+        self.url = f"http://127.0.0.1:{port}"
+        self.session = None
+        # Ignore proxy env for our owned loopback server.
+        self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def request(self, method, path, body=None):
+        data = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(self.url + path, data=data, method=method,
+                                         headers={"Content-Type": "application/json"})
+        try:
+            with self.http.open(request, timeout=35) as response:
+                value = json.load(response)["value"]
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(error.read().decode()) from error
+        if isinstance(value, dict) and "error" in value:
+            raise RuntimeError(value)
+        return value
+
+    def command(self, path, body):
+        return self.request("POST", f"/session/{self.session}/{path}", body)
+
+    def evaluate(self, expression):
+        return self.command("execute/sync", {"script": "return (" + expression + ")", "args": []})
+
+    def wait(self, expression, timeout=35):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            value = self.evaluate(expression)
+            if value:
+                return value
+            time.sleep(0.1)
+        raise AssertionError("Timed out: " + expression)
+
+    def click(self, selector):
+        self.wait("document.querySelector(" + json.dumps(selector) + ") !== null")
+        element = self.command("element", {"using": "css selector", "value": selector})
+        self.command(f"element/{element[ELEMENT]}/click", {})
+
+    def value(self, selector, value):
+        self.command("execute/sync", {"script": """
+            const e = document.querySelector(arguments[0]);
+            e.value = arguments[1];
+            e.dispatchEvent(new Event('input', {bubbles:true}));
+            e.dispatchEvent(new Event('change', {bubbles:true}));
+        """, "args": [selector, value]})
+
+    def invoke(self, command, args=None):
+        reply = self.command("execute/async", {"script": """
+            const done = arguments[arguments.length - 1];
+            window.__TAURI__.core.invoke(arguments[0], arguments[1])
+              .then(value => done({value}), error => done({failure:error}));
+        """, "args": [command, args or {}]})
+        assert "failure" not in reply, (command, reply)
+        return reply["value"]
+
+    def idle(self):
+        self.wait("document.body.dataset.screen==='projects' && document.querySelector('#screen-projects').getAttribute('aria-busy')==='false'")
+
+    def stage(self, name):
+        self.idle()
+        assert self.evaluate("document.querySelector('#project-steps [aria-current]').dataset.go") == name
+        assert self.evaluate("[...document.querySelectorAll('[data-project-panel]')].filter(p=>!p.hidden).length") == 1
+
+    def screenshot(self, path):
+        png = self.request("GET", f"/session/{self.session}/screenshot")
+        path.write_bytes(base64.b64decode(png, validate=True))
+
+
+def prepare(root, nonce, port):
+    full = json.loads((REPO / "core/tests/fixtures/sample-export.json").read_text())
+    full["chats"]["list"][0]["messages"][0]["text"] = "hi bob password=SYNTHETIC_E2E_PASSWORD"
+    (root / "full.json").write_text(json.dumps(full), encoding="utf-8")
+    (root / "single.json").write_text(json.dumps(full["chats"]["list"][1]), encoding="utf-8")
+    (root / "malformed.json").write_text('{"chats": [', encoding="utf-8")
+    for directory in ["bundle-output", "single-output", "data", "config", "cache"]:
+        (root / directory).mkdir()
+    picks = [("export", "full.json"), ("output", "bundle-output"),
+             ("export", "single.json"), ("export", "single.json"),
+             ("output", "single-output"), ("export", "malformed.json")]
+    (root / "harness.json").write_text(json.dumps({"nonce": nonce, "port": port,
+        "picks": [{"kind": kind, "path": path} for kind, path in picks]}), encoding="utf-8")
+
+
+def exercise(ui, root, report, report_dir):
+    def passed(name):
+        report["checks"].append(name)
+        print("PASS " + name, flush=True)
+
+    assert ui.invoke("analysis_catalog")["fixtures"] is True
+    assert ui.invoke("list_projects") == []
+    assert ui.evaluate("localStorage.getItem('tgsum.ui.v1')") is None
+    ui.command("execute/sync", {"script": """
+      window.__e2eErrors=[];
+      addEventListener('error',e=>__e2eErrors.push(e.message));
+      addEventListener('unhandledrejection',e=>__e2eErrors.push(String(e.reason)));
+    """, "args": []})
+    ui.wait("document.querySelector('#onboarding').open")
+    ui.click("#onboarding-next")
+    ui.click("#onboarding-next")
+    ui.wait("document.querySelectorAll('#onboarding-agent option').length===3")
+    assert ui.evaluate("document.querySelector('#onboarding-agent').value") == "export"
+    ui.click("#onboarding-next")
+    ui.value("#new-project-name", "Synthetic desktop qualification")
+    ui.click("#new-project-form button[type=submit]")
+    ui.stage("source")
+    passed("isolated onboarding and Project creation via controls")
+
+    ui.click("#btn-project-add-source")
+    ui.wait("document.body.dataset.screen==='select'")
+    ui.click('[data-key="c:111"]')
+    ui.click('[data-chev="222"]')
+    ui.click('[data-key="t:222:100"]')
+    ui.value("#project-account-label", "synthetic")
+    ui.click("#btn-next")
+    ui.stage("source")
+    project = ui.invoke("list_projects")[0]["project"]
+    pid = project["project_id"]
+    assert len(project["sources"]) == 2
+    forum = next(s for s in project["sources"] if s["scope"]["conversation_id"] == "222")
+    assert forum["selection"]["filter"]["topic_ids"] == ["100"]
+    card = '[data-source="' + forum["source_id"] + '"]'
+    ui.value(card + " [name=from]", "2026-06-20")
+    ui.value(card + " [name=through]", "2026-06-20")
+    assert ui.evaluate("document.querySelector('#btn-project-review').disabled")
+    ui.click(card + " button[type=submit]")
+    ui.stage("source")
+    ui.value("#privacy-preset", "people")
+    ui.click("#btn-project-review")
+    ui.stage("privacy")
+    preview = ui.evaluate("document.querySelector('#project-review-preview').textContent")
+    assert "SYNTHETIC_E2E_PASSWORD" not in preview
+    assert "Alice" not in preview and "Bob" not in preview
+    assert "fixing it" in preview and "found a bug" not in preview and "general hello" not in preview
+    assert "сообщений: 3" in ui.evaluate("document.querySelector('#project-review-summary').textContent")
+    passed("full JSON, chat/topic/date scope, saved privacy and sanitized Review")
+
+    ui.click("#btn-project-destination")
+    ui.stage("analyze")
+    ui.value("#analysis-agent", "export")
+    ui.click("#btn-project-export")
+    ui.stage("result")
+    assert "Контекст сохранён" in ui.evaluate("document.querySelector('#project-export-result').textContent")
+    outputs = list((root / "bundle-output").rglob("*.md"))
+    assert outputs, "No actual bundle Markdown written"
+    assert all("SYNTHETIC_E2E_PASSWORD" not in p.read_text(encoding="utf-8") for p in outputs)
+    passed("Export only writes sanitized bundle through real IPC")
+
+    for agent in ["codex", "claude"]:
+        ui.click('#project-steps [data-go=source]')
+        ui.click("#btn-project-review")
+        ui.stage("privacy")
+        ui.click("#btn-project-destination")
+        ui.value("#analysis-agent", agent)
+        ui.value("#analysis-model", "fixture-success")
+        ui.click("#btn-analysis-prepare")
+        ui.stage("review")
+        assert "synthetic-" + agent in ui.evaluate("document.querySelector('#analysis-review-summary').textContent")
+        ui.click("#btn-analysis-run")
+        ui.stage("result")
+        assert "Готово" in ui.evaluate("document.querySelector('#analysis-result-status').textContent")
+        assert ui.evaluate("document.querySelector('#analysis-result-body').textContent.trim().length > 0")
+        assert ui.evaluate("document.querySelector('#analysis-result-body img')===null")
+        ui.screenshot(report_dir / (agent + "-result.png"))
+        passed(agent + " synthetic agent through Review, explicit Run and rendered result")
+
+    ui.click('#project-steps [data-go=source]')
+    ui.click(card + " [data-relink]")
+    ui.stage("source")
+    project = ui.invoke("open_project", {"projectId": pid})
+    forum = next(s for s in project["sources"] if s["scope"]["conversation_id"] == "222")
+    # Rust canonicalization uses the extended-length prefix on Windows.
+    assert os.path.samefile(forum["archive_path"], root / "single.json")
+    assert forum["selection"]["filter"]["topic_ids"] == ["100"]
+    assert ui.evaluate("document.querySelector('#project-steps [data-go=review]').disabled")
+    ui.click("#btn-projects")
+    ui.idle()
+    ui.click('[data-project="' + pid + '"]')
+    ui.stage("source")
+    assert ui.evaluate("document.querySelector(" + json.dumps(card + " [name=from]") + ").value") == "2026-06-20"
+    passed("single JSON refresh preserves saved scope, invalidates Review and reopens Project")
+
+    ui.click("#btn-projects-back")
+    ui.click("#dropzone")
+    ui.wait("document.body.dataset.screen==='select'")
+    assert ui.evaluate("document.querySelectorAll('#list [data-key^=\"c:\"]').length") == 1
+    ui.click('[data-chev="222"]')
+    ui.click('[data-key="t:222:100"]')
+    ui.click("#btn-next")
+    ui.wait("document.body.dataset.screen==='save'")
+    ui.click("#btn-pick-dir")
+    ui.wait("document.querySelector('#out-dir').title.includes('single-output')")
+    ui.click("#btn-export")
+    ui.wait("document.body.dataset.screen==='done'")
+    outputs = list((root / "single-output").glob("*.md"))
+    assert len(outputs) == 1
+    text = outputs[0].read_text(encoding="utf-8")
+    assert "found a bug" in text and "fixing it" in text and "general hello" not in text
+    passed("single-chat topic selection and actual one-off Markdown output")
+
+    ui.click("#btn-new-file")
+    ui.wait("document.body.dataset.screen==='start' && !document.querySelector('#start-error').hidden")
+    assert ui.evaluate("document.querySelector('#start-error').textContent.length > 0")
+    assert ui.evaluate("window.__e2eErrors") == []
+    passed("malformed archive displays an error; no uncaught renderer failures")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cargo-run", action="store_true", help="launch with cargo run -p tgsum")
+    parser.add_argument("--report-dir", type=Path, default=REPO / "desktop-e2e-report")
+    args = parser.parse_args()
+    report_dir = args.report_dir.resolve()
+    report_dir.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="tgsum-desktop-e2e-")).resolve()
+    print("Owned synthetic root: " + str(root), flush=True)
+    nonce = uuid.uuid4().hex
+    with socket.socket() as available:
+        available.bind(("127.0.0.1", 0))
+        port = available.getsockname()[1]
+    prepare(root, nonce, port)
+    binary = REPO / "target/debug" / ("tgsum.exe" if os.name == "nt" else "tgsum")
+    command = ["cargo", "run", "--locked", "-p", "tgsum", "--features", "desktop-e2e"] if args.cargo_run else [str(binary)]
+    env = dict(os.environ, TGSUM_DESKTOP_E2E_ROOT=str(root), TGSUM_ANALYSIS_FIXTURE="1",
+               XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"),
+               XDG_CACHE_HOME=str(root / "cache"), GTK_CSD="1")
+    # No inspector endpoint is needed; WebDriver belongs to this child only.
+    env.pop("WEBKIT_INSPECTOR_HTTP_SERVER", None)
+    report = {"status": "failed", "checks": [], "platform": platform.platform(),
+              "architecture": platform.machine(), "python": platform.python_version(),
+              "runner_image": os.environ.get("ImageVersion"), "root": str(root),
+              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+              "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO, text=True).strip()),
+              "rust": subprocess.check_output(["rustc", "--version", "--verbose"], cwd=REPO, text=True).strip(),
+              "picker": "simulated native response", "agents": "synthetic", "driver": "tauri-plugin-wdio-webdriver=1.4.0"}
+    ui = WebView(port)
+    child = None
+    try:
+        with (report_dir / "app.log").open("w", encoding="utf-8") as log:
+            child = subprocess.Popen(command, cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
+            deadline = time.monotonic() + 120
+            while True:
+                assert child.poll() is None, "Application exited; see app.log"
+                try:
+                    if (root / "webview-ready").exists() and ui.request("GET", "/status")["ready"]:
+                        break
+                except (urllib.error.URLError, ConnectionError):
+                    pass
+                assert time.monotonic() < deadline, "WebDriver startup timeout"
+                time.sleep(0.25)
+            ui.session = ui.request("POST", "/session", {"capabilities": {"alwaysMatch": {}}})["sessionId"]
+            ui.command("timeouts", {"script": 30000, "implicit": 0, "pageLoad": 30000})
+            info = ui.wait("window.__TGSUM_E2E__")
+            assert info["nonce"] == nonce, "Refusing a WebDriver from another process"
+            report["webview"] = info
+            report["user_agent"] = ui.evaluate("navigator.userAgent")
+            exercise(ui, root, report, report_dir)
+            ui.screenshot(report_dir / "malformed-archive.png")
+            report["status"] = "passed"
+    except Exception:
+        report["failure"] = traceback.format_exc()
+        if ui.session:
+            try:
+                ui.screenshot(report_dir / "failure.png")
+            except Exception as error:
+                report["screenshot_error"] = str(error)
+        raise
+    finally:
+        if ui.session:
+            try:
+                ui.request("DELETE", f"/session/{ui.session}")
+            except Exception:
+                pass
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=10)
+        (report_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print("Report: " + str(report_dir / "report.json"), flush=True)
+
+
+if __name__ == "__main__":
+    main()

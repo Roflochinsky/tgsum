@@ -7,6 +7,8 @@
 pub mod analysis;
 mod assisted;
 mod desktop;
+#[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+mod desktop_e2e;
 #[cfg(target_os = "linux")]
 mod launcher;
 mod privacy;
@@ -381,6 +383,10 @@ fn initial_path() -> Option<String> {
 /// Native "open file" dialog for `result.json`.
 #[tauri::command]
 async fn pick_export<R: Runtime>(app: AppHandle<R>) -> Option<String> {
+    #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+    if let Some(path) = desktop_e2e::pick(&app, "export") {
+        return path;
+    }
     app.dialog()
         .file()
         .set_title("Выберите result.json")
@@ -393,6 +399,10 @@ async fn pick_export<R: Runtime>(app: AppHandle<R>) -> Option<String> {
 /// Native folder picker for the output folder.
 #[tauri::command]
 async fn pick_out_dir<R: Runtime>(app: AppHandle<R>, current: Option<String>) -> Option<String> {
+    #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+    if let Some(path) = desktop_e2e::pick(&app, "output") {
+        return path;
+    }
     let mut dialog = app.dialog().file().set_title("Куда сохранить файлы");
     if let Some(dir) = current.map(PathBuf::from) {
         let existing = dir.ancestors().find(|d| d.is_dir()).map(Path::to_path_buf);
@@ -532,16 +542,42 @@ fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     };
     let decorations = config.decorations && desktop::native_decorations(|k| std::env::var(k).ok());
     let theme = serde_json::to_string(&current_theme())?;
-    WebviewWindowBuilder::from_config(app, config)?
+    let builder = WebviewWindowBuilder::from_config(app, config)?
         .decorations(decorations)
-        .initialization_script(format!("window.__TGSUM_THEME__ = {theme};"))
-        .build()?;
+        .initialization_script(format!("window.__TGSUM_THEME__ = {theme};"));
+    #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+    let builder = if let Some(harness) = app.try_state::<desktop_e2e::Harness>() {
+        let info = serde_json::to_string(&serde_json::json!({
+            "nonce": harness.nonce, "pid": std::process::id(),
+            "webview_version": tauri::webview_version().unwrap_or_else(|e| e.to_string()),
+        }))?;
+        builder
+            .incognito(true)
+            .data_directory(harness.root.join("webview"))
+            .initialization_script(format!("window.__TGSUM_E2E__ = {info};"))
+            .on_page_load(|window, payload| {
+                if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                    let harness = window.state::<desktop_e2e::Harness>();
+                    fs::write(harness.root.join("webview-ready"), &harness.nonce)
+                        .expect("write owned desktop E2E readiness marker");
+                }
+            })
+    } else {
+        builder
+    };
+    builder.build()?;
     Ok(())
 }
 
 /// Opens a folder in the system file manager.
 #[tauri::command]
 fn open_folder<R: Runtime>(app: AppHandle<R>, path: String) -> Result<(), CmdError> {
+    #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+    if app.try_state::<desktop_e2e::Harness>().is_some() {
+        return Err(CmdError::Failed(
+            "external opener disabled in desktop E2E".into(),
+        ));
+    }
     app.opener()
         .open_path(path, None::<&str>)
         .map_err(|e| CmdError::Failed(e.to_string()))
@@ -550,6 +586,12 @@ fn open_folder<R: Runtime>(app: AppHandle<R>, path: String) -> Result<(), CmdErr
 /// Shows a file selected in the system file manager.
 #[tauri::command]
 fn reveal_file<R: Runtime>(app: AppHandle<R>, path: String) -> Result<(), CmdError> {
+    #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+    if app.try_state::<desktop_e2e::Harness>().is_some() {
+        return Err(CmdError::Failed(
+            "external opener disabled in desktop E2E".into(),
+        ));
+    }
     app.opener()
         .reveal_item_in_dir(path)
         .map_err(|e| CmdError::Failed(e.to_string()))
@@ -613,6 +655,10 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let builder = tauri::Builder::default();
+    #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+    let builder =
+        desktop_e2e::configure(builder).expect("refusing unsafe desktop E2E configuration");
     // WebKitGTK's DMA-BUF renderer shows a blank window on some Linux GPU
     // drivers (notably NVIDIA); the fallback renderer works everywhere.
     #[cfg(target_os = "linux")]
@@ -624,10 +670,17 @@ pub fn run() {
     // environment is read up front: GTK modifies it while starting up.
     #[cfg(target_os = "linux")]
     {
+        #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+        let run_launcher = !desktop_e2e::requested();
+        #[cfg(not(all(debug_assertions, feature = "desktop-e2e")))]
+        let run_launcher = true;
         let env: std::collections::HashMap<String, String> = std::env::vars_os()
             .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
             .collect();
         std::thread::spawn(move || {
+            if !run_launcher {
+                return;
+            }
             let synced = std::env::current_exe()
                 .and_then(|exe| launcher::sync(|key| env.get(key).cloned(), &exe));
             if let Err(err) = synced {
@@ -636,7 +689,7 @@ pub fn run() {
         });
     }
 
-    app(tauri::Builder::default())
+    app(builder)
         .run(tauri::generate_context!())
         .expect("failed to start tgsum");
 }

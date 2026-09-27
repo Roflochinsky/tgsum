@@ -274,6 +274,11 @@ cargo test --locked -p tgsum-core --test parse   # один набор тест�
 cargo fmt --all                       # исправить форматирование
 ```
 
+Настоящий интерфейс Tauri проверяет отдельная
+[desktop E2E-матрица](docs/development/desktop-e2e.md) на Linux, Windows и macOS.
+Она использует синтетические архивы и агентов; ответы системных диалогов выбора
+файла подставляются на тестовой границе. Прогоны Rust и mock IPC не заменяют GUI.
+
 Нужны Bash (на Windows — Git Bash) и rustup. При первом запуске rustup установит
 версию Rust, `rustfmt` и Clippy из `rust-toolchain.toml`; этот файл задаёт версию
 для разработки и CI, а `rust-version` в Cargo.toml — заявленный минимальный Rust

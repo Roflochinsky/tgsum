@@ -56,7 +56,9 @@ fn fixture(text: &str, sender: Option<&str>, profile: PrivacyProfile) -> Fixture
                 latest_snapshot_id: Some("initial".into()),
                 selection: SourceSelection {
                     attachments: Some(AttachmentSelection {
-                        root: archive,
+                        // Match the native picker contract: macOS's temp root
+                        // can contain /var -> /private/var before selection.
+                        root: fs::canonicalize(archive).unwrap(),
                         files: vec![AttachmentChoice {
                             message_id: "1".into(),
                             position: 0,
