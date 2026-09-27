@@ -27,6 +27,7 @@ fn versioned_synthetic_corpus_measures_detection_and_confidence_without_report_l
     assert_eq!(corpus.schema_version, 1);
     assert!(corpus.description.starts_with("Synthetic"));
     let mut ids = std::collections::HashSet::new();
+    let mut covered = std::collections::BTreeSet::new();
     let (mut tp, mut fp, mut tn, mut missed, mut high, mut medium) = (0, 0, 0, 0, 0, 0);
     for case in corpus.cases {
         assert!(ids.insert(case.id.clone()), "duplicate corpus ID");
@@ -54,6 +55,7 @@ fn versioned_synthetic_corpus_measures_detection_and_confidence_without_report_l
             case.id
         );
         let finding = &result.report.findings[0];
+        covered.insert(case.rule.as_ref().unwrap().clone());
         let serialized = serde_json::to_value(finding).unwrap();
         assert_eq!(
             serialized["rule"],
@@ -110,6 +112,27 @@ fn versioned_synthetic_corpus_measures_detection_and_confidence_without_report_l
     eprintln!(
         "synthetic corpus: TP={tp}, FP={fp}, TN={tn}, FN={missed}, high={high}, medium={medium}"
     );
-    assert_eq!((fp, missed), (0, 0));
+    assert_eq!((tp, fp, tn, missed, high, medium), (62, 0, 20, 0, 50, 12));
+    assert_eq!(
+        covered,
+        [
+            "private_key",
+            "incomplete_private_key",
+            "authorization",
+            "github_token",
+            "provider_token",
+            "provider_token_candidate",
+            "telegram_bot_token",
+            "cookie_value",
+            "contextual_entropy",
+            "credential_assignment",
+            "url_credentials",
+            "jwt_candidate",
+            "generic_key_assignment"
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    );
     assert_eq!(corpus.rules_version, RULES_VERSION);
 }

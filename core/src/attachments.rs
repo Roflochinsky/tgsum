@@ -5,6 +5,7 @@ mod catalog;
 pub use catalog::{AttachmentCandidate, AttachmentCatalog};
 
 use std::collections::BTreeSet;
+use std::fmt;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
@@ -22,7 +23,7 @@ pub const MAX_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Stored privately with the Project. Metadata binding prevents a refresh from
 /// silently retargeting a selected position to a different attachment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentChoice {
     pub message_id: String,
@@ -30,13 +31,31 @@ pub struct AttachmentChoice {
     pub expected: Attachment,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentSelection {
     /// User-selected export root. Store its canonical target at selection time;
     /// reading reopens this path component by component without following links.
     pub root: PathBuf,
     pub files: Vec<AttachmentChoice>,
+}
+
+// Source metadata and the export root can contain sensitive values. Private
+// serialization retains the binding; routine diagnostics must not print it.
+impl fmt::Debug for AttachmentChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentChoice")
+            .field("position", &self.position)
+            .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for AttachmentSelection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentSelection")
+            .field("files_count", &self.files.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl AttachmentSelection {

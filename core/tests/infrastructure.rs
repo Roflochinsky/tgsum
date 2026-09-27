@@ -220,17 +220,34 @@ fn versioned_corpus_matches_literal_expected_output() {
     );
     let mut positives = 0;
     let mut negatives = 0;
+    let mut ids = BTreeSet::new();
+    let mut covered = BTreeSet::new();
     for case in corpus.cases {
+        assert!(ids.insert(case.id.clone()), "duplicate infrastructure case");
         let (text, count) = transform(&case.input, policy(&case.categories));
         assert_eq!(text, case.expected, "case {}", case.id);
         assert_eq!(count, case.findings, "case {}", case.id);
         if count > 0 {
+            covered.extend(case.categories);
             positives += 1
         } else {
             negatives += 1
         }
     }
     eprintln!("Synthetic infrastructure corpus: {positives} positive, {negatives} negative cases; all literal outputs match");
+    assert_eq!((positives, negatives), (31, 23));
+    assert_eq!(
+        covered,
+        BTreeSet::from([
+            Kind::Ip,
+            Kind::Host,
+            Kind::Domain,
+            Kind::Url,
+            Kind::Username,
+            Kind::Path,
+            Kind::CloudResource
+        ])
+    );
 }
 
 #[test]

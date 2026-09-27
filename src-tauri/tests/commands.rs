@@ -764,6 +764,61 @@ fn combined_privacy_policy_prepare_returns_the_revision_required_for_export() {
         current["custom_terms"]["entries"][0]["value"],
         "PRIVATE_PROJECT"
     );
+    #[cfg(all(feature = "analysis-fixtures", debug_assertions))]
+    {
+        // The same fully sanitized message/file now crosses the public analysis
+        // metadata seam. The synthetic runner never opens auth or an executable.
+        let app = tgsum_app::app(
+            mock_builder()
+                .manage(ProjectStore::new(root.path()))
+                .manage(tgsum_app::analysis::AnalysisState::synthetic()),
+        )
+        .build(mock_context(noop_assets()))
+        .unwrap();
+        let w = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let prepared = invoke(&w,"prepare_project_analysis",json!({"projectId":project.project_id,"bundleId":review["bundle_id"],"expectedRevision":review["project_revision"],
+            "options":{"agent":"codex","executable":"/NEVER_EXECUTE","auth_file":"/NEVER_OPEN","model":"fixture-success","recipe":"summary","destination":"local_fixture"}})).unwrap();
+        let result = invoke(
+            &w,
+            "run_project_analysis",
+            json!({"runId":prepared["run_id"]}),
+        )
+        .unwrap();
+        assert_eq!(result["state"], "succeeded");
+        let list = invoke(
+            &w,
+            "list_project_analyses",
+            json!({"projectId":project.project_id}),
+        )
+        .unwrap();
+        let reread = invoke(
+            &w,
+            "read_project_analysis",
+            json!({"projectId":project.project_id,"runId":prepared["run_id"]}),
+        )
+        .unwrap();
+        assert_eq!(reread, result);
+        for metadata in [prepared, result, list, reread] {
+            let text = metadata.to_string();
+            for private in [
+                "Alice",
+                "alice@example.test",
+                "PRIVATE_PROJECT",
+                "AGENTS.md",
+                "unmentioned-private-host",
+                "SYNTHETIC_FILE_SECRET",
+                "keep_values",
+                "originals",
+            ] {
+                assert!(
+                    !text.contains(private),
+                    "private source/policy data in analysis response"
+                );
+            }
+        }
+    }
 }
 
 #[test]

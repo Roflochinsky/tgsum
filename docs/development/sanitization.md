@@ -106,7 +106,9 @@ the synthetic secret values. No tests validate tokens against a service.
 independent expected value range, category, confidence and redacted output, or
 explicitly expects no finding. `core/tests/secrets_corpus.rs` checks both review
 policies, full-value replacement, idempotence and report/Debug leakage. Current
-result: **79 cases, TP=59, FP=0, TN=20, FN=0; 49 high / 10 medium**. These numbers
+result: **82 cases, TP=62, FP=0, TN=20, FN=0; 50 high / 12 medium**, covering all
+13 rule families. [Pipeline qualification](privacy-quality.md) also checks the
+saved policy across messages, selected files, repeat runs and public metadata. These numbers
 describe this synthetic corpus only, not accuracy on arbitrary user data.
 
 ```sh

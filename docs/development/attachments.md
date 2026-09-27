@@ -8,6 +8,10 @@ account, URL fetch, archive extractor or script interpreter is involved.
 Desktop selection/preset controls and explicit local comparison are described
 in [privacy controls](privacy-controls.md) (`tgsum-af2.7`).
 
+Attachment selection `Debug` omits original metadata and the local root; private
+serialization preserves them. See [privacy qualification](privacy-quality.md)
+for the diagnostic regression and complete pipeline corpus.
+
 ## Selection and source scope
 
 `SourceSelection.attachments` defaults to `None`. An explicit selection contains:

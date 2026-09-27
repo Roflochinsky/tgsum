@@ -102,6 +102,8 @@ Public store tests: `privacy_profile.rs`, `attachment_catalog.rs`,
 legacy opening, preset validation, secret/custom-term precedence over literal
 exceptions, bounded catalog/comparison, stale revision, changed/missing originals
 and historical evidence resolution.
+The separate [quality corpus](privacy-quality.md) checks all category groups,
+cross-stage precedence, unchanged controls, repeatability and metadata/diagnostics.
 
 Start an isolated synthetic Tauri host using the environment in
 [onboarding.md](onboarding.md), then run:

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "description": "Synthetic full-pipeline golden cases; no credentials or real identities. Counts include one message, its sender when present, and one selected attachment containing the same text.",
+  "cases": [
+    {
+      "id": "all-categories",
+      "kind": "positive",
+      "sender": "Ирина Примерова",
+      "input": "Ирина Примерова irina@example.test +1 (202) 555-0123 @build_user 10.20.30.40 db.local domain=corp.example https://db.local/status username=deploy /home/irina/private.log arn:aws:s3:::fixture-bucket Project Orion password=SYNTHETIC_SECRET",
+      "expected": "PERSON_0001 EMAIL_0001 PHONE_0001 USER_0001 IP_0001 HOST_0001 domain=DOMAIN_0001 URL_0001 username=USER_0002 PATH_0001 RESOURCE_0001 TERM_0001 password=[REDACTED_SECRET]",
+      "terms": [{"value":"Project Orion"}],
+      "counts": {"secrets":2,"pii":{"participants":3,"emails":2,"phones":2,"usernames":2},"infrastructure":{"ip":2,"host":2,"domain":2,"url":2,"username":2,"path":2,"cloud_resource":2},"terms":2}
+    },
+    {
+      "id": "secrets-precede-categories-terms-and-exceptions",
+      "kind": "positive",
+      "input": "Authorization: Bearer db.local\npassword=db.local\nkey=alice@example.test",
+      "expected": "Authorization: Bearer [REDACTED_SECRET]\npassword=[REDACTED_SECRET]\nkey=[REDACTED_SECRET]",
+      "terms": [{"value":"alice@example.test"},{"value":"db.local"}],
+      "keep": ["alice@example.test","db.local"],
+      "counts": {"secrets":6,"pii":{},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "generated-label-and-identical-literal",
+      "kind": "positive",
+      "input": "alice@example.test literal EMAIL_0001 password=SYNTHETIC_SECRET",
+      "expected": "EMAIL_0001 literal TERM_0001 password=[REDACTED_SECRET]",
+      "terms": [{"value":"EMAIL_0001","boundary":"substring"}],
+      "counts": {"secrets":2,"pii":{"emails":2},"infrastructure":{},"terms":2}
+    },
+    {
+      "id": "unicode-participant-and-term-boundaries",
+      "kind": "positive",
+      "sender": "Ирина Примерова",
+      "input": "👩‍💻 Ирина Примерова: é é É xé (é) שלום",
+      "expected": "👩‍💻 PERSON_0001: TERM_0001 é É xé (TERM_0001) שלום",
+      "terms": [{"value":"é"}],
+      "counts": {"secrets":0,"pii":{"participants":3},"infrastructure":{},"terms":4}
+    },
+    {
+      "id": "unicode-domain-aliases",
+      "kind": "positive",
+      "input": "user@пример.рф user@xn--e1afmkfd.xn--p1ai",
+      "expected": "EMAIL_0001 EMAIL_0001",
+      "counts": {"secrets":0,"pii":{"emails":4},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "repeated-phone-and-handle-aliases",
+      "kind": "positive",
+      "input": "@Build_User @build_user +12025550100 +1 (202) 555-0100",
+      "expected": "USER_0001 USER_0001 PHONE_0001 PHONE_0001",
+      "counts": {"secrets":0,"pii":{"phones":4,"usernames":4},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "exact-exceptions-and-explicit-term-precedence",
+      "kind": "positive",
+      "sender": "Ирина Примерова",
+      "input": "Ирина Примерова db.local DB.LOCAL",
+      "expected": "Ирина Примерова TERM_0001 HOST_0001",
+      "keep": ["Ирина Примерова","db.local"],
+      "terms": [{"value":"db.local"}],
+      "counts": {"secrets":0,"pii":{},"infrastructure":{"host":2},"terms":2}
+    },
+    {
+      "id": "ordinary-engineering-text",
+      "kind": "negative",
+      "input": "Release v1.2.3.4.5 on 2026-09-27; 12345678; /api/v1/messages; src/app/main.rs; AIDAABCDEFGHIJKLMNOP",
+      "expected": "Release v1.2.3.4.5 on 2026-09-27; 12345678; /api/v1/messages; src/app/main.rs; AIDAABCDEFGHIJKLMNOP",
+      "counts": {"secrets":0,"pii":{},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "unicode-negative-and-word-boundaries",
+      "kind": "negative",
+      "input": "Слово ёлка é 👩‍💻; ACMEish acme.",
+      "expected": "Слово ёлка é 👩‍💻; ACMEish acme.",
+      "terms": [{"value":"ACME"}],
+      "counts": {"secrets":0,"pii":{},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "public-urls-shield-embedded-contacts-and-paths",
+      "kind": "negative",
+      "input": "https://example.com/home/alice?q=user@example.test https://t.me/Alice",
+      "expected": "https://example.com/home/alice?q=user@example.test https://t.me/Alice",
+      "counts": {"secrets":0,"pii":{},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "no-universal-person-ner",
+      "kind": "known_limit",
+      "input": "Непредставленный Пользователь написал о проекте.",
+      "expected": "Непредставленный Пользователь написал о проекте.",
+      "counts": {"secrets":0,"pii":{},"infrastructure":{},"terms":0}
+    },
+    {
+      "id": "no-decoding-unlabelled-data",
+      "kind": "known_limit",
+      "input": "cGFzc3dvcmQ9U1lOVEhFVElDX1NFQ1JFVA==",
+      "expected": "cGFzc3dvcmQ9U1lOVEhFVElDX1NFQ1JFVA==",
+      "counts": {"secrets":0,"pii":{},"infrastructure":{},"terms":0}
+    }
+  ]
+}
