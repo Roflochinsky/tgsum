@@ -39,6 +39,11 @@
 закрывает техническую гипотезу; право пользователя анализировать рабочие данные
 приложение не устанавливает.
 
+Новый импортёр подключает [общий offline contract suite](../development/connector-contracts.md)
+и собственные fixtures формата. Для native и snapshot-local IDs используются
+разные контракты; результат синтетического acquisition не заменяет проверки
+provider-specific cursor/auth/клиента.
+
 ## Что обязательно различать
 
 - Capability API, реализованную capability TGSUM и полноту конкретного snapshot.
