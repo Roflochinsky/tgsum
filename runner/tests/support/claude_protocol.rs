@@ -72,20 +72,51 @@ pub fn input(args: &[String]) -> (Value, Value, String) {
         std::env::current_dir().unwrap(),
         std::path::Path::new("/context")
     );
-    assert!(std::fs::read_dir("/home/agent").unwrap().next().is_none());
+    let has_auth = std::path::Path::new("/home/agent/.claude/.credentials.json").is_file();
+    if has_auth {
+        assert_eq!(
+            std::env::var("CLAUDE_CONFIG_DIR").unwrap(),
+            "/home/agent/.claude"
+        );
+        assert_eq!(std::fs::read_dir("/home/agent").unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir("/home/agent/.claude").unwrap().count(), 1);
+        assert!(std::fs::write("/home/agent/.claude/.credentials.json", "overwrite").is_err());
+        assert!(std::fs::remove_file("/home/agent/.claude/.credentials.json").is_err());
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let auth = std::fs::metadata("/home/agent/.claude/.credentials.json").unwrap();
+            for root in ["/proc/self/fd", "/proc/1/fd"] {
+                for entry in std::fs::read_dir(root).unwrap() {
+                    if let Ok(m) = std::fs::metadata(entry.unwrap().path()) {
+                        assert!(
+                            (m.dev(), m.ino()) != (auth.dev(), auth.ino()),
+                            "auth descriptor escaped the mount helper"
+                        );
+                    }
+                }
+            }
+        }
+    } else {
+        assert!(std::fs::read_dir("/home/agent").unwrap().next().is_none());
+        assert!(std::env::var_os("CLAUDE_CONFIG_DIR").is_none());
+    }
     for (key, _) in std::env::vars() {
-        assert!([
-            "HOME",
-            "TMPDIR",
-            "PATH",
-            "LANG",
-            "PWD",
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
-            "ENABLE_CLAUDEAI_MCP_SERVERS",
-            "CLAUDE_CODE_MAX_RETRIES"
-        ]
-        .contains(&key.as_str()));
+        assert!(
+            (has_auth && key == "CLAUDE_CONFIG_DIR")
+                || [
+                    "HOME",
+                    "TMPDIR",
+                    "PATH",
+                    "LANG",
+                    "PWD",
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                    "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+                    "ENABLE_CLAUDEAI_MCP_SERVERS",
+                    "CLAUDE_CODE_MAX_RETRIES"
+                ]
+                .contains(&key.as_str())
+        );
     }
     assert_eq!(
         std::env::var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC").unwrap(),

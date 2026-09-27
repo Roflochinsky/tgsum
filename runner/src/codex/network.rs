@@ -153,7 +153,7 @@ impl CodexNetworkRunner {
             limits,
             cancel,
             linux::Access {
-                auth,
+                auth: auth.map(linux::Auth::Codex),
                 gateway: Some(&gateway),
             },
         )?;

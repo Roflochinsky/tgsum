@@ -49,9 +49,11 @@ enterprise/agent identity и остальные ОС остаются неква
 Активный `hzm.8` (Claude Code): реализованы offline request/decoder, отдельный
 Linux профиль и binding шести recipes. Установленный native 2.1.280 проверен
 с локальным canned Messages server, вымышленным ключом и без внешней сети:
-все шесть схем и HTTP 401. Полный gate проходит; 12 Claude tests и 7 isolation
-tests выполнены отдельно, включая обычно игнорируемые проверки. Auth/HTTPS
-egress, managed lifecycle и Desktop Claude Run остаются в работе; задача не
+все шесть схем и HTTP 401. Добавлен явный read-only mount одного выбранного
+auth-файла; native CLI прочитал синтетический OAuth без API-key/token env.
+Полный gate проходит; 14 Claude tests, 17 Codex tests и 7 isolation tests
+выполнены отдельно, включая обычно игнорируемые проверки. Default-hostname HTTPS,
+refresh/managed policy, managed lifecycle и Desktop Claude Run остаются в работе; задача не
 закрыта. [Контракт Claude](../development/claude-adapter.md). Состав и состояния
 12 эпиков / 106 задач не изменены. Эпик и полная цель открыты.
 

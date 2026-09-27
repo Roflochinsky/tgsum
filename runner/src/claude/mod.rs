@@ -2,10 +2,14 @@
 //! runtime do not authorize inference or reuse a user's login. No Claude auth
 //! or network profile is qualified yet; the desktop remains Export only.
 
+#[cfg(target_os = "linux")]
+pub(crate) mod auth;
 mod recipe;
 mod request;
 mod response;
 mod wire;
+#[cfg(target_os = "linux")]
+pub use auth::SelectedAuthFile;
 
 pub use recipe::RecipeRequest;
 pub use request::ClaudeRequest;

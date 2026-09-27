@@ -24,6 +24,7 @@ fn main() {
         std::process::exit(status.code().unwrap_or(125));
     }
     let (input, schema, model) = claude_protocol::input(&args);
+    let has_auth = std::path::Path::new("/home/agent/.claude/.credentials.json").is_file();
     let answer = claude_protocol::answer(&input, &schema);
     let api_error = input["task"] == "http-401";
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -38,7 +39,7 @@ fn main() {
             match listener.accept() {
                 Ok((mut socket, peer)) => {
                     assert!(peer.ip().is_loopback());
-                    let (path, request) = read_request(&mut socket);
+                    let (path, request) = read_request(&mut socket, has_auth);
                     eprintln!("TGSUM_CLAUDE_FIXTURE_REQUEST {path}");
                     assert!(reports.len() < 4);
                     let (status, ct, body) = if path == "POST /v1/messages?beta=true HTTP/1.1" {
@@ -72,10 +73,14 @@ fn main() {
         assert_eq!(messages, 1);
         reports
     });
-    let mut child = Command::new("/runtime/claude")
+    let mut command = Command::new("/runtime/claude");
+    // Existing-login fixture must get its bearer only from the selected file.
+    // All inherited variables already belong to the offline profile.
+    if !has_auth {
+        command.env("ANTHROPIC_API_KEY", "tgsum-synthetic-not-a-real-key");
+    }
+    let mut child = command
         .args(&args)
-        // All inherited variables here already belong to the offline profile.
-        .env("ANTHROPIC_API_KEY", "tgsum-synthetic-not-a-real-key")
         .env("ANTHROPIC_BASE_URL", format!("http://{address}"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -99,7 +104,7 @@ fn main() {
     std::process::exit(output.status.code().unwrap_or(125));
 }
 
-fn read_request(socket: &mut TcpStream) -> (String, Value) {
+fn read_request(socket: &mut TcpStream, has_auth: bool) -> (String, Value) {
     socket
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
@@ -117,10 +122,17 @@ fn read_request(socket: &mut TcpStream) -> (String, Value) {
     let path = h.lines().next().unwrap().to_owned();
     // Do not print headers even on mismatch. There are no actual credentials.
     let key = h.lines().find_map(|l| l.strip_prefix("x-api-key:"));
+    let bearer = h.lines().find_map(|l| l.strip_prefix("authorization:"));
     if path.starts_with("post ") {
-        assert!(key.is_some_and(|k| k.trim() == "tgsum-synthetic-not-a-real-key"));
+        if has_auth {
+            assert!(key.is_none());
+            assert!(bearer.is_some_and(|b| b.trim() == "bearer tgsum-synthetic-access-token"));
+        } else {
+            assert!(key.is_some_and(|k| k.trim() == "tgsum-synthetic-not-a-real-key"));
+            assert!(bearer.is_none());
+        }
     }
-    assert!(!h.contains("authorization:") && !h.contains("content-encoding:"));
+    assert!(!h.contains("content-encoding:"));
     let n: usize = h
         .lines()
         .find_map(|l| l.strip_prefix("content-length:"))

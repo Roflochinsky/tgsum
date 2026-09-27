@@ -2,8 +2,8 @@
 use crate::{auth_file::PinnedAuthFile, RunnerError};
 use std::{fmt, os::fd::BorrowedFd, path::Path};
 
-pub(crate) const AUTH_HOME: &str = "/home/agent/.codex";
-pub(crate) const AUTH_PATH: &str = "/home/agent/.codex/auth.json";
+pub(crate) const AUTH_HOME: &str = "/home/agent/.claude";
+pub(crate) const AUTH_PATH: &str = "/home/agent/.claude/.credentials.json";
 
 /// Pins a selected private file, not a verified account. Only the sandboxed
 /// agent may read it. O_PATH pins the inode, not immutable bytes. Remote token
@@ -11,7 +11,7 @@ pub(crate) const AUTH_PATH: &str = "/home/agent/.codex/auth.json";
 pub struct SelectedAuthFile(PinnedAuthFile);
 impl SelectedAuthFile {
     pub fn select(path: &Path) -> Result<Self, RunnerError> {
-        PinnedAuthFile::select(path, "auth.json").map(Self)
+        PinnedAuthFile::select(path, ".credentials.json").map(Self)
     }
     pub(crate) fn validate(&self) -> Result<(), RunnerError> {
         self.0.validate()
@@ -38,7 +38,7 @@ mod tests {
             fs::write(&path, "SYNTHETIC_AUTH").unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
             let selected = SelectedAuthFile::select(&path);
-            if name == "auth.json" {
+            if name == ".credentials.json" {
                 assert_eq!(
                     format!("{:?}", selected.unwrap()),
                     "SelectedAuthFile { .. }"

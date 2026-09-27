@@ -3,8 +3,9 @@
 Срез `tgsum-hzm.8`, CLI **2.1.280**, Linux x86_64.
 [Первичные источники и ограничения](../research/claude-adapter-2026-09-27.md).
 Реализованы `tgsum_runner::claude::{ClaudeRequest, RecipeRequest, decode}` и
-отдельный offline профиль. **Claude auth, HTTPS gateway, managed lifecycle и
-Desktop Run пока не подключены.** Этот срез не подтверждает облачный запуск.
+отдельный offline профиль с явным выбором одного auth-файла. **HTTPS gateway,
+managed lifecycle и Desktop Run пока не подключены.** Этот срез не подтверждает
+облачный запуск. [Исследование auth/egress](../research/claude-auth-egress-2026-09-27.md).
 
 ## Запрос
 
@@ -44,9 +45,28 @@ CLAUDE_CODE_MAX_RETRIES=0
 
 Native Bun требует urandom; существующие профили без устройств не меняются.
 Device mounts допускают открытие read/write; это не монтаж всего host `/dev`.
-Собственного auth mount у Claude нет. Пустые HOME/tmp на каждом запуске,
+Без выбранного auth используются пустые HOME/tmp на каждом запуске;
 read-only context и staging отдельных runtime-файлов сохраняют общий
 [контракт runner](runner.md). Version probe выполняется без context/auth.
+
+## Явный auth-файл: только offline
+
+`claude::SelectedAuthFile::select` принимает абсолютный путь к одному приватному
+`.credentials.json`. Общая с Codex внутренняя реализация закрепляет inode через
+`O_PATH | O_NOFOLLOW | O_CLOEXEC`, проверяет owner/mode/тип/размер/число ссылок.
+Host не читает, не разбирает и не копирует содержимое. Типы выбора Claude и Codex
+раздельные, путь назначения и config env фиксированы для каждого провайдера.
+
+`OfflineRunner::run_claude_with_auth` разрешён только для точной версии и
+Claude offline profile. Один файл монтируется read-only в private
+`/home/agent/.claude/.credentials.json`; `CLAUDE_CONFIG_DIR` указывает на эту
+папку. Соседние settings/hooks/MCP/history не передаются. Descriptor для mount
+закрыт до запуска payload. Проверка версии по-прежнему не получает auth.
+
+Это capability выбранного файла, не проверка входа. `O_PATH` закрепляет inode,
+но не защищает от одновременной записи в него на host. Read-only mount не запрещает
+серверную ротацию токена; сеть в этом профиле изолирована. Сохранение managed policy,
+default-hostname HTTPS, expiry/revoke и refresh требуют следующих срезов.
 
 ## Результат
 
@@ -87,6 +107,7 @@ permission denials, subagents, server tools, очередь следующего
 ```sh
 cargo test -p tgsum-runner --all-features --locked --test claude
 cargo test -p tgsum-runner --all-features --locked --test claude fake_cli -- --ignored --nocapture
+cargo test -p tgsum-runner --all-features --locked --test claude selected_auth -- --ignored --nocapture
 TGSUM_CLAUDE_TEST_BINARY=/absolute/path/to/native/claude \
   cargo test -p tgsum-runner --all-features --locked --test claude installed_cli -- --ignored --nocapture
 cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored --nocapture
@@ -96,7 +117,11 @@ bash scripts/check.sh
 Последняя process fixture запускает **реальный executable с вымышленным ключом**
 и локальным canned Messages server внутри того же offline namespace. Внешнего
 inference, существующих профилей и аккаунтов нет. Проверяются все шесть draft-07
-schemas и ошибка HTTP 401. Fake CLI независимо проверяет argv, env, stdin, scope,
+schemas и ошибка HTTP 401. Отдельная fixture передаёт вымышленный subscription
+OAuth через выбранный файл без API-key/token env: native CLI отправляет ожидаемый
+Bearer, host-файл не меняется, access/refresh sentinels отсутствуют в stdout/stderr.
+В этих проверках `ANTHROPIC_BASE_URL` ведёт на private loopback HTTP; это не проверка
+production TLS или server-managed policy. Fake CLI независимо проверяет argv, env, stdin, scope,
 успех, ошибки, timeout/cancel. Другая версия/профиль не получает fallback вне sandbox.
 Игнорируемые process tests нужно запускать явно; обычный gate не доказывает их прохождение.
 

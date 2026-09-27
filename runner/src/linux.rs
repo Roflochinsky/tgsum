@@ -3,7 +3,7 @@ pub(crate) mod process;
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -32,8 +32,45 @@ pub(crate) struct Backend {
 
 #[derive(Default)]
 pub(crate) struct Access<'a> {
-    pub auth: Option<&'a crate::codex::SelectedAuthFile>,
+    pub auth: Option<Auth<'a>>,
     pub gateway: Option<&'a crate::egress::InferenceGateway>,
+}
+
+/// Typed provider selection fixes both destination and environment key. Never
+/// accept a source-controlled guest path or allow two profiles in one launch.
+pub(crate) enum Auth<'a> {
+    Codex(&'a crate::codex::SelectedAuthFile),
+    Claude(&'a crate::claude::SelectedAuthFile),
+}
+struct AuthMount<'a> {
+    fd: BorrowedFd<'a>,
+    home: &'static str,
+    path: &'static str,
+    config_env: &'static str,
+}
+impl Auth<'_> {
+    fn mount(&self) -> Result<AuthMount<'_>, RunnerError> {
+        match self {
+            Self::Codex(auth) => {
+                auth.validate()?;
+                Ok(AuthMount {
+                    fd: auth.mount_fd(),
+                    home: crate::codex::auth::AUTH_HOME,
+                    path: crate::codex::auth::AUTH_PATH,
+                    config_env: "CODEX_HOME",
+                })
+            }
+            Self::Claude(auth) => {
+                auth.validate()?;
+                Ok(AuthMount {
+                    fd: auth.mount_fd(),
+                    home: crate::claude::auth::AUTH_HOME,
+                    path: crate::claude::auth::AUTH_PATH,
+                    config_env: "CLAUDE_CONFIG_DIR",
+                })
+            }
+        }
+    }
 }
 
 impl Backend {
@@ -175,7 +212,7 @@ impl Backend {
             limits,
             cancellation,
             Access {
-                auth,
+                auth: auth.map(Auth::Codex),
                 gateway: None,
             },
         )
@@ -235,15 +272,15 @@ impl Backend {
             command.arg("--ro-bind").arg(source).arg(guest);
         }
         let mut mount_fds = Vec::new();
-        if let Some(auth) = access.auth {
-            auth.validate()?;
-            command.args(["--dir", crate::codex::auth::AUTH_HOME]);
+        if let Some(auth) = &access.auth {
+            let mount = auth.mount()?;
+            command.args(["--dir", mount.home]);
             command
                 .arg("--ro-bind-fd")
-                .arg(auth.mount_fd().as_raw_fd().to_string())
-                .arg(crate::codex::auth::AUTH_PATH);
-            command.args(["--setenv", "CODEX_HOME", crate::codex::auth::AUTH_HOME]);
-            mount_fds.push(auth.mount_fd());
+                .arg(mount.fd.as_raw_fd().to_string())
+                .arg(mount.path);
+            command.args(["--setenv", mount.config_env, mount.home]);
+            mount_fds.push(mount.fd);
         }
         if let Some(gateway) = access.gateway {
             let fd = gateway.mount_fd()?;

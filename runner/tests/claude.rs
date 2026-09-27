@@ -534,6 +534,137 @@ mod process {
             Err(RunnerError::ExportOnly("unknown isolation profile"))
         ));
     }
+    fn selected_auth() -> (tempfile::TempDir, claude::SelectedAuthFile, Vec<u8>) {
+        use std::{
+            fs,
+            os::unix::fs::PermissionsExt,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(".credentials.json");
+        let expiry = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+            + 86_400_000;
+        let bytes=json!({"claudeAiOauth":{"accessToken":"tgsum-synthetic-access-token","refreshToken":"tgsum-synthetic-refresh-token","expiresAt":expiry,"scopes":["user:inference"],"subscriptionType":"pro","rateLimitTier":null}}).to_string().into_bytes();
+        fs::write(&path, &bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(
+            home.path().join("settings.json"),
+            "INVALID_SETTINGS_MUST_NOT_LOAD",
+        )
+        .unwrap();
+        fs::write(
+            home.path().join("CLAUDE.md"),
+            "UNSELECTED_SECRET_MUST_NOT_LOAD",
+        )
+        .unwrap();
+        let auth = claude::SelectedAuthFile::select(&path).unwrap();
+        fs::rename(&path, home.path().join("pinned-original")).unwrap();
+        fs::write(&path, "REPLACEMENT_MUST_NOT_LOAD").unwrap();
+        (home, auth, bytes)
+    }
+    #[test]
+    #[ignore = "requires bubblewrap0.12.0, Linux namespaces; synthetic auth only"]
+    fn selected_auth_mount_is_private_readonly_pinned_and_profile_bound() {
+        let f = context("SELECTED token=SYNTHETIC_SECRET");
+        let c = Cancellation::default();
+        let q = ClaudeRequest::prepare(&f.context, "synthetic-model", "success", &schema(), &c)
+            .unwrap();
+        let (home, auth, bytes) = selected_auth();
+        let r = runner();
+        let o = r
+            .run_claude_with_auth(&q, &auth, claude::run_limits(), &c)
+            .unwrap();
+        assert!(
+            o.process_succeeded(),
+            "{o:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        assert!(claude::decode::<Answer>(&o, "synthetic-model", |a| a.evidence.len() == 1).is_ok());
+        assert_eq!(
+            std::fs::read(home.path().join("pinned-original")).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".credentials.json")).unwrap(),
+            "REPLACEMENT_MUST_NOT_LOAD"
+        );
+        assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 4);
+        let mut wrong = contract();
+        wrong.isolation_profile = tgsum_runner::LINUX_OFFLINE_PROC_PROFILE.into();
+        let r = OfflineRunner::qualify(
+            wrong,
+            RuntimeSpec {
+                executable: env!("CARGO_BIN_EXE_tgsum-claude-fixture").into(),
+                files: files(),
+            },
+            &c,
+        )
+        .unwrap();
+        assert!(matches!(
+            r.run_claude_with_auth(&q, &auth, claude::run_limits(), &c),
+            Err(RunnerError::ExportOnly(_))
+        ));
+    }
+    #[test]
+    #[ignore = "requires offline Linux sandbox and explicit TGSUM_CLAUDE_TEST_BINARY; synthetic selected OAuth only"]
+    fn installed_cli_reads_selected_synthetic_oauth_in_offline_namespace() {
+        let binary = PathBuf::from(
+            std::env::var_os("TGSUM_CLAUDE_TEST_BINARY")
+                .expect("explicit native Claude2.1.280 executable"),
+        );
+        let c = Cancellation::default();
+        let mut runtime_files = files();
+        runtime_files.push(RuntimeFile {
+            source: binary,
+            guest: "/runtime/claude".into(),
+        });
+        let r = OfflineRunner::qualify(
+            contract(),
+            RuntimeSpec {
+                executable: env!("CARGO_BIN_EXE_tgsum-claude-server-fixture").into(),
+                files: runtime_files,
+            },
+            &c,
+        )
+        .unwrap();
+        let f = context("SELECTED token=SYNTHETIC_SECRET");
+        let q = RecipeRequest::prepare(&f.context, MODEL, tgsum_core::recipe::Recipe::Summary, &c)
+            .unwrap();
+        let (home, auth, bytes) = selected_auth();
+        let o = r
+            .run_claude_with_auth(
+                q.request(),
+                &auth,
+                tgsum_runner::RunLimits {
+                    timeout: Duration::from_secs(10),
+                    ..claude::run_limits()
+                },
+                &c,
+            )
+            .unwrap();
+        assert!(
+            o.process_succeeded(),
+            "{o:?}: {}\n{}",
+            String::from_utf8_lossy(&o.stderr),
+            String::from_utf8_lossy(&o.stdout)
+        );
+        q.decode(&o).unwrap();
+        for secret in [
+            "tgsum-synthetic-access-token",
+            "tgsum-synthetic-refresh-token",
+        ] {
+            assert!(!String::from_utf8_lossy(&o.stdout).contains(secret));
+            assert!(!String::from_utf8_lossy(&o.stderr).contains(secret));
+        }
+        assert_eq!(
+            std::fs::read(home.path().join("pinned-original")).unwrap(),
+            bytes
+        );
+        assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 4);
+    }
     #[test]
     #[ignore = "requires offline Linux sandbox and explicit TGSUM_CLAUDE_TEST_BINARY native 2.1.280; synthetic key only"]
     fn installed_cli_runs_six_schemas_and_401_without_accounts_or_external_network() {

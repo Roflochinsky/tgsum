@@ -2,6 +2,8 @@
 //! reviewed runtime file list, exact version probe and argv/stdin contract.
 //! This crate never discovers credentials or falls back to an unsandboxed run.
 
+#[cfg(target_os = "linux")]
+mod auth_file;
 pub mod claude;
 pub mod codex;
 mod context;
@@ -277,6 +279,36 @@ impl OfflineRunner {
             limits,
             cancellation,
             Some(auth),
+        )
+    }
+
+    /// One explicitly selected Claude credential file, only in the reviewed
+    /// OFFLINE namespace. No credentials reach qualification. This operation
+    /// proves neither account validity nor safe refresh/managed cloud policy.
+    #[cfg(target_os = "linux")]
+    pub fn run_claude_with_auth(
+        &self,
+        request: &claude::ClaudeRequest<'_>,
+        auth: &claude::SelectedAuthFile,
+        limits: RunLimits,
+        cancellation: &Cancellation,
+    ) -> Result<RunOutput, RunnerError> {
+        if self.info.version_output.as_bytes() != claude::VERSION_STDOUT
+            || self.info.isolation_profile != claude::LINUX_OFFLINE_PROFILE
+        {
+            return Err(RunnerError::ExportOnly(
+                "Claude auth requires the reviewed offline profile and CLI version",
+            ));
+        }
+        self.backend.run_with_access(
+            request.context().directory(),
+            request.invocation()?,
+            limits,
+            cancellation,
+            linux::Access {
+                auth: Some(linux::Auth::Claude(auth)),
+                gateway: None,
+            },
         )
     }
 
