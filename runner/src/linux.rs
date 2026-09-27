@@ -27,6 +27,7 @@ pub(crate) struct Backend {
     _staging: TempDir,
     mounts: Vec<(PathBuf, PathBuf)>,
     private_proc: bool,
+    claude_runtime: bool,
 }
 
 #[derive(Default)]
@@ -45,8 +46,11 @@ impl Backend {
         let mut backend = Self::stage(runtime, cancellation)?;
         backend.private_proc = matches!(
             contract.isolation_profile.as_str(),
-            LINUX_OFFLINE_PROC_PROFILE | crate::codex::LINUX_EGRESS_PROFILE
+            LINUX_OFFLINE_PROC_PROFILE
+                | crate::codex::LINUX_EGRESS_PROFILE
+                | crate::claude::LINUX_OFFLINE_PROFILE
         );
+        backend.claude_runtime = contract.isolation_profile == crate::claude::LINUX_OFFLINE_PROFILE;
         let empty = tempfile::tempdir()?;
         let output = backend.run(
             empty.path(),
@@ -143,6 +147,7 @@ impl Backend {
             _staging: staging,
             mounts,
             private_proc: false,
+            claude_runtime: false,
         })
     }
 
@@ -250,6 +255,31 @@ impl Backend {
         }
         if self.private_proc {
             command.args(["--proc", "/proc", "--remount-ro", "/proc"]);
+        }
+        if self.claude_runtime {
+            // Bun 1.4.3 in Claude 2.1.280 aborts without /dev/urandom. Bind
+            // only these two character devices, never the host /dev tree.
+            // This opt-in profile retains the private offline network/PIDs.
+            command.args([
+                "--dev-bind",
+                "/dev/null",
+                "/dev/null",
+                "--dev-bind",
+                "/dev/urandom",
+                "/dev/urandom",
+                "--setenv",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                "1",
+                "--setenv",
+                "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+                "1",
+                "--setenv",
+                "ENABLE_CLAUDEAI_MCP_SERVERS",
+                "false",
+                "--setenv",
+                "CLAUDE_CODE_MAX_RETRIES",
+                "0",
+            ]);
         }
         command.arg("--ro-bind").arg(context).arg("/context");
         command.args([

@@ -46,7 +46,14 @@ Default-сборка проверена до Run: version probe установл
 Проверка build metadata не заменяет installer roundtrip; реальные аккаунты,
 enterprise/agent identity и остальные ОС остаются неквалифицированными.
 [Desktop контракт](../development/desktop-analysis.md).
-Следующий активный срез — `hzm.8` (Claude Code). Эпик и полная цель открыты.
+Активный `hzm.8` (Claude Code): реализованы offline request/decoder, отдельный
+Linux профиль и binding шести recipes. Установленный native 2.1.280 проверен
+с локальным canned Messages server, вымышленным ключом и без внешней сети:
+все шесть схем и HTTP 401. Полный gate проходит; 12 Claude tests и 7 isolation
+tests выполнены отдельно, включая обычно игнорируемые проверки. Auth/HTTPS
+egress, managed lifecycle и Desktop Claude Run остаются в работе; задача не
+закрыта. [Контракт Claude](../development/claude-adapter.md). Состав и состояния
+12 эпиков / 106 задач не изменены. Эпик и полная цель открыты.
 
 ## Что согласовываем
 

@@ -122,29 +122,37 @@ const REQUIRES: &str = "requires bubblewrap 0.12.0, Linux namespaces and close_r
 #[test]
 #[ignore = "requires bubblewrap 0.12.0, Linux namespaces and close_range"]
 fn private_read_only_proc_does_not_expose_host_processes_or_root() {
-    let mut contract = contract();
-    contract.isolation_profile = LINUX_OFFLINE_PROC_PROFILE.into();
-    let runner = OfflineRunner::qualify(contract, runtime(), &Cancellation::default()).unwrap();
-    assert_eq!(runner.info().isolation_profile, LINUX_OFFLINE_PROC_PROFILE);
-    let fixture = context();
-    let secret = fixture.root.path().join("host-only-secret");
-    fs::write(&secret, "SYNTHETIC_SECRET").unwrap();
-    let mut request = invocation(&["inspect-proc"]);
-    request.args.push(secret.into_os_string());
-    let output = runner
-        .run(
-            &fixture.context,
-            &request,
-            RunLimits::default(),
-            &Cancellation::default(),
-        )
-        .unwrap();
-    assert!(
-        output.process_succeeded(),
-        "{output:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(output.stdout, b"isolated\n");
+    for (profile, mode) in [
+        (LINUX_OFFLINE_PROC_PROFILE, "inspect-proc"),
+        (
+            tgsum_runner::claude::LINUX_OFFLINE_PROFILE,
+            "inspect-claude",
+        ),
+    ] {
+        let mut contract = contract();
+        contract.isolation_profile = profile.into();
+        let runner = OfflineRunner::qualify(contract, runtime(), &Cancellation::default()).unwrap();
+        assert_eq!(runner.info().isolation_profile, profile);
+        let fixture = context();
+        let secret = fixture.root.path().join("host-only-secret");
+        fs::write(&secret, "SYNTHETIC_SECRET").unwrap();
+        let mut request = invocation(&[mode]);
+        request.args.push(secret.into_os_string());
+        let output = runner
+            .run(
+                &fixture.context,
+                &request,
+                RunLimits::default(),
+                &Cancellation::default(),
+            )
+            .unwrap();
+        assert!(
+            output.process_succeeded(),
+            "{output:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"isolated\n");
+    }
 }
 
 #[test]

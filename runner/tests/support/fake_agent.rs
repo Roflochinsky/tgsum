@@ -57,7 +57,9 @@ fn main() {
             std::fs::write("/tmp/descendant-ready", "ready").unwrap();
             hold();
         }
-        Some("inspect") | Some("inspect-proc") => {
+        Some("inspect") | Some("inspect-proc") | Some("inspect-claude") => {
+            let private_proc = args[0] != "inspect";
+            let claude_devices = args[0] == "inspect-claude";
             let cwd = std::env::current_dir().unwrap();
             assert_eq!(cwd, std::path::Path::new("/context"));
             let manifest = std::fs::read_to_string("manifest.json").unwrap();
@@ -82,7 +84,7 @@ fn main() {
                     "host path visible: {path}"
                 );
                 assert!(std::fs::read(path).is_err(), "host path accessible: {path}");
-                if args[0] == "inspect-proc" {
+                if private_proc {
                     // PID 1 and self remain rooted in the same isolated mount
                     // namespace. Procfs must not expose the host root or PIDs.
                     for prefix in ["/proc/1/root", "/proc/self/root"] {
@@ -91,7 +93,7 @@ fn main() {
                 }
             }
             for path in ["/proc", "/sys", "/run", "/dev", "/etc"] {
-                if path == "/proc" && args[0] == "inspect-proc" {
+                if path == "/proc" && private_proc {
                     assert_eq!(
                         std::fs::read_link("/proc/self/exe").unwrap(),
                         std::path::Path::new("/runtime/agent")
@@ -111,14 +113,42 @@ fn main() {
                             );
                         }
                     }
+                } else if path == "/dev" && claude_devices {
+                    let mut names: Vec<_> = std::fs::read_dir(path)
+                        .unwrap()
+                        .map(|entry| entry.unwrap().file_name())
+                        .collect();
+                    names.sort();
+                    assert_eq!(names, ["null", "urandom"]);
+                    let mut bytes = [0; 16];
+                    std::fs::File::open("/dev/urandom")
+                        .unwrap()
+                        .read_exact(&mut bytes)
+                        .unwrap();
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .open("/dev/null")
+                        .unwrap()
+                        .write_all(b"discard")
+                        .unwrap();
+                    assert!(std::fs::write("/dev/extra", "host device").is_err());
                 } else {
                     assert!(!std::path::Path::new(path).exists());
                 }
             }
             assert_eq!(std::env::var("HOME").unwrap(), "/home/agent");
             for (key, _) in std::env::vars() {
+                let claude_variable = claude_devices
+                    && [
+                        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                        "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+                        "ENABLE_CLAUDEAI_MCP_SERVERS",
+                        "CLAUDE_CODE_MAX_RETRIES",
+                    ]
+                    .contains(&key.as_str());
                 assert!(
-                    ["HOME", "TMPDIR", "PATH", "LANG", "PWD"].contains(&key.as_str()),
+                    claude_variable
+                        || ["HOME", "TMPDIR", "PATH", "LANG", "PWD"].contains(&key.as_str()),
                     "unexpected env {key}"
                 );
             }

@@ -1,8 +1,8 @@
 # Изолированный runner
 
 `tgsum-runner` — отдельный workspace crate вне offline core. Он реализует
-границу процесса для будущих adapters. Приложение пока не подключает его к Run;
-облачный запуск из UI ещё не доступен. Для Codex добавлены
+границу процесса для adapters. Codex подключён к Desktop Prepare/Review/Run;
+[реализованный flow и пределы проверки](desktop-analysis.md). Для Codex добавлены
 [подготовка запроса и проверка structured result](codex-adapter.md): fake CLI
 и установленный 0.155.1 проверены с локальным сервером готовых ответов внутри
 offline namespace. Реальные анализы и аккаунты не запускались.
@@ -15,6 +15,9 @@ credentials. Исходный offline контракт описан ниже. Н
 
 Основание: [контракт agent adapters](../specs/context-gateway.md#agent-adapters)
 и [исследование механизмов ОС](../research/runner-isolation-2026-09-26.md).
+
+Для Claude 2.1.280 добавлены [offline protocol и отдельный профиль](claude-adapter.md);
+его auth/egress и UI Run пока не реализованы.
 
 ## Контракт
 
@@ -76,10 +79,11 @@ Host procfs не монтируется. Первый профиль по-пре
 | `/home/agent`, `/tmp` | Пустые отдельные tmpfs для каждого запуска, по 64 MiB |
 | Host HOME, Project store, исходные exports, connector secrets | Не монтируются |
 | Явно выбранный Codex `auth.json` | Только `run_codex_with_auth`: один read-only файл, offline |
-| Host `/proc`, `/sys`, `/run`, `/dev`, sockets | Не монтируются |
-| Собственный `/proc` | Только явный `offline-proc-v1`, read-only, процессы private PID namespace |
+| Host `/proc`, `/sys`, `/run`, sockets | Не монтируются |
+| `/dev/null`, `/dev/urandom` | Только `claude-offline-v1`, два device bind; другие host devices отсутствуют |
+| Собственный `/proc` | Явные `offline-proc-v1` и `claude-offline-v1`, read-only, процессы private PID namespace |
 | Сеть | Отдельный namespace, доступа к host loopback/сокетам нет |
-| Окружение | HOME, TMPDIR, PATH, LANG и PWD; при auth-mount фиксированный CODEX_HOME; env_clear также у helper |
+| Окружение | HOME, TMPDIR, PATH, LANG и PWD; при auth-mount фиксированный CODEX_HOME; Claude profile добавляет четыре фиксированных переменных, перечисленных в его контракте; env_clear также у helper |
 | Дополнительные FD | CLOEXEC на FD > 2; единственный auth O_PATH fd передаётся helper для монтажа и закрывается до payload |
 
 Root filesystem read-only, capabilities сброшены, новые user namespaces
@@ -188,8 +192,9 @@ cargo test -p tgsum-runner --all-features --locked --test isolation -- --ignored
 - TempDir удаляет staging при обычном Drop; авария host может оставить файлы.
   Общая retention/crash-cleanup политика остаётся отдельной задачей Workspace.
 - Core manifest пока содержит `destination: export_only`. Подготовленный здесь
-  context используется в synthetic проверках; будущий adapter должен связать
-  Review с фактическим получателем перед первым пользовательским Run.
+  context сам по себе не разрешает отправку. Codex managed adapter связывает
+  отдельный Run ticket с фактическим получателем и Review; Claude пока имеет
+  только offline protocol.
 
 Полные agent/OS adversarial suites и проверка настоящих integrations остаются
 `tgsum-hzm.12` и `tgsum-t8t.19/.20`. Реальные аккаунты требуют контроля пользователя.

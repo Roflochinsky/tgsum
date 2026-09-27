@@ -4,7 +4,8 @@
 на CLI **0.155.1**; [исследование](../research/codex-adapter-2026-09-26.md)
 разделяет проверенные аргументы, wire format и ещё не доказанную изоляцию.
 
-**Облачный adapter ещё не подключён к UI Run.** Реализованы подготовка запроса,
+**Adapter подключён к Desktop Prepare/Review/Run:**
+[контракт и фактические проверки UI](desktop-analysis.md). Реализованы подготовка запроса,
 decoder, offline запуск и отдельный `CodexNetworkRunner` с ограниченным HTTPS
 transport. Они проверены на synthetic executable и установленном Codex с локальными
 серверами готовых ответов, без настоящей авторизации и запросов к провайдеру.
@@ -15,7 +16,7 @@ transport. Они проверены на synthetic executable и установ
 `CodexRequest::prepare(context, model, task, schema, cancellation)` принимает
 только `PreparedContext`, полученный из проверенного core bundle. Model, task
 и result schema задаёт доверенный код recipe/host; поля архива не управляют argv.
-Отдельные recipes и их result types остаются задачей `tgsum-hzm.9`.
+Шесть compiled recipes и их result types реализованы в [recipes](recipes.md).
 
 - В stdin сериализуются инструкция анализа, task и `untrusted_documents`:
   публичный manifest и перечисленные в нём файлы. Каталог исходного экспорта
@@ -26,8 +27,8 @@ transport. Они проверены на synthetic executable и установ
 - Context целиком включён в stdin: агенту не требуется shell, чтобы прочитать
   `/context`. Oversize даёт ошибку, без незаметного обрезания или смены scope.
 - Проверяются отмена и revision Project. Ссылка на `PreparedContext` удерживает
-  staging; `invocation()` повторно проверяет revision. При будущем запуске
-  runner также должен проверять именно `request.context()`.
+  staging; `invocation()` повторно проверяет revision. Runner принимает
+  именно `request.context()`.
 - Schema хранится в отдельном приватном temporary file. `schema_runtime_file()`
   задаёт фиксированное назначение `/runtime/tgsum-codex-result.schema.json`;
   runner копирует его при qualification. Файл не добавляется в public bundle

@@ -2,6 +2,7 @@
 //! reviewed runtime file list, exact version probe and argv/stdin contract.
 //! This crate never discovers credentials or falls back to an unsandboxed run.
 
+pub mod claude;
 pub mod codex;
 mod context;
 mod discovery;
@@ -209,6 +210,7 @@ impl OfflineRunner {
         let isolation_profile = match contract.isolation_profile.as_str() {
             LINUX_OFFLINE_PROFILE => LINUX_OFFLINE_PROFILE,
             LINUX_OFFLINE_PROC_PROFILE => LINUX_OFFLINE_PROC_PROFILE,
+            claude::LINUX_OFFLINE_PROFILE => claude::LINUX_OFFLINE_PROFILE,
             _ => return Err(RunnerError::ExportOnly("unknown isolation profile")),
         };
         if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
