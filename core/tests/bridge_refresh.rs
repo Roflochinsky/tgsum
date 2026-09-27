@@ -611,6 +611,38 @@ fn invalid_outputs_never_advance_project_and_known_failure_respects_backoff() {
     ));
 }
 
+#[cfg(windows)]
+#[test]
+fn canonical_client_path_imports_beneath_an_ordinary_windows_drive_path() {
+    let f = Fixture::new();
+    let ordinary = PathBuf::from(f.directory.to_str().unwrap().strip_prefix(r"\\?\").unwrap());
+    f.store
+        .update(
+            &f.project.project_id,
+            f.project.revision,
+            ProjectChange::AssistedExport {
+                source_id: "pilot".into(),
+                settings: Some(AssistedExportSettings {
+                    directory: ordinary,
+                    client: None,
+                }),
+            },
+        )
+        .unwrap();
+    let mut run = f.coordinator();
+    f.start(&mut run);
+    f.exporting(&mut run);
+    let path = f.archive(
+        "new-export",
+        r#"{"id":42,"type":"private_group","messages":[]}"#,
+    );
+    f.event(&run, DriverStatus::Completed { archive_path: path });
+    assert!(matches!(
+        run.poll(f.observation()).unwrap(),
+        RefreshState::Ready { .. }
+    ));
+}
+
 #[cfg(unix)]
 #[test]
 fn returned_symlink_cannot_escape_export_directory() {

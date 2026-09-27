@@ -487,12 +487,7 @@ fn import_completed(
         ));
     }
     let root = &run.request.settings.directory;
-    let relative = path.strip_prefix(root).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "export output must be inside its configured directory",
-        )
-    })?;
+    let relative = export_relative_path(path, root)?;
     let files = ArchiveFiles::open(root)?;
     let project = &run.attempt.project;
     let source = project
@@ -532,4 +527,44 @@ fn import_completed(
         path.to_path_buf(),
     )?;
     Ok(CompletedImport { project, delta })
+}
+
+fn export_relative_path<'a>(path: &'a Path, root: &Path) -> io::Result<&'a Path> {
+    let outside = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "export output must be inside its configured directory",
+        )
+    };
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        // canonicalize adds the verbatim drive prefix on Windows. Match that
+        // representation to the same local drive without resolving symlinks or
+        // reparse points. The retained handle opener still validates the tail.
+        let drive = |component| match component {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
+                    Some(letter.to_ascii_uppercase())
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let mut path_parts = path.components();
+        let mut root_parts = root.components();
+        let source_drive = drive(path_parts.next()).ok_or_else(outside)?;
+        if !path.is_absolute()
+            || !root.is_absolute()
+            || Some(source_drive) != drive(root_parts.next())
+        {
+            return Err(outside());
+        }
+        path_parts
+            .as_path()
+            .strip_prefix(root_parts.as_path())
+            .map_err(|_| outside())
+    }
+    #[cfg(not(windows))]
+    path.strip_prefix(root).map_err(|_| outside())
 }

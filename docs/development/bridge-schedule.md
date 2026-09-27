@@ -33,6 +33,10 @@ replacing that source cannot erase the checkpoint; deleting acquisition settings
 retains it. An unreadable Project also prevents claiming a new export because
 its previous state cannot be established.
 
+The owner explicitly unlocks on drop: a concurrently spawned child may inherit
+the file description briefly before exec, and closing only the owner's handle
+would leave the Unix lock held during that interval.
+
 ## Driver and completion contract
 
 The driver must implement bounded `start`, `poll` and `cancel` calls. Only `poll`
@@ -51,6 +55,8 @@ full JSON and selected native conversation ID. The resulting immutable snapshot,
 actual archive reference and resolved checkpoint are published in one Project
 revision. Failures preserve the previous source snapshot and analysis baseline;
 a publication conflict can leave an unreferenced immutable snapshot.
+Ordinary Windows drive paths and their canonical verbatim-drive representation
+are matched lexically; this does not resolve links or relax confinement checks.
 
 Cancellation has a per-run atomic flag that can interrupt file staging/import.
 A cancel action is delivered to the driver at most once; its delivery alone is

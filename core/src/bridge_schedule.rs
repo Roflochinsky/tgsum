@@ -48,10 +48,19 @@ pub struct TelegramRefreshPlan {
 }
 
 /// Held for the entire client export, across all projects and TGSUM processes.
-/// Dropping the file releases the OS lock; a persisted unresolved checkpoint
+/// Dropping the owner explicitly unlocks the file; an inherited handle in a
+/// concurrently spawned child must not prolong its lease. A persisted checkpoint
 /// still prevents replay after a crash.
 pub struct TelegramExportLease {
     _file: File,
+}
+
+impl Drop for TelegramExportLease {
+    fn drop(&mut self) {
+        // Closing just this handle can leave a Unix flock held by a child
+        // between fork and exec. The lease owner controls explicit release.
+        let _ = FileExt::unlock(&self._file);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -375,6 +384,25 @@ mod tests {
     use crate::assisted::AssistedExportSettings;
     use crate::project::{ProjectChange, ProjectSource};
     use crate::snapshot::SourceScope;
+
+    #[test]
+    fn dropping_owner_releases_lease_even_with_an_inherited_handle() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(root.path());
+        let lease = TelegramExportLease::try_acquire(&store).unwrap().unwrap();
+        // A concurrent process launch can temporarily inherit the open file
+        // description before exec closes CLOEXEC descriptors. Dup models it
+        // deterministically without racing the operating system's scheduler.
+        let inherited = lease._file.try_clone().unwrap();
+        drop(lease);
+        let next = TelegramExportLease::try_acquire(&store).unwrap();
+        assert!(
+            next.is_some(),
+            "the owner ended its lease before child exec"
+        );
+        drop(inherited);
+        assert!(TelegramExportLease::try_acquire(&store).unwrap().is_none());
+    }
 
     #[test]
     fn changing_the_export_destination_cannot_publish_a_stale_claim() {
