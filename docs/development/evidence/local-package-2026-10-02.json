@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-02",
+  "source_base": "9734a9af7a7cde461a2b4d97dd03851a1de35119",
+  "scope": "Omarchy x86_64, synthetic local files and fake account/client boundaries",
+  "implementation_files_sha256": {
+    "core/src/bundle.rs": "638c445bc4cafeb3df62a5158153321d3730d45a52c678cde93c338ea6e83c77",
+    "core/src/local_package/mod.rs": "4e1b305fa8cb2dcd9de76bf40ff3d1c4b1d3f0fc475a9cd560fc11972cb934f6",
+    "core/src/local_package/publication.rs": "8de46ef1f8306448e7a52ffc6c0731e81ef29643e3ebe214f27ae59d6f377ccb",
+    "core/src/local_package/storage.rs": "7a0772343e6a9d73aef440737373a7a5fac0521d99bc2ce7154fffe81bc6c34c",
+    "core/src/office.rs": "781679c4796ca87309018a06ca61873f0be7aea6d63b40124b70487a3c27607f",
+    "scripts/desktop-e2e.py": "1d8065539c2afc585d726d50b7db5f8b4537ea6f12f807c5ac34d7fb580ed02e",
+    "scripts/local-package-install-smoke.py": "e283f0a46ef36463bf292fa32610a13657e9eeb8029d4c8d48525c690f96a524",
+    "src-tauri/src/local_package.rs": "6ddf0126a07299e02a4e19f6446eef2a57ad20146f848bbc6064aa80124e03e2",
+    "src-tauri/src/package_github.rs": "837bfc939b7010e068cb9d88fbb9614e5a59a49faa3ae360624a2d183f47f353",
+    "src-tauri/ui/local-package.js": "e5a04ac87da88d954e94234d395925c3544fef5a01096e370eb050cff428c1a0"
+  },
+  "checks": {
+    "workspace": "bash scripts/check.sh: PASS",
+    "core": "local_package public API regression suite",
+    "git": "offline bare remote replacement/repeat/cancellation",
+    "ui": {
+      "status": "passed",
+      "checks": [
+        "isolated onboarding and Project creation via controls",
+        "source access distinguishes whole-file read, stored chat, context scope and manual refresh",
+        "full JSON, chat/topic/date scope, saved privacy and sanitized Review",
+        "Export only writes sanitized bundle through real IPC",
+        "codex synthetic agent through Review, explicit Run and rendered result",
+        "claude synthetic agent through Review, explicit Run and rendered result",
+        "single JSON refresh preserves saved scope, invalidates Review and reopens Project",
+        "selected-folder candidate requires confirmation; stable repeated Telegram import updates snapshot without Run",
+        "missing and truncated assisted JSON require a new confirmation and preserve both snapshots",
+        "two assisted Telegram sources reject wrong chat then retry one source without analysis",
+        "schedule opt-in persists and a locked session never starts the synthetic client",
+        "unlocked timer imports the correlated output path once and preserves the other chat and analysis",
+        "refresh cancellation waits for the fake client terminal event and preserves snapshots",
+        "lost active session requires explicit review and manual cadence can stop future scheduling",
+        "local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause",
+        "unimplemented OAuth source has no inferred grant or Telegram refresh controls",
+        "single-chat topic selection and actual one-off Markdown output",
+        "malformed archive displays an error; no uncaught renderer failures"
+      ]
+    },
+    "install": {
+      "status": "passed",
+      "checks": [
+        "cargo install debug",
+        "ordinary production backend",
+        "desktop launcher ownership respected",
+        "local package privacy",
+        "cargo update offline",
+        "restart preserves project and pause",
+        "repeat keeps content"
+      ]
+    }
+  },
+  "benchmark": {
+    "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+    "build": "debug, locked",
+    "commit": "9734a9af7a7cde461a2b4d97dd03851a1de35119",
+    "dirty": true,
+    "runs": [
+      {
+        "cancel_checks": 42045,
+        "elapsed_ms": 54567,
+        "files": 85,
+        "messages": 20000,
+        "output_bytes": 20707220,
+        "peak": "VmHWM:\t   95248 kB",
+        "phase": "ready",
+        "private_bytes": 60620673,
+        "case": "large-chat",
+        "input_json_bytes": 15213429
+      },
+      {
+        "cancel_checks": 21,
+        "elapsed_ms": 15,
+        "files": null,
+        "messages": null,
+        "output_bytes": 0,
+        "peak": "VmHWM:\t   10588 kB",
+        "phase": "cancelled",
+        "private_bytes": 2303,
+        "case": "large-chat",
+        "input_json_bytes": 15213429
+      },
+      {
+        "cancel_checks": 1524,
+        "elapsed_ms": 2145,
+        "files": 4,
+        "messages": 50,
+        "output_bytes": 52298,
+        "peak": "VmHWM:\t   15736 kB",
+        "phase": "ready",
+        "private_bytes": 152272,
+        "case": "many-chats",
+        "input_json_bytes": 17408913
+      },
+      {
+        "cancel_checks": 1756,
+        "elapsed_ms": 3983,
+        "files": 136,
+        "messages": 182,
+        "output_bytes": 25462569,
+        "peak": "VmHWM:\t   16512 kB",
+        "phase": "ready",
+        "private_bytes": 1169258,
+        "case": "mixed-files",
+        "input_json_bytes": 42117
+      }
+    ]
+  }
+}

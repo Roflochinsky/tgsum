@@ -3,6 +3,7 @@ import { mountAnalysis } from './analysis.js'
 import { mountPrivacy } from './privacy.js'
 import { mountAssisted } from './assisted.js'
 import { mountTelegramRefresh } from './telegram-refresh.js'
+import { mountLocalPackage } from './local-package.js'
 import { recentProjects, rememberProject } from './onboarding.js'
 import { renderSourceAccess } from './source-access.js'
 
@@ -34,6 +35,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       const panel = document.querySelector(`[data-telegram-refresh="${CSS.escape(sourceId)}"]`)
       if (panel) panel.open = true
     } })
+  const localPackage = mountLocalPackage({ invoke, act, project: () => current, toast,
+    reload: async () => { current = await invoke('open_project', { projectId: current.project_id }); await render() } })
 
   function invalidateReview() {
     review = null
@@ -177,6 +180,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       await privacy.sourceFiles(card, source)
       assisted.source(card, source, preview?.title || source.scope.conversation_id)
       telegramRefresh.source(card, source)
+      await localPackage.source(card, source)
       if (epoch !== renderEpoch) return
     }
     await analysis.reset()

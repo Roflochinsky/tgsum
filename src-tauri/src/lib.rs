@@ -11,6 +11,8 @@ mod desktop;
 mod desktop_e2e;
 #[cfg(target_os = "linux")]
 mod launcher;
+mod local_package;
+mod package_github;
 mod privacy;
 mod source_access;
 pub mod telegram_refresh;
@@ -605,6 +607,7 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_opener::init())
         .manage(Jobs::default())
         .manage(assisted::ExportInboxState::default())
+        .manage(local_package::PackageRuntime::default())
         .setup(|app| {
             if app.try_state::<analysis::AnalysisState>().is_none() {
                 app.manage(analysis::AnalysisState::for_app());
@@ -646,6 +649,10 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             assisted::launch_assisted_client,
             assisted::poll_assisted_exports,
             assisted::import_assisted_export,
+            local_package::local_package_status,
+            local_package::configure_local_package,
+            local_package::refresh_local_package,
+            local_package::cancel_local_package,
             telegram_refresh::telegram_refresh_status,
             telegram_refresh::start_telegram_refresh,
             telegram_refresh::cancel_telegram_refresh,
@@ -717,6 +724,7 @@ fn run_app<R: Runtime>(app: tauri::App<R>) {
         // Tauri calls setup on Ready, not during Builder::build. State created
         // by setup is available only once this event reaches our callback.
         tauri::RunEvent::Ready => {
+            local_package::start_timer(app.clone(), Arc::clone(&stop));
             assisted::start_background_watcher(
                 app.clone(),
                 app.state::<ProjectStore>().inner().clone(),

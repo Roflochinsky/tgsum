@@ -397,6 +397,59 @@ def exercise(ui, root, report, report_dir):
     assert len((root / "refresh-starts.txt").read_text().splitlines()) == 3
     passed("lost active session requires explicit review and manual cadence can stop future scheduling")
 
+    if platform.system() == "Linux":
+        inbox = root / "local-package-input"
+        output = root / "local-package-output"
+        inbox.mkdir()
+        output.mkdir()
+        archive = {"id": 333, "messages": [{"id": 1, "text": "Hello 🌍 password=SYNTHETIC_PACKAGE_SECRET"}]}
+        (inbox / "result.json").write_text(json.dumps(archive), encoding="utf-8")
+        package_project = ui.invoke("create_project", {"name": "Local package fixture"})
+        package_id = package_project["project_id"]
+        ui.invoke("update_project", {"projectId": package_id, "expectedRevision": package_project["revision"],
+            "change": {"kind": "source", "value": {"source_id": "local-chat", "connector_id": "telegram_json",
+                "scope": {"platform": "telegram", "account_local_id": "synthetic", "conversation_id": "333"},
+                "archive_path": str(inbox / "result.json"), "latest_snapshot_id": None}}})
+        ui.click("#btn-projects")
+        ui.idle()
+        ui.click('[data-project="' + package_id + '"]')
+        ui.stage("source")
+        package = '[data-local-package="local-chat"]'
+        ui.click(package + ' summary')
+        ui.value(package + ' [data-package-input]', str(inbox))
+        ui.value(package + ' [data-package-output]', str(output))
+        ui.click(package + ' [data-package-save]')
+        ui.idle()
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "paused"')
+        ui.click(package + ' [data-package-refresh]')
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "ready"')
+        first = ui.invoke("local_package_status", {"projectId": package_id})
+        ready = Path(first["ready"]["directory"])
+        assert "SYNTHETIC_PACKAGE_SECRET" not in (ready / "context-00001.md").read_text()
+        assert "Hello 🌍" in (ready / "context-00001.md").read_text()
+        (inbox / "result.json").write_text('{"messages":[', encoding="utf-8")
+        ui.click(package + ' [data-package-refresh]')
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "error"')
+        assert ui.invoke("local_package_status", {"projectId": package_id})["ready"] == first["ready"]
+        ui.screenshot(report_dir / "local-package-error.png")
+        archive["messages"].append({"id": 2, "text": "Updated local export"})
+        (inbox / "result.json").write_text(json.dumps(archive), encoding="utf-8")
+        ui.click(package + ' [data-package-auto]')
+        ui.click(package + ' [data-package-save]')
+        ui.idle()
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "ready"', timeout=55)
+        updated = ui.invoke("local_package_status", {"projectId": package_id})
+        assert updated["ready"]["messages"] == 2
+        assert not (ready.parent / first["ready"]["generation"]).exists()
+        assert updated["settings"]["automatic"] is True
+        ui.click(package + ' [data-package-stop]')
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "paused"')
+        stopped = ui.invoke("local_package_status", {"projectId": package_id})
+        assert stopped["settings"]["automatic"] is False
+        assert stopped["ready"] == updated["ready"]
+        ui.screenshot(report_dir / "local-package-ready-paused.png")
+        passed("local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause")
+
     # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.
     future = ui.invoke("create_project", {"name": "Unimplemented connector fixture"})

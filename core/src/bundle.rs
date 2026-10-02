@@ -182,6 +182,16 @@ pub(crate) struct AnalysisBundle {
 }
 
 impl ProjectStore {
+    /// Stable public link shared by message Markdown and package-only media.
+    pub(crate) fn package_attachment_id(
+        &self,
+        project_id: &str,
+        message: &MessageKey,
+        position: usize,
+    ) -> io::Result<String> {
+        EvidenceKey::load_or_create(&self.directory(project_id)?)?
+            .opaque("attachment", &(message, position))
+    }
     /// Bounded, digest-checked sanitized documents for the offline automation
     /// executor. Private snapshots and the evidence index are not exposed.
     pub(crate) fn automation_documents(
