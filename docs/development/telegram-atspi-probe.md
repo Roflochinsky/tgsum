@@ -9,6 +9,11 @@ the user's control. TGSUM's automatic export remains disabled.
 The operator supplies one PID, the exact executable path and a fixed stage.
 The probe verifies that the process belongs to the current user and still
 runs that executable, holds a Linux pidfd, and observes only its AT-SPI tree.
+When the same process registers a GTK shell alongside exactly one Qt root,
+the probe selects that Qt root. Multiple Qt roots, or an unknown toolkit sibling,
+remain ambiguous and are rejected. A sole GTK root is retained for diagnostics
+and the synthetic transport test; it does not establish that Telegram's actual
+Qt controls are accessible.
 It reads roles, machine action names, state flags, toolkit version and the
 **shape** of accessibility IDs. It never requests accessible names, message
 text, descriptions, raw IDs, credentials, session data, screenshots or process
@@ -36,6 +41,35 @@ specified in [Linux research](../research/telegram-linux-bridge-2026-09-27.md).
 In particular, AT-SPI toolkit version is **not** Telegram's application version.
 An absent action or unknown identity is a no-go, not a reason to try coordinates
 or a global keyboard shortcut.
+
+## Accessibility activation on the current Linux host
+
+In the controlled 2026-10-02 Omarchy/Hyprland/Wayland observation, both
+`org.a11y.Status.IsEnabled` and `ScreenReaderEnabled` initially were false.
+The selected Telegram process exposed only two GTK nodes (application/window,
+toolkit 3.24.52), even with its export settings open. Temporarily setting
+`IsEnabled` true exposed separate GTK and Qt 6.11.2 roots for that same PID;
+this revealed the mixed-root selection bug now covered by the fake suite.
+No titles, message text or actions were accessed/invoked. Package metadata was
+`telegram-desktop 7.2.5-1`; the running application version remains unconfirmed.
+
+[Qt documents the activation flags and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON`](https://doc.qt.io/qt-6/qaccessible.html)
+(read 2026-10-02). Its generic description covers Unix/X11; the observation
+above is evidence for this particular Wayland session, not every Qt build.
+For a user-controlled restart, the per-process environment variable is an
+alternative to changing session-wide accessibility flags. Reusing an already
+running single-instance client does not establish that it received the variable.
+Record original session values and restore them after any temporary experiment.
+
+Do not run the CI `dbus-run-session` recipe on this live Omarchy session:
+its AT-SPI launcher reused the active session's socket and broke connectivity.
+Restarting the user `at-spi-dbus-bus.service` restored the bus, and the native
+fake-window test then passed on the existing session, but Telegram's Qt root
+did not reappear with either activation flag. Further live qualification needs
+a user-controlled Telegram restart. CI uses its own isolated machine/display.
+The native test on the existing session opens only its own fake GTK window and
+binds the probe to that process. These observations do not enable automation;
+export controls, native account/chat identity and completion remain unqualified.
 
 Offline fake-tree validation requires no desktop or account:
 

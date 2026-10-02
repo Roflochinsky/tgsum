@@ -144,6 +144,14 @@ def observe(pid, executable, stage):
             app_pid = app.get_process_id()
             if app_pid == pid:
                 matches.append(app)
+        if len(matches) > 1:
+            # Telegram can register both a GTK shell and its actual Qt UI.
+            # Select Qt only when every sibling is known GTK; never pick the
+            # first root or resolve multiple Qt roots by titles/chat content.
+            toolkits = [str(app.get_toolkit_name() or "").lower() for app in matches]
+            qt = [app for app, toolkit in zip(matches, toolkits) if toolkit == "qt"]
+            if len(qt) == 1 and all(toolkit in {"qt", "gtk"} for toolkit in toolkits):
+                matches = qt
         if len(matches) != 1:
             raise ProbeError("application_not_unique_or_not_accessible")
         app = matches[0]

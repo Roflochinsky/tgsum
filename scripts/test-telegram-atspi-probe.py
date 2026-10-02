@@ -7,7 +7,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 PATH = Path(__file__).with_name("telegram-atspi-probe.py")
 SPEC = importlib.util.spec_from_file_location("telegram_atspi_probe", PATH)
@@ -66,7 +68,59 @@ class FakeNode:
         raise AssertionError("probe must never read message text")
 
 
+class FakeApplication(FakeNode):
+    def __init__(self, pid, toolkit, children=()):
+        super().__init__("application", "", children=children)
+        self.pid = pid
+        self.toolkit = toolkit
+
+    def get_process_id(self):
+        return self.pid
+
+    def get_toolkit_name(self):
+        return self.toolkit
+
+    def get_toolkit_version(self):
+        return "6.11.2" if self.toolkit == "Qt" else "3.24.52"
+
+
 class ProbeTests(unittest.TestCase):
+    def observe_fake_applications(self, applications):
+        desktop = FakeNode("application", "", children=applications)
+        atspi = SimpleNamespace(
+            get_desktop=lambda _: desktop,
+            set_timeout=lambda *_: None,
+            StateType=SimpleNamespace(ACTIVE="active", FOCUSED="focused",
+                                     SELECTED="selected", SHOWING="showing", ENABLED="enabled"),
+        )
+        with patch.dict(sys.modules, {
+            "gi": SimpleNamespace(require_version=lambda *_: None),
+            "gi.repository": SimpleNamespace(Atspi=atspi),
+        }):
+            return probe.observe(os.getpid(), Path(sys.executable).resolve(), "settings")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux pidfd required")
+    def test_observe_selects_qt_from_same_process_gtk_and_qt_roots(self):
+        gtk = FakeApplication(os.getpid(), "gtk", [FakeNode("window", "")])
+        qt = FakeApplication(os.getpid(), "Qt", [
+            FakeNode("push button", "private-id", actions=("press",)),
+        ])
+        other_process = FakeApplication(os.getpid() + 1, "Qt")
+        for applications in ([gtk, qt, other_process], [other_process, qt, gtk]):
+            with self.subTest(order=[a.toolkit for a in applications]):
+                report = self.observe_fake_applications(applications)
+                self.assertEqual(report["toolkit_name"], "Qt")
+                self.assertEqual(report["nodes"][1]["actions"], ["press"])
+                self.assertNotIn("private-id", json.dumps(report))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux pidfd required")
+    def test_observe_rejects_ambiguous_toolkits_for_selected_process(self):
+        for toolkits in (("Qt", "Qt"), ("gtk", "gtk"), ("Qt", "unknown")):
+            with self.subTest(toolkits=toolkits):
+                applications = [FakeApplication(os.getpid(), t) for t in toolkits]
+                with self.assertRaisesRegex(probe.ProbeError, "application_not_unique_or_not_accessible"):
+                    self.observe_fake_applications(applications)
+
     def test_report_contains_only_structure_and_whitelisted_actions(self):
         secret = "Private Customer Alice message 123"
         tree = FakeNode("application", "session-private", children=[
