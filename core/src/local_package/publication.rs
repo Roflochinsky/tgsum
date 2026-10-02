@@ -198,6 +198,7 @@ pub(super) fn publish(
     // back into the previous one. A subsequent refresh retries cleanup.
     let _ = cleanup(state, &generation);
     Ok(PackageReceipt {
+        conversations: state.settings.source_ids.len(),
         directory: current,
         generation,
         input_sha256: input_hash.into(),

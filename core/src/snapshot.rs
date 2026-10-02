@@ -324,6 +324,82 @@ impl SnapshotStore {
         self.import(&TelegramJson, snapshot_id, source, &mut reader)
     }
 
+    /// Stream one shared archive, staging one selected chat at a time. Nothing
+    /// reaches the snapshot store until EOF, uniqueness and presence pass for
+    /// every selected conversation. Callers publish Project pointers together.
+    pub(crate) fn import_telegram_selection(
+        &self,
+        selections: &[(String, SourceScope)],
+        reader: impl Read,
+        cancelled: &impl Fn() -> bool,
+    ) -> io::Result<()> {
+        let mut pending = BTreeMap::new();
+        for (id, scope) in selections {
+            if cancelled() {
+                return Err(crate::cancelled());
+            }
+            validate_snapshot_id(id)?;
+            scope.validate()?;
+            match self.load(id) {
+                Ok(snapshot) if snapshot.source == *scope => (),
+                Ok(_) => return Err(invalid("cached snapshot belongs to another chat")),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    if pending
+                        .insert(scope.conversation_id.clone(), (id, scope))
+                        .is_some()
+                    {
+                        return Err(invalid("duplicate conversation selection"));
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        if pending.is_empty() {
+            return Ok(());
+        }
+        fs::create_dir_all(&self.root)?;
+        let staging = tempfile::tempdir_in(&self.root)?;
+        let staged = Self::new(staging.path());
+        let mut seen = BTreeSet::new();
+        let mut result = Ok(());
+        stream_chats(reader, |chat: RawChat<telegram::Record>| {
+            if result.is_err() {
+                return ControlFlow::Break(());
+            }
+            if cancelled() {
+                result = Err(crate::cancelled());
+                return ControlFlow::Break(());
+            }
+            if let Some((id, scope)) = pending.get(&chat.id) {
+                if !seen.insert(chat.id.clone()) {
+                    result = Err(invalid("selected conversation appears more than once"));
+                } else {
+                    result = telegram::normalize(scope, chat).and_then(|observation| {
+                        staged
+                            .publish_observation(TelegramJson.descriptor(), id, scope, observation)
+                            .map(|_| ())
+                    });
+                }
+            }
+            ControlFlow::Continue(())
+        })?;
+        result?;
+        if seen.len() != pending.len() {
+            return Err(invalid(
+                "В общем экспорте отсутствует один из выбранных чатов. Предыдущий пакет сохранён.",
+            ));
+        }
+        if cancelled() {
+            return Err(crate::cancelled());
+        }
+        for (id, _) in pending.values() {
+            // Same filesystem; hard_link gives no-clobber publication. The
+            // staging directory is private and removed on every return path.
+            fs::hard_link(staged.path(id)?, self.path(id)?)?;
+        }
+        Ok(())
+    }
+
     /// Import a selected conversation through any installed file/local adapter.
     /// The adapter emits source facts; the store owns validation and publication.
     pub fn import(

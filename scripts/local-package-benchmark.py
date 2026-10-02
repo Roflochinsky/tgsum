@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--case", choices=["large-chat", "many-chats", "mixed-files"])
     args = parser.parse_args()
     report = {"platform": platform.platform(), "build": "debug, locked",
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
@@ -24,7 +25,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="tgsum-package-benchmark-") as temp:
         root = Path(temp)
         text = "Synthetic body 🌍. " * 32
-        for case in ["large-chat", "many-chats", "mixed-files"]:
+        for case in ([args.case] if args.case else ["large-chat", "many-chats", "mixed-files"]):
             folder = root / case
             folder.mkdir()
             messages = [{"id": i + 1, "text": text} for i in range(20000 if case == "large-chat" else 50)]
@@ -50,10 +51,11 @@ def main():
                 archive = {"chats": {"list": [{"id": i + 1, "messages": messages} for i in range(500)]}}
             source = folder / "result.json"
             source.write_text(json.dumps(archive, ensure_ascii=False), encoding="utf-8")
-            for mode in (["ready", "cancel"] if case == "large-chat" else ["ready"]):
+            modes = {"large-chat": ["ready", "cancel"], "many-chats": ["ready", "multi"]}
+            for mode in modes.get(case, ["ready"]):
                 command = [str(REPO / "target/debug/examples/local_package_probe"), str(folder)]
-                if mode == "cancel":
-                    command.append("cancel")
+                if mode != "ready":
+                    command.append(mode)
                 result = subprocess.run(command, cwd=REPO, check=True, capture_output=True, text=True)
                 record = dict(json.loads(result.stdout), case=case, input_json_bytes=source.stat().st_size)
                 report["runs"].append(record)

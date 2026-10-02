@@ -1,17 +1,21 @@
 // Saved local-file pipeline. It never controls or signs in to Telegram.
 export function mountLocalPackage({ invoke, act, project, toast, reload }) {
-  async function source(card, source) {
-    if (source.connector_id !== 'telegram_json') return
+  let renderEpoch = 0
+  async function render(container) {
+    const epoch = ++renderEpoch
+    container.replaceChildren()
     const id = project().project_id
+    const selected = project().sources.filter(s => s.selection.enabled)
     let state = await invoke('local_package_status', { projectId: id })
-    if (!card.isConnected) return
-    if (state && state.settings.source_id !== source.source_id) return
+    if (!container.isConnected || project()?.project_id !== id || epoch !== renderEpoch) return
+    if (!state && !selected.some(s => s.connector_id === 'telegram_json')) return
     const section = document.createElement('details')
-    section.className = 'assisted-export'
-    section.dataset.localPackage = source.source_id
+    section.className = 'card assisted-export'
+    section.dataset.localPackage = 'project'
     section.open = !!state
-    section.innerHTML = `<summary>Обновляемый пакет для ИИ</summary>
-      <p class="hint">Выгрузите чат в Telegram самостоятельно. TGSUM читает выбранную локальную папку и собирает готовый пакет. Источники остаются на месте; предыдущая созданная копия удаляется после успешного обновления.</p>
+    section.innerHTML = `<summary>Обновляемый пакет выбранных чатов</summary>
+      <p class="hint">Один общий экспорт Telegram: отметьте нужные чаты и темы выше и сохраните выбор. TGSUM соберёт их в один пакет и будет обновлять его целиком. Исходники остаются на месте; предыдущая созданная копия удаляется после успешного обновления.</p>
+      <p data-package-selection></p>
       <label>Папка выгрузки<input data-package-input readonly></label>
       <button type="button" class="btn btn-ghost" data-package-pick-input>Выбрать папку выгрузки…</button>
       <label>Папка готовых пакетов<input data-package-output readonly></label>
@@ -27,23 +31,27 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
         <button type="button" class="btn btn-ghost" data-package-stop>Остановить</button>
         <button type="button" class="btn btn-ghost" data-package-open>Открыть готовую папку</button></div>
       <p role="status" data-package-status></p><p class="hint" data-package-counts></p><p class="hint" data-package-github></p>`
-    card.append(section)
+    container.append(section)
     const $ = s => section.querySelector(s)
     let running = false
     let dirty = false
     let polling = false
     const settings = state?.settings
-    $('[data-package-input]').value = settings?.input_directory || source.archive_path?.split('/').slice(0, -1).join('/') || ''
+    $('[data-package-input]').value = settings?.input_directory || selected[0]?.archive_path?.split('/').slice(0, -1).join('/') || ''
     $('[data-package-output]').value = settings?.output_directory || ''
     $('[data-package-auto]').checked = settings?.automatic || false
     $('[data-package-images]').checked = settings?.include_images ?? true
     $('[data-package-office]').checked = settings?.include_office ?? true
     $('[data-package-repo]').value = settings?.github_repository || ''
+    $('[data-package-selection]').textContent = `Выбрано чатов: ${selected.length}. ` + selected.map(s => {
+      const title = document.querySelector(`[data-source="${CSS.escape(s.source_id)}"] h3`)?.textContent || s.scope.conversation_id
+      return `${title}: ${s.selection.filter.topic_ids === null ? 'все темы' : 'тем — ' + s.selection.filter.topic_ids.length}`
+    }).join('; ')
     function renderStatus() {
       section.dataset.phase = running ? 'building' : state?.phase || 'unconfigured'
-      $('[data-package-status]').textContent = state?.message || 'Выберите папки и сохраните настройки. Для пакета должен быть выбран один чат.'
+      $('[data-package-status]').textContent = state?.message || 'Выберите папку общего JSON-экспорта и папку результата. Настройки применяются ко всем включённым чатам проекта.'
       const ready = state?.ready
-      $('[data-package-counts]').textContent = ready ? `Готово ${new Date(ready.prepared_at * 1000).toLocaleString()}: ${ready.messages} сообщений · ${ready.files} файлов · ${(ready.bytes / 1024 / 1024).toFixed(1)} МиБ · ${ready.skipped_attachments} вложений не включено · ${ready.initials_replacements} ФИО сокращено. Полнота истории неизвестна.` : ''
+      $('[data-package-counts]').textContent = ready ? `Готово ${new Date(ready.prepared_at * 1000).toLocaleString()}: ${ready.conversations ?? 1} чатов · ${ready.messages} сообщений · ${ready.files} файлов · ${(ready.bytes / 1024 / 1024).toFixed(1)} МиБ · ${ready.skipped_attachments} вложений не включено · ${ready.initials_replacements} ФИО сокращено. Полнота истории неизвестна.` : ''
       $('[data-package-github]').textContent = state?.github_error || (state?.github_commit && ready?.content_sha256 === state.github_content_sha256 ? `GitHub: опубликовано, коммит ${state.github_commit.slice(0, 8)}` : state?.settings.github_repository ? 'GitHub: ожидается публикация готового пакета.' : 'Локальный пакет; публикация GitHub отключена.')
       if (!dirty) $('[data-package-auto]').checked = state?.settings.automatic || false
       $('[data-package-refresh]').disabled = !state || running || dirty
@@ -64,7 +72,7 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
     $('[data-package-save]').onclick = () => act(async () => {
       if (!document.querySelector('#project-unsaved').hidden) throw new Error('Сначала сохраните выбор чата и периода.')
       state = await invoke('configure_local_package', { projectId: id, expectedRevision: project().revision, settings: {
-        source_id: source.source_id, input_directory: $('[data-package-input]').value,
+        source_ids: selected.map(s => s.source_id), input_directory: $('[data-package-input]').value,
         output_directory: $('[data-package-output]').value, automatic: $('[data-package-auto]').checked,
         include_images: $('[data-package-images]').checked, include_office: $('[data-package-office]').checked,
         github_repository: $('[data-package-repo]').value.trim() || null,
@@ -97,5 +105,5 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
     }, 1500)
     renderStatus()
   }
-  return { source }
+  return { render }
 }

@@ -91,10 +91,19 @@ def main():
         ui.ws.close()
         child.terminate()
         child.wait(timeout=10)
+    # The previous installed MVP wrote schema 1 and a single source_id. Preserve
+    # its paused ready state across an ordinary installed-binary update.
+    state_path = root / "data/com.roflochinsky.tgsum/projects" / pid / "local-package/state.json"
+    legacy = json.loads(state_path.read_text())
+    legacy["schema_version"] = 1
+    legacy["settings"]["source_id"] = legacy["settings"].pop("source_ids")[0]
+    legacy["ready"].pop("conversations")
+    state_path.write_text(json.dumps(legacy))
     subprocess.run(["cargo", "install", "--path", "src-tauri", "--debug", "--locked", "--offline", "--force", "--root", str(prefix)], cwd=REPO, check=True)
     child, ui = start()
     try:
         state = invoke(ui, "local_package_status", {"projectId": pid})
+        assert state["schema_version"] == 2 and state["settings"]["source_ids"] == ["synthetic"]
         assert state["ready"] == ready["ready"]
         assert state["phase"] == "paused" and state["settings"]["automatic"] is False
         repeat = invoke(ui, "refresh_local_package", {"projectId": pid})
@@ -104,7 +113,7 @@ def main():
         ui.screenshot(root / "installed.png")
         (root / "report.json").write_text(json.dumps({"status": "passed", "prefix": str(prefix),
             "checks": ["cargo install debug", "ordinary production backend", "desktop launcher ownership respected", "local package privacy",
-                       "cargo update offline", "restart preserves project and pause", "repeat keeps content"]}, indent=2))
+                       "cargo update offline", "legacy single-chat state migration preserves ready and selection", "restart preserves project and pause", "repeat keeps content"]}, indent=2))
         print("PASS install/update/restart: " + str(root / "report.json"), flush=True)
     finally:
         ui.ws.close()

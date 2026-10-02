@@ -614,6 +614,59 @@ impl ProjectStore {
         Ok(SnapshotStore::new(directory))
     }
 
+    /// Publish every selected chat refresh in one CAS revision. This internal
+    /// operation cannot add sources or change their identity/selection policy.
+    pub(crate) fn publish_source_refreshes(
+        &self,
+        project_id: &str,
+        expected_revision: u64,
+        sources: Vec<ProjectSource>,
+    ) -> io::Result<Project> {
+        let mut project = self.open(project_id)?;
+        if project.revision != expected_revision {
+            return Err(conflict());
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for source in sources {
+            if !seen.insert(source.source_id.clone()) {
+                return Err(invalid("duplicate source refresh"));
+            }
+            let old = project
+                .sources
+                .iter_mut()
+                .find(|s| s.source_id == source.source_id)
+                .ok_or_else(|| invalid("source not connected"))?;
+            if old.scope != source.scope
+                || old.connector_id != source.connector_id
+                || old.selection.enabled != source.selection.enabled
+                || old.selection.filter != source.selection.filter
+                || old.selection.only_changes != source.selection.only_changes
+            {
+                return Err(invalid("refresh cannot change selected scope"));
+            }
+            let snapshot_id = source
+                .latest_snapshot_id
+                .as_ref()
+                .ok_or_else(|| invalid("missing refreshed snapshot"))?;
+            if self.snapshots(project_id)?.load(snapshot_id)?.source != source.scope {
+                return Err(invalid("snapshot does not belong to the connected source"));
+            }
+            *old = source;
+        }
+        project.revision = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("project revision exhausted"))?;
+        validate_project(&project)?;
+        write_revision(&self.directory(project_id)?.join("revisions"), &project).map_err(|e| {
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                conflict()
+            } else {
+                e
+            }
+        })?;
+        Ok(project)
+    }
+
     pub(crate) fn publish_analysis(
         &self,
         project_id: &str,

@@ -180,9 +180,10 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       await privacy.sourceFiles(card, source)
       assisted.source(card, source, preview?.title || source.scope.conversation_id)
       telegramRefresh.source(card, source)
-      await localPackage.source(card, source)
       if (epoch !== renderEpoch) return
     }
+    await localPackage.render($('#project-local-package'))
+    if (epoch !== renderEpoch) return
     await analysis.reset()
     syncSteps()
   }

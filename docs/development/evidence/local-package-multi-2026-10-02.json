@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-02",
+  "issue": "tgsum-6gf.9",
+  "source_base": "2336a548541adef3f65a62da88fe8379df025aee",
+  "scope": "Omarchy x86_64; one common local Telegram JSON export with saved chat/topic selections; synthetic tests, no messenger account/API/client interaction",
+  "implementation_files_sha256": {
+    "core/src/snapshot.rs": "a180eb5795400be0895e335343b11d4d10ccc2ebc2468231041968b4001be7ae",
+    "core/src/project.rs": "d4931c94b2b3b1cb3ca9710a02256d56418c6981a91d60c00eeb9733dd32056f",
+    "core/src/local_package/mod.rs": "43185f591226952481d8e212721c6dfda21d5551b8ad081e4ba9a9fcdb182011",
+    "core/src/local_package/publication.rs": "7850f3ea023bc029aef65bc2504a9ea22722b23d5f564f799060c882c3c5cd9c",
+    "core/src/local_package/storage.rs": "45d63f9815207279e06f10e78465b6893279ec0434ae4abc97ae8b7e668fc7b2",
+    "core/tests/local_package.rs": "8ceb99a268938c9c2317336d7317bfc3f6006526b7d5c95978aa87862bd5770e",
+    "core/examples/local_package_probe.rs": "e6ad5ca170e760915dbebda2bff9c45e9a92cec88b9f5d0839aa32f6263d492a",
+    "src-tauri/src/package_github.rs": "9142487e23d08e2ba50c2898305ab9e3f38cfb0e0232d60a137a5dbcdb2cee17",
+    "src-tauri/ui/index.html": "97b8559d23dad240b620eef01d56f0f6db46f33a905b5fc7a3ecfdba762072e0",
+    "src-tauri/ui/projects.js": "1bb79c2d7bb68d5c2afca6afc92b861887b07337ea3fe2e25472fe64add0c945",
+    "src-tauri/ui/local-package.js": "4d5ba651f2d98c2128ec52a3839f9e7f335a5f92f77e78c2f97e63e400754765",
+    "scripts/desktop-e2e.py": "01c3faad62e07928a39f50930055c1c319cdb678a036e3e83a3505d9bb2658af",
+    "scripts/local-package-install-smoke.py": "cb89ae6076717692494d66f9372fa9e2ed05d5dd666c5689af0c1fa0e6a8b4c2",
+    "scripts/local-package-benchmark.py": "4d201093a463984f9e1ceeeb11e8fd1dc7f93615251cac11896e08a5dffb1441"
+  },
+  "checks": {
+    "quick": "bash scripts/check.sh quick: PASS",
+    "workspace": "bash scripts/check.sh: PASS",
+    "core": "13 local_package public API regression cases: PASS",
+    "git": "3 package_github tests including single-to-multiple combined publication and idempotence: PASS",
+    "registry": "JSON Schema 2 validation: PASS",
+    "python": "AST syntax validation of changed harnesses: PASS",
+    "ui": {
+      "status": "passed",
+      "checks": [
+        "isolated onboarding and Project creation via controls",
+        "source access distinguishes whole-file read, stored chat, context scope and manual refresh",
+        "full JSON, chat/topic/date scope, saved privacy and sanitized Review",
+        "Export only writes sanitized bundle through real IPC",
+        "codex synthetic agent through Review, explicit Run and rendered result",
+        "claude synthetic agent through Review, explicit Run and rendered result",
+        "single JSON refresh preserves saved scope, invalidates Review and reopens Project",
+        "selected-folder candidate requires confirmation; stable repeated Telegram import updates snapshot without Run",
+        "missing and truncated assisted JSON require a new confirmation and preserve both snapshots",
+        "two assisted Telegram sources reject wrong chat then retry one source without analysis",
+        "schedule opt-in persists and a locked session never starts the synthetic client",
+        "unlocked timer imports the correlated output path once and preserves the other chat and analysis",
+        "refresh cancellation waits for the fake client terminal event and preserves snapshots",
+        "lost active session requires explicit review and manual cadence can stop future scheduling",
+        "local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause",
+        "one common export: UI selects multiple chats/topics, one package control, missing-chat rollback and automatic combined update",
+        "unimplemented OAuth source has no inferred grant or Telegram refresh controls",
+        "single-chat topic selection and actual one-off Markdown output",
+        "malformed archive displays an error; no uncaught renderer failures"
+      ],
+      "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+      "architecture": "x86_64",
+      "rust": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "picker": "simulated native response",
+      "agents": "synthetic",
+      "telegram_refresh": "synthetic driver, clock and session; no messenger process",
+      "driver": "tauri-plugin-wdio-webdriver=1.4.0"
+    },
+    "install": {
+      "status": "passed",
+      "checks": [
+        "cargo install debug",
+        "ordinary production backend",
+        "desktop launcher ownership respected",
+        "local package privacy",
+        "cargo update offline",
+        "legacy single-chat state migration preserves ready and selection",
+        "restart preserves project and pause",
+        "repeat keeps content"
+      ]
+    }
+  },
+  "benchmark": {
+    "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+    "build": "debug, locked",
+    "commit": "2336a548541adef3f65a62da88fe8379df025aee",
+    "dirty": true,
+    "runs": [
+      {
+        "cancel_checks": 2026,
+        "conversations": 1,
+        "elapsed_ms": 2054,
+        "files": 4,
+        "messages": 50,
+        "output_bytes": 52428,
+        "peak": "VmHWM:\t   15992 kB",
+        "phase": "ready",
+        "private_bytes": 154775,
+        "case": "many-chats",
+        "input_json_bytes": 17408913
+      },
+      {
+        "cancel_checks": 4040,
+        "conversations": 20,
+        "elapsed_ms": 4438,
+        "files": 8,
+        "messages": 1000,
+        "output_bytes": 987463,
+        "peak": "VmHWM:\t   15972 kB",
+        "phase": "ready",
+        "private_bytes": 3081411,
+        "case": "many-chats",
+        "input_json_bytes": 17408913
+      }
+    ]
+  }
+}

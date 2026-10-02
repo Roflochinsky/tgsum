@@ -35,10 +35,11 @@ pub(super) fn read(store: &ProjectStore, id: &str) -> io::Result<Option<PackageS
     if bytes.len() > 128 * 1024 {
         return Err(invalid("package state exceeds limit"));
     }
-    let value: PackageState = serde_json::from_slice(&bytes).map_err(invalid)?;
-    if value.schema_version != 1 || value.project_id != id {
+    let mut value: PackageState = serde_json::from_slice(&bytes).map_err(invalid)?;
+    if !matches!(value.schema_version, 1 | 2) || value.project_id != id {
         return Err(invalid("invalid package state identity"));
     }
+    value.schema_version = 2;
     Ok(Some(value))
 }
 

@@ -105,6 +105,8 @@ def prepare(root, nonce, port):
     picks = [("export", "full.json"), ("output", "bundle-output"),
              ("export", "single.json"), ("export", "single.json"),
              ("output", "single-output"), ("export", "malformed.json")]
+    if platform.system() == "Linux":
+        picks.insert(3, ("export", "full.json"))
     (root / "harness.json").write_text(json.dumps({"nonce": nonce, "port": port,
         "refresh_fixture": True,
         "picks": [{"kind": kind, "path": path} for kind, path in picks]}), encoding="utf-8")
@@ -414,7 +416,7 @@ def exercise(ui, root, report, report_dir):
         ui.idle()
         ui.click('[data-project="' + package_id + '"]')
         ui.stage("source")
-        package = '[data-local-package="local-chat"]'
+        package = '[data-local-package="project"]'
         ui.click(package + ' summary')
         ui.value(package + ' [data-package-input]', str(inbox))
         ui.value(package + ' [data-package-output]', str(output))
@@ -449,6 +451,70 @@ def exercise(ui, root, report, report_dir):
         assert stopped["ready"] == updated["ready"]
         ui.screenshot(report_dir / "local-package-ready-paused.png")
         passed("local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause")
+
+    if platform.system() == "Linux":
+        shared_project = ui.invoke("create_project", {"name": "Multiple selected chats"})
+        shared_id = shared_project["project_id"]
+        ui.click("#btn-projects")
+        ui.idle()
+        ui.click('[data-project="' + shared_id + '"]')
+        ui.stage("source")
+        ui.click("#btn-project-add-source")
+        ui.wait("document.body.dataset.screen==='select'")
+        ui.click('[data-key="c:111"]')
+        ui.click('[data-chev="222"]')
+        ui.click('[data-key="t:222:100"]')
+        ui.value("#project-account-label", "synthetic")
+        ui.click("#btn-next")
+        ui.stage("source")
+        ui.wait("document.querySelectorAll('[data-local-package]').length===1")
+        package = '[data-local-package="project"]'
+        ui.click(package + ' summary')
+        assert "Выбрано чатов: 2" in ui.evaluate('document.querySelector(' + json.dumps(package + ' [data-package-selection]') + ').textContent')
+        inbox = root / "shared-input"
+        exported = inbox / "DataExport_synthetic"
+        output = root / "shared-output"
+        exported.mkdir(parents=True)
+        output.mkdir()
+        data = json.loads((root / "full.json").read_text())
+        data["chats"]["list"].append({"id": 444, "messages": [{"id": 1, "text": "unselected entire chat", "photo": "absent.png"}]})
+        path = exported / "result.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        ui.value(package + ' [data-package-input]', str(inbox))
+        ui.value(package + ' [data-package-output]', str(output))
+        ui.click(package + ' [data-package-save]')
+        ui.idle()
+        ui.click(package + ' [data-package-refresh]')
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "ready"')
+        first = ui.invoke("local_package_status", {"projectId": shared_id})
+        assert first["ready"]["conversations"] == 2 and first["ready"]["messages"] == 4
+        assert len(first["settings"]["source_ids"]) == 2
+        ready = Path(first["ready"]["directory"])
+        text = "".join(p.read_text() for p in ready.glob("context-*.md"))
+        assert "found a bug" in text and "fixing it" in text
+        assert "general hello" not in text and "unselected entire chat" not in text
+        assert "SYNTHETIC_E2E_PASSWORD" not in text
+        before = ui.invoke("open_project", {"projectId": shared_id})
+        path.write_text(json.dumps(data["chats"]["list"][0]), encoding="utf-8")
+        ui.click(package + ' [data-package-refresh]')
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "error"')
+        assert ui.invoke("open_project", {"projectId": shared_id})["sources"] == before["sources"]
+        assert ui.invoke("local_package_status", {"projectId": shared_id})["ready"] == first["ready"]
+        data["chats"]["list"][0]["messages"].append({"id": 4, "text": "Updated direct conversation"})
+        data["chats"]["list"][1]["messages"].append({"id": 103, "reply_to_message_id": 102, "text": "Updated chosen topic"})
+        path.write_text(json.dumps(data), encoding="utf-8")
+        ui.click(package + ' [data-package-auto]')
+        ui.click(package + ' [data-package-save]')
+        ui.idle()
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "ready"', timeout=55)
+        updated = ui.invoke("local_package_status", {"projectId": shared_id})
+        assert updated["ready"]["messages"] == 6
+        assert updated["ready"]["conversations"] == 2
+        assert not (ready.parent / first["ready"]["generation"]).exists()
+        ui.click(package + ' [data-package-stop]')
+        ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "paused"')
+        ui.screenshot(report_dir / "shared-package-ready.png")
+        passed("one common export: UI selects multiple chats/topics, one package control, missing-chat rollback and automatic combined update")
 
     # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.

@@ -22,9 +22,9 @@ pub const MAX_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_MEDIA_FILES: usize = 500;
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "PackageSettingsInput")]
 pub struct PackageSettings {
-    pub source_id: String,
+    pub source_ids: Vec<String>,
     pub input_directory: PathBuf,
     pub output_directory: PathBuf,
     pub automatic: bool,
@@ -33,8 +33,43 @@ pub struct PackageSettings {
     pub github_repository: Option<String>,
 }
 
+/// Accept the shipped single-source settings without widening their scope.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PackageSettingsInput {
+    source_ids: Option<Vec<String>>,
+    source_id: Option<String>,
+    input_directory: PathBuf,
+    output_directory: PathBuf,
+    automatic: bool,
+    include_images: bool,
+    include_office: bool,
+    github_repository: Option<String>,
+}
+impl TryFrom<PackageSettingsInput> for PackageSettings {
+    type Error = &'static str;
+    fn try_from(value: PackageSettingsInput) -> Result<Self, Self::Error> {
+        let source_ids = match (value.source_ids, value.source_id) {
+            (Some(ids), None) => ids,
+            (None, Some(id)) => vec![id],
+            _ => return Err("specify source_ids or legacy source_id, not both"),
+        };
+        Ok(Self {
+            source_ids,
+            input_directory: value.input_directory,
+            output_directory: value.output_directory,
+            automatic: value.automatic,
+            include_images: value.include_images,
+            include_office: value.include_office,
+            github_repository: value.github_repository,
+        })
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PackageReceipt {
+    #[serde(default = "single_conversation")]
+    pub conversations: usize,
     pub directory: PathBuf,
     pub generation: String,
     pub input_sha256: String,
@@ -45,6 +80,9 @@ pub struct PackageReceipt {
     pub bytes: u64,
     pub skipped_attachments: usize,
     pub initials_replacements: usize,
+}
+fn single_conversation() -> usize {
+    1
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -175,13 +213,27 @@ impl ProjectStore {
             .iter()
             .filter(|s| s.selection.enabled)
             .collect();
-        if enabled.len() != 1
-            || enabled[0].source_id != settings.source_id
-            || enabled[0].connector_id != "telegram_json"
-            || enabled[0].selection.only_changes
+        let selected_ids: std::collections::BTreeSet<_> = settings.source_ids.iter().collect();
+        if enabled.is_empty()
+            || selected_ids.len() != settings.source_ids.len()
+            || selected_ids.len() != enabled.len()
+            || enabled.iter().any(|s| {
+                !selected_ids.contains(&s.source_id)
+                    || s.connector_id != "telegram_json"
+                    || s.scope.platform != "telegram"
+                    || s.selection.only_changes
+            })
         {
             return Err(invalid(
-                "Для обновляемого пакета выберите один Telegram-чат и весь выбранный период.",
+                "Выберите Telegram-чаты проекта и весь выбранный период; режим только изменений выключите.",
+            ));
+        }
+        if enabled
+            .iter()
+            .any(|s| s.scope.account_local_id != enabled[0].scope.account_local_id)
+        {
+            return Err(invalid(
+                "Чаты общего экспорта должны иметь одну метку аккаунта.",
             ));
         }
         ArchiveFiles::open(&settings.input_directory)?;
@@ -244,7 +296,7 @@ impl ProjectStore {
             .as_ref()
             .is_some_and(|v| v.settings.github_repository == settings.github_repository);
         let mut state = PackageState {
-            schema_version: 1,
+            schema_version: 2,
             project_id: project_id.into(),
             settings,
             scope_sha256: scope_hash(&project)?,
@@ -351,12 +403,15 @@ impl ProjectStore {
         check(cancelled)?;
         let id = &state.project_id;
         let mut project = self.open(id)?;
-        let source = project
+        let sources: Vec<_> = project
             .sources
             .iter()
-            .find(|s| s.source_id == state.settings.source_id)
-            .ok_or_else(|| invalid("source disconnected"))?
-            .clone();
+            .filter(|s| state.settings.source_ids.contains(&s.source_id))
+            .cloned()
+            .collect();
+        if sources.is_empty() || sources.len() != state.settings.source_ids.len() {
+            return Err(invalid("Выбранные чаты больше не подключены к проекту."));
+        }
         let input = find_input(&state.settings.input_directory)?;
         let root = input
             .parent()
@@ -377,22 +432,21 @@ impl ProjectStore {
         )?;
         let archive_hash = digest_reader(&mut staged, cancelled)?;
         staged.seek(SeekFrom::Start(0))?;
-        let snapshot_id = format!("local-{}", &archive_hash[..40]);
+        let snapshot_ids = sources
+            .iter()
+            .map(|s| {
+                let identity = serde_json::to_vec(&(&archive_hash, &s.scope)).map_err(invalid)?;
+                Ok((format!("local-{}", hash(&identity)), s.scope.clone()))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
         let snapshots = self.snapshots(id)?;
-        let snapshot = match snapshots.load(&snapshot_id) {
-            Ok(snapshot) => snapshot,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => snapshots.import_telegram(
-                &snapshot_id,
-                &source.scope,
-                crate::ProgressReader::new(staged, |_| check(cancelled)),
-            )?,
-            Err(e) => return Err(e),
-        };
-        if snapshot.source != source.scope {
-            return Err(invalid("ID чата не совпадает с выбранным источником."));
-        }
-        let selected = select_messages(&snapshot, &source.selection, None)?;
-        let mut text_choices = Vec::new();
+        snapshots.import_telegram_selection(
+            &snapshot_ids,
+            crate::ProgressReader::new(staged, |_| check(cancelled)),
+            cancelled,
+        )?;
+        let mut refreshed = Vec::new();
+        let mut text_count = 0;
         let mut text_evidence = Vec::new();
         let extras = tempfile::tempdir_in(self.directory(id)?)?;
         let mut extra_files = Vec::new();
@@ -404,84 +458,107 @@ impl ProjectStore {
         fingerprint.update(archive_hash.as_bytes());
         fingerprint.update(serde_json::to_vec(&state.settings).map_err(invalid)?);
         fingerprint.update(state.scope_sha256.as_bytes());
-        for message in selected.messages {
-            for (position, attachment) in message.attachments.iter().enumerate() {
-                check(cancelled)?;
-                count += 1;
-                if count > MAX_MEDIA_FILES {
-                    return Err(invalid(
-                        "В выбранном периоде более 500 вложений. Сузьте период.",
-                    ));
-                }
-                if attachment.availability != AttachmentAvailability::UnverifiedReference {
-                    skipped += 1;
-                    continue;
-                }
-                if TextReference::new(attachment).is_ok() {
-                    let value =
-                        files.read(TextReference::new(attachment)?, remaining, cancelled)?;
-                    if attachment
-                        .size
-                        .is_some_and(|size| size != value.source_bytes)
-                    {
+        for (mut source, (snapshot_id, _)) in sources.into_iter().zip(snapshot_ids) {
+            check(cancelled)?;
+            let snapshot = snapshots.load(&snapshot_id)?;
+            let selected = select_messages(&snapshot, &source.selection, None)?;
+            let mut text_choices = Vec::new();
+            for message in selected.messages {
+                for (position, attachment) in message.attachments.iter().enumerate() {
+                    check(cancelled)?;
+                    count += 1;
+                    if count > MAX_MEDIA_FILES {
                         return Err(invalid(
-                            "Размер текстового вложения не совпадает с выгрузкой.",
+                            "В выбранном периоде более 500 вложений. Сузьте период.",
                         ));
                     }
-                    remaining = remaining
-                        .checked_sub(value.source_bytes)
-                        .ok_or_else(|| invalid("file budget exceeded"))?;
-                    fingerprint.update(value.sha256.as_bytes());
-                    text_evidence.push((attachment.clone(), value.sha256));
-                    text_choices.push(AttachmentChoice {
-                        message_id: message.key.message_id.clone(),
-                        position,
-                        expected: attachment.clone(),
+                    if attachment.availability != AttachmentAvailability::UnverifiedReference {
+                        skipped += 1;
+                        continue;
+                    }
+                    if TextReference::new(attachment).is_ok() {
+                        let value =
+                            files.read(TextReference::new(attachment)?, remaining, cancelled)?;
+                        if attachment
+                            .size
+                            .is_some_and(|size| size != value.source_bytes)
+                        {
+                            return Err(invalid(
+                                "Размер текстового вложения не совпадает с выгрузкой.",
+                            ));
+                        }
+                        remaining = remaining
+                            .checked_sub(value.source_bytes)
+                            .ok_or_else(|| invalid("file budget exceeded"))?;
+                        fingerprint.update(value.sha256.as_bytes());
+                        text_evidence.push((attachment.clone(), value.sha256));
+                        text_choices.push(AttachmentChoice {
+                            message_id: message.key.message_id.clone(),
+                            position,
+                            expected: attachment.clone(),
+                        });
+                        continue;
+                    }
+                    let Some(path) = &attachment.relative_path else {
+                        skipped += 1;
+                        continue;
+                    };
+                    let ext = Path::new(path)
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    let image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif");
+                    let office = matches!(ext.as_str(), "docx" | "xlsx");
+                    if !(image && state.settings.include_images
+                        || office && state.settings.include_office)
+                    {
+                        skipped += 1;
+                        continue;
+                    }
+                    let content =
+                        read_attachment(&files, path, attachment.size, remaining, cancelled)?;
+                    remaining -= content.len() as u64;
+                    fingerprint.update(hash(&content).as_bytes());
+                    let (content, handling) = if office {
+                        let document = crate::office::process_office(&content, &ext, cancelled)?;
+                        initials += document.replacements;
+                        (document.bytes, "surname_initials")
+                    } else {
+                        (content, "original_image")
+                    };
+                    let name = format!("file-{:05}.{ext}", extra_files.len() + 1);
+                    write_file(&extras.path().join(&name), &content)?;
+                    extra_files.push(PackageFile {
+                        name,
+                        bytes: content.len() as u64,
+                        sha256: hash(&content),
+                        handling: handling.into(),
+                        attachment_id: Some(self.package_attachment_id(
+                            id,
+                            &message.key,
+                            position,
+                        )?),
                     });
-                    continue;
                 }
-                let Some(path) = &attachment.relative_path else {
-                    skipped += 1;
-                    continue;
-                };
-                let ext = Path::new(path)
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                let image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif");
-                let office = matches!(ext.as_str(), "docx" | "xlsx");
-                if !(image && state.settings.include_images
-                    || office && state.settings.include_office)
-                {
-                    skipped += 1;
-                    continue;
-                }
-                let content = read_attachment(&files, path, attachment.size, remaining, cancelled)?;
-                remaining -= content.len() as u64;
-                fingerprint.update(hash(&content).as_bytes());
-                let (content, handling) = if office {
-                    let document = crate::office::process_office(&content, &ext, cancelled)?;
-                    initials += document.replacements;
-                    (document.bytes, "surname_initials")
-                } else {
-                    (content, "original_image")
-                };
-                let name = format!("file-{:05}.{ext}", extra_files.len() + 1);
-                write_file(&extras.path().join(&name), &content)?;
-                extra_files.push(PackageFile {
-                    name,
-                    bytes: content.len() as u64,
-                    sha256: hash(&content),
-                    handling: handling.into(),
-                    attachment_id: Some(self.package_attachment_id(id, &message.key, position)?),
-                });
             }
-        }
-        if text_choices.len() > crate::attachments::MAX_FILES {
-            return Err(invalid(
-                "В пакете более 100 текстовых вложений. Сузьте период.",
-            ));
+            text_count += text_choices.len();
+            if text_count > crate::attachments::MAX_FILES {
+                return Err(invalid(
+                    "В пакете более 100 текстовых вложений. Сузьте выбор.",
+                ));
+            }
+            source.latest_snapshot_id = Some(snapshot_id);
+            source.archive_path = Some(input.clone());
+            source.selection.attachments = if text_choices.is_empty() {
+                None
+            } else {
+                Some(AttachmentSelection {
+                    root: root.clone(),
+                    files: text_choices,
+                })
+            };
+            refreshed.push(source);
         }
         let input_hash = format!("{:x}", fingerprint.finalize());
         if let Some(ready) = &state.ready {
@@ -490,18 +567,7 @@ impl ProjectStore {
                 return Ok(ready.clone());
             }
         }
-        let mut source = source;
-        source.latest_snapshot_id = Some(snapshot_id);
-        source.archive_path = Some(input);
-        source.selection.attachments = if text_choices.is_empty() {
-            None
-        } else {
-            Some(AttachmentSelection {
-                root,
-                files: text_choices,
-            })
-        };
-        project = self.update(id, project.revision, ProjectChange::Source(source))?;
+        project = self.publish_source_refreshes(id, project.revision, refreshed)?;
         let review = self.prepare_saved_bundle(id, project.revision, cancelled)?;
         if review.manifest.privacy.needs_review != 0 {
             return Err(invalid(
@@ -553,7 +619,7 @@ impl ProjectStore {
             handling: "manifest".into(),
             attachment_id: None,
         });
-        let readme = package_readme(&manifest);
+        let readme = package_readme(&manifest, review.manifest.sources.len());
         write_file(&staged.path().join("README.md"), readme.as_bytes())?;
         manifest.files.push(PackageFile {
             name: "README.md".into(),
@@ -601,10 +667,9 @@ fn find_input(root: &Path) -> io::Result<PathBuf> {
         }
         let entry = entry?;
         if entry.file_type()?.is_dir()
-            && entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with("ChatExport_")
+            && ["ChatExport_", "DataExport_"]
+                .iter()
+                .any(|prefix| entry.file_name().to_string_lossy().starts_with(prefix))
         {
             let path = entry.path().join("result.json");
             if fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
@@ -674,8 +739,11 @@ fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.write_all(bytes)?;
     file.sync_all()
 }
-fn package_readme(manifest: &PackageManifest) -> String {
+fn package_readme(manifest: &PackageManifest, conversations: usize) -> String {
     let mut text = format!("# Пакет TGSUM\n\nСообщений: {}. Ссылок на вложения: {}. Не включено: {}.\n\nИстория отражает предоставленную локальную выгрузку; полнота Telegram не подтверждена.\n\nТекст обработан по сохранённым правилам проекта. В DOCX/XLSX распознанные ФИО сокращены до фамилии и инициалов ({} замен); это не полная анонимизация. Картинки переданы без изменений, включая метаданные. Документы и изображения могут содержать персональные данные.\n\n## Файлы\n\n", manifest.messages, manifest.attachment_references, manifest.skipped_attachments, manifest.initials_replacements);
+    text.push_str(&format!(
+        "Выбрано чатов: {conversations}. Применены сохранённые фильтры тем и дат каждого чата.\n\n"
+    ));
     for file in &manifest.files {
         text.push_str(&format!(
             "- [{}]({}) — {} байт, {}\n",

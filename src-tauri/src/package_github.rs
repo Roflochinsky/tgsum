@@ -323,7 +323,7 @@ mod tests {
                 &p.project_id,
                 p.revision,
                 PackageSettings {
-                    source_id: "selected".into(),
+                    source_ids: vec!["selected".into()],
                     input_directory: input.path().into(),
                     output_directory: output.path().into(),
                     automatic: false,
@@ -368,10 +368,49 @@ mod tests {
         let second = publish_worktree(&store, &p.project_id, &worktree, &|| false).unwrap();
         assert_ne!(first, second);
         assert!(!folder.join("file-00001.png").exists());
+        let p = store.open(&p.project_id).unwrap();
+        let p = store
+            .update(
+                &p.project_id,
+                p.revision,
+                ProjectChange::Source(ProjectSource {
+                    source_id: "second".into(),
+                    connector_id: "telegram_json".into(),
+                    scope: SourceScope::telegram("fixture", "222"),
+                    archive_path: None,
+                    latest_snapshot_id: None,
+                    selection: Default::default(),
+                }),
+            )
+            .unwrap();
+        let mut settings = store
+            .local_package(&p.project_id)
+            .unwrap()
+            .unwrap()
+            .settings;
+        settings.source_ids.push("second".into());
+        store
+            .configure_local_package(&p.project_id, p.revision, settings)
+            .unwrap();
+        fs::write(input.path().join("result.json"), r#"{"chats":{"list":[{"id":111,"messages":[{"id":1,"text":"Updated first chat"}]},{"id":222,"messages":[{"id":1,"text":"Selected second chat"}]}]}}"#).unwrap();
+        let ready = store
+            .refresh_local_package(&p.project_id, 3, || false)
+            .unwrap();
+        assert_eq!(ready.phase, "ready", "{}", ready.message);
+        assert_eq!(ready.ready.unwrap().conversations, 2);
+        let third = publish_worktree(&store, &p.project_id, &worktree, &|| false).unwrap();
+        assert_ne!(third, second);
+        let text = fs::read_to_string(folder.join("context-00001.md")).unwrap();
+        assert!(text.contains("Updated first chat"));
+        assert!(text.contains("Selected second chat"));
+        assert_eq!(
+            third,
+            publish_worktree(&store, &p.project_id, &worktree, &|| false).unwrap()
+        );
         run(git(&worktree, &["push", "origin", "HEAD"]), &|| false).unwrap();
         assert_eq!(
             run(git(&bare, &["rev-parse", "refs/heads/main"]), &|| false).unwrap(),
-            second
+            third
         );
         assert!(publish_worktree(&store, &p.project_id, &worktree, &|| true).is_err());
         assert_eq!(

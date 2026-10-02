@@ -24,33 +24,47 @@ fn bytes(path: &Path) -> u64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args.is_empty() || args.len() > 2 {
+    if args.is_empty()
+        || args.len() > 2
+        || args.get(1).is_some_and(|s| s != "cancel" && s != "multi")
+    {
         return Err(
-            "usage: local_package_probe <synthetic-export-directory> [cancel] (chat ID 1)".into(),
+            "usage: local_package_probe <synthetic-export-directory> [cancel|multi] (chat ID 1; multi IDs 1..20)".into(),
         );
     }
     let root = tempfile::tempdir()?;
     let output = root.path().join("output");
     fs::create_dir(&output)?;
     let store = ProjectStore::new(root.path().join("private"));
-    let project = store.create("Synthetic resource qualification")?;
-    let project = store.update(
-        &project.project_id,
-        project.revision,
-        ProjectChange::Source(ProjectSource {
-            source_id: "synthetic".into(),
-            connector_id: "telegram_json".into(),
-            scope: SourceScope::telegram("synthetic", "1"),
-            archive_path: None,
-            latest_snapshot_id: None,
-            selection: Default::default(),
-        }),
-    )?;
+    let mut project = store.create("Synthetic resource qualification")?;
+    let chats = if args.get(1).is_some_and(|s| s == "multi") {
+        20
+    } else {
+        1
+    };
+    for chat in 1..=chats {
+        project = store.update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(ProjectSource {
+                source_id: format!("synthetic-{chat}"),
+                connector_id: "telegram_json".into(),
+                scope: SourceScope::telegram("synthetic", chat.to_string()),
+                archive_path: None,
+                latest_snapshot_id: None,
+                selection: Default::default(),
+            }),
+        )?;
+    }
     store.configure_local_package(
         &project.project_id,
         project.revision,
         PackageSettings {
-            source_id: "synthetic".into(),
+            source_ids: project
+                .sources
+                .iter()
+                .map(|s| s.source_id.clone())
+                .collect(),
             input_directory: Path::new(&args[0]).canonicalize()?,
             output_directory: output.clone(),
             automatic: false,
@@ -77,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::json!({"phase":state.phase,"elapsed_ms":elapsed,
         "peak":peak,"private_bytes":bytes(&root.path().join("private")),
         "output_bytes":bytes(&output),"messages":state.ready.as_ref().map(|r|r.messages),
-        "files":state.ready.as_ref().map(|r|r.files),"cancel_checks":calls.get()})
+        "files":state.ready.as_ref().map(|r|r.files),"conversations":state.ready.as_ref().map(|r|r.conversations),"cancel_checks":calls.get()})
     );
     if state.phase != if cancel { "cancelled" } else { "ready" } {
         return Err(state.message.into());

@@ -95,7 +95,7 @@ impl Fixture {
                 &project.project_id,
                 project.revision,
                 PackageSettings {
-                    source_id: "selected".into(),
+                    source_ids: vec!["selected".into()],
                     input_directory: input.path().into(),
                     output_directory: output.path().into(),
                     automatic: true,
@@ -276,7 +276,7 @@ fn unsafe_paths_and_changed_scope_do_not_extend_the_package() {
             &project.project_id,
             project.revision + 1,
             PackageSettings {
-                source_id: "selected".into(),
+                source_ids: vec!["selected".into()],
                 input_directory: fixture.input.path().into(),
                 output_directory: fixture.input.path().into(),
                 automatic: true,
@@ -398,4 +398,331 @@ fn office_rejects_unsafe_container_and_xml() {
         "<!DOCTYPE a [<!ENTITY x SYSTEM 'file:///tmp/private'>]><document>&x;</document>",
     );
     assert!(tgsum_core::office::process_office(&bytes, "docx", || false).is_err());
+}
+
+fn configure_two_chats(fixture: &Fixture) {
+    let mut project = fixture.store.open(&fixture.project.project_id).unwrap();
+    let mut first = project.sources[0].clone();
+    first.selection.filter.topic_ids = Some(vec!["100".into()]);
+    first.selection.filter.dates = Some(tgsum_core::scope::DateRange {
+        from: Some("2026-10-02".into()),
+        through: Some("2026-10-02".into()),
+        basis: tgsum_core::scope::DateBasis::SourceDate,
+    });
+    project = fixture
+        .store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(first),
+        )
+        .unwrap();
+    project = fixture
+        .store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(ProjectSource {
+                source_id: "second".into(),
+                connector_id: "telegram_json".into(),
+                scope: SourceScope::telegram("fixture", "9007199254740995"),
+                archive_path: None,
+                latest_snapshot_id: None,
+                selection: Default::default(),
+            }),
+        )
+        .unwrap();
+    let mut settings = fixture
+        .store
+        .local_package(&project.project_id)
+        .unwrap()
+        .unwrap()
+        .settings;
+    settings.source_ids.push("second".into());
+    fixture
+        .store
+        .configure_local_package(&project.project_id, project.revision, settings)
+        .unwrap();
+}
+
+fn shared_export() -> serde_json::Value {
+    json!({"chats":{"list":[
+        {"id":9007199254740993u64,"messages":[
+            {"id":100,"type":"service","action":"topic_created","title":"Selected"},
+            {"id":101,"reply_to_message_id":100,"date":"2026-10-02T12:00:00","text":"selected first topic 🌍","file":"first.txt"},
+            {"id":102,"reply_to_message_id":101,"date":"2026-10-02T12:01:00","text":"selected nested reply","photo":"first.png"},
+            {"id":103,"reply_to_message_id":100,"date":"2026-10-01T12:00:00","text":"excluded date","file":"missing.txt"},
+            {"id":200,"type":"service","action":"topic_created","title":"Excluded"},
+            {"id":201,"reply_to_message_id":200,"date":"2026-10-02T12:00:00","text":"excluded topic","photo":"missing.png"}
+        ]},
+        {"id":9007199254740995u64,"messages":[
+            {"id":101,"text":"second conversation","file":"second.txt"},
+            {"id":102,"text":"second picture","photo":"second.png"}
+        ]},
+        {"id":777,"messages":[{"id":101,"text":"unselected conversation","photo":"missing.png"}]}
+    ]}})
+}
+
+fn write_shared(fixture: &Fixture, export: &serde_json::Value) {
+    fs::write(
+        fixture.input.path().join("result.json"),
+        serde_json::to_vec(export).unwrap(),
+    )
+    .unwrap();
+    for (name, bytes) in [
+        ("first.txt", "first attachment password=MULTI_SECRET_A"),
+        ("second.txt", "second attachment password=MULTI_SECRET_B"),
+        ("first.png", "first image bytes"),
+        ("second.png", "second image bytes"),
+    ] {
+        fs::write(fixture.input.path().join(name), bytes).unwrap();
+    }
+}
+
+#[test]
+fn shared_export_selects_multiple_chats_topics_dates_and_scoped_media_without_collisions() {
+    let fixture = Fixture::new();
+    configure_two_chats(&fixture);
+    write_shared(&fixture, &shared_export());
+    let state = fixture.run();
+    assert_eq!(state.phase, "ready", "{}", state.message);
+    let ready = state.ready.unwrap();
+    assert_eq!(ready.conversations, 2);
+    assert_eq!(ready.messages, 4);
+    let files: Vec<_> = fs::read_dir(&ready.directory)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    let text: String = files
+        .iter()
+        .filter(|p| p.extension().is_some_and(|s| s == "md"))
+        .map(|p| fs::read_to_string(p).unwrap())
+        .collect();
+    for expected in [
+        "selected first topic 🌍",
+        "selected nested reply",
+        "second conversation",
+        "first attachment",
+        "second attachment",
+    ] {
+        assert!(text.contains(expected), "missing {expected}");
+    }
+    for excluded in [
+        "excluded date",
+        "excluded topic",
+        "unselected conversation",
+        "MULTI_SECRET_A",
+        "MULTI_SECRET_B",
+    ] {
+        assert!(!text.contains(excluded), "unexpected {excluded}");
+    }
+    let images: Vec<_> = files
+        .iter()
+        .filter(|p| p.extension().is_some_and(|s| s == "png"))
+        .map(|p| fs::read(p).unwrap())
+        .collect();
+    assert_eq!(images.len(), 2);
+    assert!(images.contains(&b"first image bytes".to_vec()));
+    assert!(images.contains(&b"second image bytes".to_vec()));
+    let project = fixture.store.open(&fixture.project.project_id).unwrap();
+    assert_ne!(
+        project.sources[0].latest_snapshot_id,
+        project.sources[1].latest_snapshot_id
+    );
+    let snapshots = fixture.store.snapshots(&project.project_id).unwrap();
+    for source in &project.sources {
+        let snapshot = snapshots
+            .load(source.latest_snapshot_id.as_ref().unwrap())
+            .unwrap();
+        assert_eq!(snapshot.source, source.scope);
+    }
+    assert_eq!(fs::read_dir(snapshots.directory()).unwrap().count(), 2);
+    assert_eq!(fixture.run().ready.unwrap().generation, ready.generation);
+    // Removing one selected chat from scope rebuilds the whole package, with no
+    // leftover attachment from that chat and no need to split the JSON input.
+    let mut source = project.sources[1].clone();
+    source.selection.enabled = false;
+    let project = fixture
+        .store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Source(source),
+        )
+        .unwrap();
+    assert_eq!(fixture.run().phase, "needs_setup");
+    let mut settings = fixture
+        .store
+        .local_package(&project.project_id)
+        .unwrap()
+        .unwrap()
+        .settings;
+    settings.source_ids = vec!["selected".into()];
+    fixture
+        .store
+        .configure_local_package(&project.project_id, project.revision, settings)
+        .unwrap();
+    let updated = fixture.run().ready.unwrap();
+    assert_eq!(updated.messages, 2);
+    assert_eq!(updated.conversations, 1);
+    assert!(!updated
+        .directory
+        .parent()
+        .unwrap()
+        .join(ready.generation)
+        .exists());
+    assert_eq!(
+        fs::read_dir(&updated.directory)
+            .unwrap()
+            .filter(|e| e
+                .as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|s| s == "png"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn shared_export_missing_selected_chat_duplicate_or_malformed_tail_keeps_all_previous_sources() {
+    let fixture = Fixture::new();
+    configure_two_chats(&fixture);
+    let export = shared_export();
+    write_shared(&fixture, &export);
+    let ready = fixture.run().ready.unwrap();
+    let before = fixture.store.open(&fixture.project.project_id).unwrap();
+    let count = fs::read_dir(
+        fixture
+            .store
+            .snapshots(&before.project_id)
+            .unwrap()
+            .directory(),
+    )
+    .unwrap()
+    .count();
+    let mut missing = export.clone();
+    missing["chats"]["list"].as_array_mut().unwrap().remove(1);
+    let mut duplicate = export.clone();
+    duplicate["chats"]["list"]
+        .as_array_mut()
+        .unwrap()
+        .push(export["chats"]["list"][0].clone());
+    for bytes in [
+        serde_json::to_vec(&missing).unwrap(),
+        serde_json::to_vec(&duplicate).unwrap(),
+        [
+            serde_json::to_vec(&export).unwrap(),
+            b" trailing garbage".to_vec(),
+        ]
+        .concat(),
+    ] {
+        fs::write(fixture.input.path().join("result.json"), bytes).unwrap();
+        let failed = fixture.run();
+        assert_eq!(failed.phase, "error");
+        assert_eq!(failed.ready.unwrap().generation, ready.generation);
+        let after = fixture.store.open(&before.project_id).unwrap();
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(after.sources, before.sources);
+        assert_eq!(
+            fs::read_dir(
+                fixture
+                    .store
+                    .snapshots(&before.project_id)
+                    .unwrap()
+                    .directory()
+            )
+            .unwrap()
+            .count(),
+            count
+        );
+    }
+    write_shared(&fixture, &export);
+    assert_eq!(fixture.run().ready.unwrap().generation, ready.generation);
+}
+
+#[test]
+fn shared_export_cancel_after_staging_first_chat_does_not_publish_partial_refresh() {
+    let fixture = Fixture::new();
+    configure_two_chats(&fixture);
+    let mut export = shared_export();
+    write_shared(&fixture, &export);
+    let ready = fixture.run().ready.unwrap();
+    let before = fixture.store.open(&fixture.project.project_id).unwrap();
+    let snapshots = fixture.store.snapshots(&before.project_id).unwrap();
+    let count = fs::read_dir(snapshots.directory()).unwrap().count();
+    export["chats"]["list"][0]["messages"][1]["text"] = json!("new archive content");
+    write_shared(&fixture, &export);
+    let cancelled_during_staging = std::cell::Cell::new(false);
+    let state = fixture
+        .store
+        .refresh_local_package(&before.project_id, 2, || {
+            let staged = fs::read_dir(snapshots.directory()).unwrap().any(|entry| {
+                let entry = entry.unwrap();
+                entry.file_type().unwrap().is_dir()
+                    && fs::read_dir(entry.path()).unwrap().any(|file| {
+                        file.unwrap()
+                            .path()
+                            .extension()
+                            .is_some_and(|e| e == "json")
+                    })
+            });
+            cancelled_during_staging.set(cancelled_during_staging.get() || staged);
+            staged
+        })
+        .unwrap();
+    assert!(cancelled_during_staging.get());
+    assert_eq!(state.phase, "cancelled");
+    assert_eq!(state.ready.unwrap().generation, ready.generation);
+    let after = fixture.store.open(&before.project_id).unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.sources, before.sources);
+    assert_eq!(fs::read_dir(snapshots.directory()).unwrap().count(), count);
+    assert_eq!(fixture.run().phase, "ready");
+}
+
+#[test]
+fn legacy_single_chat_state_migrates_without_adding_other_sources() {
+    let fixture = Fixture::new();
+    fixture.write(false);
+    let ready = fixture.run().ready.unwrap();
+    let path = fixture
+        ._private
+        .path()
+        .join(&fixture.project.project_id)
+        .join("local-package/state.json");
+    let mut state: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    state["schema_version"] = json!(1);
+    state["settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("source_ids");
+    state["settings"]["source_id"] = json!("selected");
+    state["ready"]
+        .as_object_mut()
+        .unwrap()
+        .remove("conversations");
+    fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+    let reopened = ProjectStore::new(fixture._private.path());
+    let state = reopened
+        .local_package(&fixture.project.project_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.schema_version, 2);
+    assert_eq!(state.settings.source_ids, ["selected"]);
+    assert_eq!(state.ready.as_ref().unwrap().generation, ready.generation);
+    assert_eq!(state.ready.unwrap().conversations, 1);
+    assert_eq!(fixture.run().phase, "ready");
+    let mut input = serde_json::to_value(
+        fixture
+            .store
+            .local_package(&fixture.project.project_id)
+            .unwrap()
+            .unwrap()
+            .settings,
+    )
+    .unwrap();
+    input["source_id"] = json!("ambiguous");
+    assert!(serde_json::from_value::<PackageSettings>(input).is_err());
 }
