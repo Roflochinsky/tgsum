@@ -50,7 +50,7 @@ The selected Telegram process exposed only two GTK nodes (application/window,
 toolkit 3.24.52), even with its export settings open. Temporarily setting
 `IsEnabled` true exposed separate GTK and Qt 6.11.2 roots for that same PID;
 this revealed the mixed-root selection bug now covered by the fake suite.
-No titles, message text or actions were accessed/invoked. Package metadata was
+No titles or message text were read, and no actions were invoked. Package metadata was
 `telegram-desktop 7.2.5-1`; the running application version remains unconfirmed.
 
 [Qt documents the activation flags and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON`](https://doc.qt.io/qt-6/qaccessible.html)
@@ -65,11 +65,26 @@ Do not run the CI `dbus-run-session` recipe on this live Omarchy session:
 its AT-SPI launcher reused the active session's socket and broke connectivity.
 Restarting the user `at-spi-dbus-bus.service` restored the bus, and the native
 fake-window test then passed on the existing session, but Telegram's Qt root
-did not reappear with either activation flag. Further live qualification needs
-a user-controlled Telegram restart. CI uses its own isolated machine/display.
+did not reappear with either activation flag. A user-controlled Telegram restart
+with `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` restored the Qt root while both global
+flags remained false. CI uses its own isolated machine/display.
 The native test on the existing session opens only its own fake GTK window and
 binds the probe to that process. These observations do not enable automation;
-export controls, native account/chat identity and completion remain unqualified.
+native account/chat identity and completion remain unqualified.
+
+After the user reopened export settings, the fixed CLI selected Qt 6.11.2 and
+returned 119 nodes, but `truncated: true` because the application-wide depth
+limit cut off parts of the dialog. A separate bounded read-only observation of
+the unique active/showing direct child of that Qt root used depth 12, the same
+256-node/64-child bounds and a 30-second outer timeout. It normalized roles from
+the AT-SPI enum (provider role labels otherwise often map to `other`) and
+`setFocus` to `focus`, without reading names/text or invoking actions. This
+supplement is not an added CLI mode. The dialog contained 30 nodes, including
+seven checkboxes, with `truncated: false`; its 12 advertised actions were all
+focus. There were no advertised press/click/toggle actions in that subtree.
+This blocks the current AT-SPI export-action path for the observed build;
+manual export/import checks can continue. It does not prove the behavior of
+other builds, settings screens, or native account/chat identity.
 
 Offline fake-tree validation requires no desktop or account:
 
