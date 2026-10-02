@@ -708,22 +708,64 @@ pub fn run() {
     let app = app(builder)
         .build(tauri::generate_context!())
         .expect("failed to start tgsum");
+    run_app(app);
+}
+
+fn run_app<R: Runtime>(app: tauri::App<R>) {
     let stop = Arc::new(AtomicBool::new(false));
-    assisted::start_background_watcher(
-        app.handle().clone(),
-        app.state::<ProjectStore>().inner().clone(),
-        Arc::clone(&app.state::<assisted::ExportInboxState>().inner().0),
-        Arc::clone(&stop),
-    );
-    telegram_refresh::start_timer(
-        app.state::<telegram_refresh::TelegramRefreshState>()
-            .inner()
-            .clone(),
-        Arc::clone(&stop),
-    );
-    app.run(move |_, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            stop.store(true, Ordering::Relaxed);
+    app.run(move |app, event| match event {
+        // Tauri calls setup on Ready, not during Builder::build. State created
+        // by setup is available only once this event reaches our callback.
+        tauri::RunEvent::Ready => {
+            assisted::start_background_watcher(
+                app.clone(),
+                app.state::<ProjectStore>().inner().clone(),
+                Arc::clone(&app.state::<assisted::ExportInboxState>().inner().0),
+                Arc::clone(&stop),
+            );
+            telegram_refresh::start_timer(
+                app.state::<telegram_refresh::TelegramRefreshState>()
+                    .inner()
+                    .clone(),
+                Arc::clone(&stop),
+            );
         }
+        tauri::RunEvent::Exit => stop.store(true, Ordering::Relaxed),
+        _ => {}
     });
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn background_tasks_wait_for_event_loop_setup() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_owned();
+        let setup_ran = Arc::new(AtomicBool::new(false));
+        let observed = Arc::clone(&setup_ran);
+        let app = app(tauri::test::mock_builder())
+            .setup(move |app| {
+                // Register state at the same lifecycle stage as production,
+                // using an empty owned store instead of the user's projects.
+                let store = ProjectStore::new(&root);
+                app.manage(store.clone());
+                app.manage(telegram_refresh::TelegramRefreshState::for_app(store)?);
+                observed.store(true, Ordering::Relaxed);
+                // MockRuntime processes this close after Ready, then emits Exit.
+                WebviewWindowBuilder::new(app, "startup-test", Default::default())
+                    .build()?
+                    .close()?;
+                Ok(())
+            })
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        assert!(app.try_state::<ProjectStore>().is_none());
+        assert!(app
+            .try_state::<telegram_refresh::TelegramRefreshState>()
+            .is_none());
+        run_app(app);
+        assert!(setup_ran.load(Ordering::Relaxed));
+    }
 }
