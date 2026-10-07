@@ -504,7 +504,8 @@ $('#search').addEventListener('keydown', (e) => {
     renderList()
   } else if (e.key === 'ArrowDown') {
     e.preventDefault()
-    $('#list').firstElementChild?.focus()
+    const first = $('#list').firstElementChild
+    if (first) focusRow(first.dataset.key)
   }
 })
 

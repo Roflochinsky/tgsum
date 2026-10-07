@@ -71,9 +71,12 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
-        let private = tempfile::tempdir().unwrap();
-        let input = tempfile::tempdir().unwrap();
-        let output = tempfile::tempdir().unwrap();
+        // Native pickers return canonical directories. Keep fixture paths in
+        // that form when the OS temp directory is a symlink (macOS /var).
+        let temp_root = std::env::temp_dir().canonicalize().unwrap();
+        let private = tempfile::tempdir_in(&temp_root).unwrap();
+        let input = tempfile::tempdir_in(&temp_root).unwrap();
+        let output = tempfile::tempdir_in(&temp_root).unwrap();
         let store = ProjectStore::new(private.path());
         let project = store.create("Synthetic package").unwrap();
         let project = store

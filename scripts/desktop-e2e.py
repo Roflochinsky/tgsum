@@ -152,6 +152,11 @@ def exercise(ui, root, report, report_dir):
     ui.click("#dropzone")
     ui.wait("document.body.dataset.screen==='select'")
     assert ui.evaluate("document.querySelector('#list [tabindex=\"0\"]')!==null")
+    ui.evaluate("(() => { const search=document.querySelector('#search'); search.focus(); search.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true})); return true })()")
+    ui.evaluate("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true}))")
+    assert ui.evaluate("document.activeElement.dataset.key==='c:222' && document.activeElement.tabIndex===0"), "Arrow navigation lost the list tab stop"
+    ui.evaluate("(() => { const search=document.querySelector('#search'); search.focus(); search.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true})); return true })()")
+    assert ui.evaluate("document.activeElement.dataset.key==='c:111' && document.activeElement.tabIndex===0"), "Search navigation lost the list tab stop"
     ui.click('[data-key="c:111"]')
     assert ui.evaluate("document.querySelector('[data-key=\"c:111\"]').getAttribute('aria-selected')==='true'")
     ui.click("#btn-next")
