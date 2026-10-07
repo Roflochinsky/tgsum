@@ -40,13 +40,22 @@ def main():
     assert invoke('analysis_catalog')['fixtures'] is True, 'Requires synthetic backend'
     assert invoke('list_projects') == [], 'Requires a fresh isolated XDG data directory'
     ev("window.__uiErrors=[];addEventListener('error',e=>__uiErrors.push(e.message));addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)))")
+    ui.wait("document.body.dataset.screen==='start'")
+    assert not ev("document.querySelector('#onboarding').open"), 'Startup must allow direct file selection'
+    ui.click('#btn-help')
     ui.wait("document.querySelector('#onboarding').open")
     ui.click('#onboarding-next')
     ui.click('#onboarding-next')
+    assert not ev("document.querySelector('#onboarding details').open")
+    ui.click('#onboarding details summary')
     ui.wait("document.querySelectorAll('#onboarding-agent option').length===3")
     assert ev("document.querySelector('#onboarding-agent').value") == 'export'
     ui.click('#onboarding-next')
     assert not ev("document.querySelector('#onboarding').open")
+    assert ev("document.body.dataset.screen") == 'start'
+    ui.click('#btn-projects')
+    idle()
+    assert not ev("document.querySelector('#project-home').hidden")
     value('#new-project-name', 'Synthetic onboarding regression')
     ev("document.querySelector('#new-project-form').requestSubmit()")
     idle()
@@ -103,7 +112,7 @@ def main():
         ui.click('#btn-project-review')
         idle()
         stage('privacy')
-        assert 'Источников: 1' in ev("document.querySelector('#project-review-summary').textContent")
+        assert 'Чатов: 1' in ev("document.querySelector('#project-review-summary').textContent")
         assert 'Pilot Forum' not in ev("document.querySelector('#project-review-sources').textContent")
         ui.click('#btn-project-destination')
         stage('analyze')
@@ -133,7 +142,7 @@ def main():
     assert ev("document.querySelector('#project-detail').hidden")
     assert ev("document.querySelector('#project-list button').dataset.project") == project_id
     assert ev('window.__uiErrors') == [], ev('window.__uiErrors')
-    print('PASS actual Tauri onboarding, local Project, draft/error/conflict preservation, scope/privacy, Export only and both synthetic agent flows')
+    print('PASS actual Tauri direct startup, optional help, local Project, draft/error/conflict preservation, scope/privacy, local export choice and both synthetic agent flows')
     ui.ws.close()
 
 

@@ -1,7 +1,7 @@
 // Private local policy and explicit before/after review. Original data never
 // joins the public bundle or an analysis request in this controller.
 const pii = { participants: 'Имена участников', emails: 'Email', phones: 'Телефоны', usernames: 'Упоминания @username' }
-const infrastructure = { ip: 'IP-адреса', host: 'Серверы', domain: 'Внутренние домены', url: 'Внутренние URL', username: 'Логины инфраструктуры', path: 'Пути к файлам', cloud_resource: 'Облачные ресурсы' }
+const infrastructure = { ip: 'IP-адреса', host: 'Серверы', domain: 'Внутренние домены', url: 'Внутренние URL', username: 'Имена пользователей серверов', path: 'Пути к файлам', cloud_resource: 'Облачные ресурсы' }
 const key = (choice) => JSON.stringify([choice.message_id, choice.position])
 const refKey = (ref) => `${ref.id}@${ref.revision}`
 
@@ -29,7 +29,7 @@ export function mountPrivacy({ invoke, act, project, update, invalidate, navigat
   }
   function dirty() {
     policyDirty = true
-    $('#privacy-saved-state').textContent = 'Изменения будут сохранены при подготовке контекста. Предыдущая проверка больше не действует.'
+    $('#privacy-saved-state').textContent = 'Настройки сохранятся при подготовке файлов. После изменений нужно заново проверить результат.'
     invalidate()
   }
   form.addEventListener('input', (event) => {
@@ -83,7 +83,7 @@ export function mountPrivacy({ invoke, act, project, update, invalidate, navigat
 
   async function sourceFiles(card, source) {
     const section = document.createElement('details'); section.className = 'attachment-selector'
-    section.innerHTML = '<summary>Текстовые вложения</summary><p class="hint">Только файлы выбранных сообщений. Выберите папку экспорта и отметьте нужные вложения, затем сохраните выбор источника.</p><label class="attachment-root">Папка экспорта<input data-attachment-root readonly></label><div class="project-actions"><button type="button" class="btn btn-ghost" data-attachment-folder>Выбрать папку…</button><button type="button" class="btn btn-ghost" data-attachment-clear>Исключить все файлы</button></div><p class="hint" data-attachment-selected></p><div class="attachment-items"></div><div class="project-actions"><button type="button" class="btn btn-ghost" data-attachment-prev>Предыдущие</button><span class="hint" data-attachment-page></span><button type="button" class="btn btn-ghost" data-attachment-next>Следующие</button></div>'
+    section.innerHTML = '<summary>Текстовые вложения</summary><p class="hint">Только файлы выбранных сообщений. Выберите папку экспорта и отметьте нужные вложения, затем нажмите «Сохранить выбор» в карточке чата.</p><label class="attachment-root">Папка экспорта<input data-attachment-root readonly></label><div class="project-actions"><button type="button" class="btn btn-ghost" data-attachment-folder>Выбрать папку…</button><button type="button" class="btn btn-ghost" data-attachment-clear>Исключить все файлы</button></div><p class="hint" data-attachment-selected></p><div class="attachment-items"></div><div class="project-actions"><button type="button" class="btn btn-ghost" data-attachment-prev>Предыдущие</button><span class="hint" data-attachment-page></span><button type="button" class="btn btn-ghost" data-attachment-next>Следующие</button></div>'
     card.querySelector('.project-actions').before(section)
     const state = { root: source.selection.attachments?.root || '', selected: new Map((source.selection.attachments?.files || []).map((c) => [key(c), c])), page: null }
     fileForms.set(card, state)
@@ -160,17 +160,17 @@ export function mountPrivacy({ invoke, act, project, update, invalidate, navigat
   }
   async function showReview(review) {
     bundle = review
-    const manifest = document.createElement('li'); manifest.textContent = 'manifest.json · состав и происхождение контекста'
+    const manifest = document.createElement('li'); manifest.textContent = 'manifest.json · список файлов и сведения об исходных чатах'
     $('#privacy-reviewed-files').replaceChildren(manifest, ...review.manifest.files.map((file) => { const li = document.createElement('li'); li.textContent = `${file.name} · ${file.bytes.toLocaleString('ru-RU')} Б`; return li }))
     const missing = (review.manifest.attachments || []).filter((a) => a.status === 'missing').length
-    $('#privacy-file-gaps').textContent = `Отсутствующих выбранных файлов: ${missing}. Выборов вне текущего контекста: ${review.manifest.attachment_choices_outside_scope || 0}.`
+    $('#privacy-file-gaps').textContent = `Отсутствующих выбранных файлов: ${missing}. Выбрано файлов из сообщений вне заданного периода или тем: ${review.manifest.attachment_choices_outside_scope || 0}.`
     $('#privacy-comparison').hidden = false
     await reviewPage(0)
   }
   function summary(manifest) {
     const m = manifest
     const counts = (report, labels) => report ? [...report.categories].map((category) => `${labels[category]}: ${report.by_category[category] || 0}`).join(', ') : 'выключено'
-    $('#project-review-privacy').textContent = `Секреты: скрыто ${m.privacy.redacted}. Требуют решения: ${m.privacy.needs_review}. PII: ${m.pii?.replacements || 0} (${counts(m.pii, pii)}). Инфраструктура: ${m.infrastructure?.replacements || 0} (${counts(m.infrastructure, infrastructure)}). Словарь: ${m.custom_terms?.replacements || 0}. Это число замен, включая повторы.${m.privacy.needs_review ? ' В настройках включите скрытие подозрительных значений и обновите проверку.' : ''}`
+    $('#project-review-privacy').textContent = `Секреты: скрыто ${m.privacy.redacted}. Требуют решения: ${m.privacy.needs_review}. Личные данные: ${m.pii?.replacements || 0} (${counts(m.pii, pii)}). Служебные адреса и пути: ${m.infrastructure?.replacements || 0} (${counts(m.infrastructure, infrastructure)}). Словарь: ${m.custom_terms?.replacements || 0}. Это число замен, включая повторы.${m.privacy.needs_review ? ' В настройках включите скрытие подозрительных значений и обновите проверку.' : ''}`
   }
   $('#privacy-page-prev').addEventListener('click', () => act(() => reviewPage(Math.max(0, page.offset - 50))))
   $('#privacy-page-next').addEventListener('click', () => act(() => reviewPage(page.next_offset)))
@@ -184,7 +184,7 @@ export function mountPrivacy({ invoke, act, project, update, invalidate, navigat
     finally { endJob(); show('projects') }
     $('#privacy-before').textContent = result.before ?? (result.before_state === 'file_changed' ? 'Исходный файл изменился после подготовки. Оригинал не показывается.' : 'Исходный файл недоступен. Сохранённый результат очистки доступен справа.')
     $('#privacy-after').textContent = result.after
-    $('#privacy-comparison-status').textContent = `${result.before_truncated || result.after_truncated ? 'Показано начало: не более 24 КиБ в каждой панели. ' : ''}${result.before_state === 'verified_file' ? 'Оригинал файла совпадает с версией, использованной при подготовке.' : result.before_state === 'snapshot' ? 'Оригинал сообщения взят из сохранённого snapshot.' : ''}`
+    $('#privacy-comparison-status').textContent = `${result.before_truncated || result.after_truncated ? 'Показано начало: не более 24 КиБ в каждой панели. ' : ''}${result.before_state === 'verified_file' ? 'Оригинал файла совпадает с версией, использованной при подготовке.' : result.before_state === 'snapshot' ? 'Оригинал сообщения взят из сохранённой копии чата.' : ''}`
     $('#privacy-comparison-panes').hidden = false
   }))
   return { load, persist, sourceFiles, selection, summary, showReview, clearReview }

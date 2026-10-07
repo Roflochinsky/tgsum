@@ -271,7 +271,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let input = tempfile::tempdir().unwrap();
         let output = tempfile::tempdir().unwrap();
-        let bare = tmp.path().join("remote.git");
+        // Native pickers provide canonical directories. Match that contract
+        // even when the OS temporary directory has a symlink (macOS /var).
+        let root_path = tmp.path().canonicalize().unwrap();
+        let input_path = input.path().canonicalize().unwrap();
+        let output_path = output.path().canonicalize().unwrap();
+        let bare = root_path.join("remote.git");
         fs::create_dir(&bare).unwrap();
         run(
             git(&bare, &["init", "--bare", "--initial-branch=main"]),
@@ -279,11 +284,11 @@ mod tests {
         )
         .unwrap();
         run(
-            git(tmp.path(), &["clone", bare.to_str().unwrap(), "worktree"]),
+            git(&root_path, &["clone", bare.to_str().unwrap(), "worktree"]),
             &|| false,
         )
         .unwrap();
-        let worktree = tmp.path().join("worktree");
+        let worktree = root_path.join("worktree");
         fs::write(worktree.join("unrelated.txt"), "preserve").unwrap();
         run(git(&worktree, &["add", "unrelated.txt"]), &|| false).unwrap();
         run(
@@ -302,7 +307,7 @@ mod tests {
             &|| false,
         )
         .unwrap();
-        let store = ProjectStore::new(tmp.path().join("private"));
+        let store = ProjectStore::new(root_path.join("private"));
         let p = store.create("Synthetic Git package").unwrap();
         let p = store
             .update(
@@ -324,8 +329,8 @@ mod tests {
                 p.revision,
                 PackageSettings {
                     source_ids: vec!["selected".into()],
-                    input_directory: input.path().into(),
-                    output_directory: output.path().into(),
+                    input_directory: input_path.clone(),
+                    output_directory: output_path,
                     automatic: false,
                     include_images: true,
                     include_office: true,
@@ -333,8 +338,8 @@ mod tests {
                 },
             )
             .unwrap();
-        fs::write(input.path().join("image.png"), b"synthetic-image").unwrap();
-        fs::write(input.path().join("result.json"), r#"{"id":111,"messages":[{"id":1,"text":"password=GIT_SYNTHETIC_SECRET","photo":"image.png"}]}"#).unwrap();
+        fs::write(input_path.join("image.png"), b"synthetic-image").unwrap();
+        fs::write(input_path.join("result.json"), r#"{"id":111,"messages":[{"id":1,"text":"password=GIT_SYNTHETIC_SECRET","photo":"image.png"}]}"#).unwrap();
         let ready = store
             .refresh_local_package(&p.project_id, 1, || false)
             .unwrap();
@@ -354,7 +359,7 @@ mod tests {
             .contains("GIT_SYNTHETIC_SECRET"));
         assert!(!folder.join("result.json").exists());
         fs::write(
-            input.path().join("result.json"),
+            input_path.join("result.json"),
             r#"{"id":111,"messages":[{"id":1,"text":"Updated without image"}]}"#,
         )
         .unwrap();

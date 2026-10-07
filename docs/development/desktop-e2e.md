@@ -64,12 +64,18 @@ and an existing window alone were insufficient in the first local run.
 
 ## Covered flow
 
-1. First-run onboarding and Project creation through rendered controls.
+1. Direct file-selection startup without a mandatory dialog, help opened on
+   request, optional agent settings in its disclosure, and Project creation
+   through rendered controls. A failed project import resets its connection
+   state; the next one-off export does not add sources to that project.
 2. Full JSON import, selection of a direct chat and one forum topic, saved
    date range, privacy preset and sanitized Review. Source access details
    distinguish whole-file reads, raw snapshot storage and narrower context;
-   a markup-like account label remains text.
-3. Export only: actual prepared Markdown is written and checked for secret leaks.
+   a markup-like account label remains text. Saving one chat preserves the
+   other chat's unsaved dates and blocks preparation until both are saved.
+3. Local export without AI: actual prepared Markdown is written and checked
+   for secret leaks. Switching projects clears the previous output path and
+   folder button.
 4. Each synthetic Codex/Claude adapter: Review, explicit Run, validated result
    and rendered evidence. No installed agent executable or auth is used.
 5. Relink to a single-chat JSON, refresh the snapshot, preserve selected scope,
@@ -91,16 +97,29 @@ and an existing window alone were insufficient in the first local run.
    cadence returns to manual. All acquisition events come from the fake driver.
 7. Single-chat one-off topic export and actual Markdown content verification.
 8. Malformed JSON error and absence of uncaught renderer exceptions.
+9. On Linux, local package controls cover output files, privacy handling,
+   invalid-input recovery, automatic refresh of provided local files, cleanup
+   of the previous generated package and a durable pause. A shared export
+   exercises multiple selected chats/topics, one package control, rejection of
+   an export missing a selected chat, and automatic combined updates.
 
-The current script records 17 checks. Historical runs below describe the suite
-at their recorded revisions, before the refresh extension. The extended suite
+The report's `checks` array records the stages that actually ran; Linux package
+stages do not run on every platform. Historical runs below describe the suite
+at their recorded revisions, before the later extensions. The refresh suite
 passed locally through `--cargo-run` on 2026-09-28; its report was written to
 `/tmp/tgsum-refresh-coordinator-e2e/report.json` and records a working tree based
 on `9e6763b`, not a clean committed revision.
 
 The CI `desktop-e2e` matrix executes this same script on Ubuntu, Windows and
-macOS, uploading artifacts even after failure. A configured job is not a passing
-run; its actual result and image/version determine the verified scope.
+macOS, uploading artifacts even after failure. The `arch` job also builds the
+pacman package and the synthetic desktop harness inside `archlinux:base-devel`,
+then runs this script as an unprivileged user with Arch's WebKitGTK, Xvfb and
+session D-Bus. Its report artifact is `desktop-e2e-arch`. This checks the Arch
+runtime under X11; it does not exercise a real Wayland desktop or install the
+package. The Arch WebView step and revised startup/regressions were added on
+2026-10-07; this section describes their configuration, not a verified cloud
+result. A configured job is not a passing run; its actual result, revision and
+image/version determine the verified scope.
 
 This suite does not qualify native pickers, OS keyboard/accessibility behavior,
 installers, real agent process isolation or official messenger automation.

@@ -14,7 +14,7 @@ export function mountTelegramRefresh({ invoke, act, project, changed, toast }) {
         <option value="every_six_hours">Каждые 6 часов</option>
         <option value="daily">Раз в сутки</option>
       </select></label>
-      <p class="hint">Расписание работает, пока TGSUM открыт и компьютер разблокирован. Обновление переписки не запускает AI-анализ.</p>
+      <p class="hint">Расписание работает, пока TGSUM открыт и компьютер разблокирован. Обновление переписки не запускает анализ с помощью ИИ.</p>
       <button type="button" class="btn btn-ghost" data-refresh-save>Сохранить расписание</button>
       <p role="status" data-refresh-status>Загрузка состояния…</p>
       <div class="project-actions">
@@ -63,7 +63,7 @@ export function mountTelegramRefresh({ invoke, act, project, changed, toast }) {
       let text = ({ idle: 'Ожидается обновление.', unavailable: 'Доступен ручной экспорт.',
         waiting_for_client: 'Ожидание клиента…', exporting: 'Telegram выполняет экспорт…', cancelling: 'Ожидание подтверждения остановки…',
         needs_user_action: 'Нужна проверка предыдущей попытки.', cancelled: 'Обновление отменено.', failed: 'Обновление не завершено. Предыдущие данные сохранены.',
-        ready: delta ? `+${delta.created} новых · ${delta.edited} изменённых · ${delta.missing} отсутствуют в новом архиве` : 'Источник обновлён.',
+        ready: delta ? `+${delta.created} новых · ${delta.edited} изменённых · ${delta.missing} отсутствуют в новом архиве` : 'Чат обновлён.',
       })[state] || 'Обновление отложено.'
       const decision = state === 'deferred' ? view.state.decision : view.decision
       if (!active && decision?.wait_until) text += ` Повтор доступен после ${new Date(decision.wait_until * 1000).toLocaleString()}.`

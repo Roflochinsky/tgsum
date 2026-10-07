@@ -4,7 +4,7 @@ import { preferredAgent } from './onboarding.js'
 
 export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, endJob, show, toast, navigate, changed }) {
   const $ = (s) => document.querySelector(s)
-  const states = { interrupted: 'Запуск прерван — повторный запуск только вручную', cancelled: 'Отменён', failed: 'Не завершён', uncommitted: 'Результат сохранён; точка анализа не обновлена', succeeded: 'Готово · точка анализа обновлена', unavailable: 'Запись недоступна' }
+  const states = { interrupted: 'Запуск прерван — повторный запуск только вручную', cancelled: 'Отменён', failed: 'Не завершён', uncommitted: 'Результат сохранён; сообщения ещё не отмечены как проанализированные', succeeded: 'Готово · сообщения отмечены как проанализированные', unavailable: 'Запись недоступна' }
   const sections = { overview: 'Обзор', topics: 'Темы', open_questions: 'Открытые вопросы', worked: 'Что получилось', failed: 'Что не получилось', lessons: 'Выводы', next_steps: 'Следующие шаги', decisions: 'Решения', reversals: 'Изменённые решения', unresolved: 'Незавершённые действия', timeline: 'Хронология', symptoms: 'Симптомы', hypotheses: 'Гипотезы', actions_taken: 'Принятые меры', resolution: 'Решение проблемы', context: 'Контекст', people: 'Участники', systems: 'Системы' }
   const node = (tag, text, className = '') => {
     const element = document.createElement(tag)
@@ -30,7 +30,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     $('#analysis-model').value = ''
     if (exportOnly) {
       $('#analysis-runtime-fields').hidden = true
-      $('#analysis-status').textContent = 'Export only · получатель: локальная папка. Аккаунты и AI-агент не нужны.'
+      $('#analysis-status').textContent = 'Файлы сохранятся в выбранную папку на компьютере. Вход в аккаунт и анализ с помощью ИИ не нужны.'
       return
     }
     $('#analysis-executable').value = selectedAgent.executables[0] || ''
@@ -41,7 +41,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     $('#btn-analysis-executable').textContent = `Выбрать ${selectedAgent.title}…`
     $('#analysis-auth-label').textContent = `Файл авторизации ${selectedAgent.title}`
     $('#btn-analysis-auth').textContent = `Выбрать ${selectedAgent.auth_name}…`
-    $('#analysis-runtime-hint').textContent = `Требуется нативный бинарник ${selectedAgent.title} ${selectedAgent.version}. Найденный путь проверяется при подготовке запуска.`
+    $('#analysis-runtime-hint').textContent = `Нужна установленная программа ${selectedAgent.title} версии ${selectedAgent.version}. При подготовке TGSUM проверит выбранный файл программы.`
     $('#analysis-auth-hint').textContent = `Авторизация остаётся в выбранном файле. Если вход истёк, обновите его в ${selectedAgent.title} отдельно и подготовьте запуск заново.`
     $('#analysis-destination').replaceChildren(...selectedAgent.destinations.map((d) => {
       const option = node('option', d.title)
@@ -52,7 +52,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     $('#analysis-status').textContent = catalog.fixtures
       ? `Локальный тестовый стенд · ${selectedAgent.title}. Данные не передаются агенту или в сеть.`
       : selectedAgent.available ? `${selectedAgent.title} ${selectedAgent.version} · Linux x86_64. Подготовка проверит совместимость без обращения к аккаунту.`
-        : `Запуск ${selectedAgent.title} недоступен: требуется Linux x86_64 и установленный компонент запуска. Контекст можно сохранить в файл.`
+        : `Запуск ${selectedAgent.title} недоступен: требуется Linux x86_64 и установленный компонент запуска. Подготовленные сообщения можно сохранить в папку.`
     $('#analysis-runtime-fields').hidden = catalog.fixtures || !selectedAgent.available
   }
 
@@ -80,7 +80,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
         option.value = r.id
         return option
       }))
-      $('#analysis-agent').replaceChildren(new Option('Export only · сохранить локально', 'export'), ...catalog.agents.map((a) => {
+      $('#analysis-agent').replaceChildren(new Option('Сохранить в папку без ИИ', 'export'), ...catalog.agents.map((a) => {
         const option = node('option', a.title)
         option.value = a.id
         return option
@@ -169,15 +169,15 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     const options = { agent: agent().id, executable: $('#analysis-executable').value, auth_file: $('#analysis-auth').value,
       model: $('#analysis-model').value.trim(), recipe: $('#analysis-recipe').value, destination: $('#analysis-destination').value }
     if (!options.model) throw new Error(`Укажите модель, доступную в ${agent().title}.`)
-    startJob('analysis', 'Подготовка запуска без передачи данных агенту')
+    startJob('analysis', 'Проверка настроек анализа без отправки сообщений')
     try {
       reviewed = await invoke('prepare_project_analysis', { projectId: project().project_id, bundleId: context.bundle_id, expectedRevision: context.project_revision, options })
     } finally { endJob(); show('projects') }
     const s = reviewed.spec
     $('#analysis-review-summary').textContent = `${s.agent} ${s.agent_version} · ${s.recipe} v${s.recipe_version} · модель ${s.model}`
-    $('#analysis-review-destination').textContent = s.destination === 'local_fixture' ? 'Получатель: локальный тестовый стенд' : `Получатель контекста: ${s.agent === 'claude' ? 'Anthropic' : 'OpenAI'} · ${s.destination}`
+    $('#analysis-review-destination').textContent = s.destination === 'local_fixture' ? 'Получатель: локальный тестовый стенд' : `Кому будут отправлены сообщения: ${s.agent === 'claude' ? 'Anthropic' : 'OpenAI'} · ${s.destination}`
     $('#analysis-review-access').textContent = s.destination === 'local_fixture' ? 'Используются только синтетические данные.'
-      : `Агент получит проверенный выше контекст и выбранный файл авторизации только для чтения: ${options.auth_file}. ${agent().title}: ${options.executable}.`
+      : `Программа получит подготовленные сообщения и сможет прочитать выбранный файл входа: ${options.auth_file}. ${agent().title}: ${options.executable}.`
     $('#analysis-review').hidden = false
     $('#btn-analysis-run').disabled = false
     navigate('review')
@@ -188,7 +188,7 @@ export function mountAnalysis({ invoke, act, project, bundle, reload, startJob, 
     const id = reviewed.run_id
     reviewed = null
     $('#btn-analysis-run').disabled = true
-    startJob('analysis', 'Анализ выбранного контекста')
+    startJob('analysis', 'Анализ выбранных сообщений')
     let view
     try { view = await invoke('run_project_analysis', { runId: id }) }
     finally { endJob(); show('projects') }

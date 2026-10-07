@@ -56,10 +56,14 @@ def main():
     invalid_client = root / 'not-a-native-client'
     invalid_client.write_text('#!/bin/sh\nexit 1\n')
 
+    ui.wait("document.body.dataset.screen==='start'")
+    assert not ev("document.querySelector('#onboarding').open")
+    ui.click('#btn-help')
     ui.wait("document.querySelector('#onboarding').open")
     for _ in range(3):
         ui.click('#onboarding-next')
     ui.wait("!document.querySelector('#onboarding').open")
+    assert ev("document.body.dataset.screen") == 'start'
     ev("window.__uiErrors=[];addEventListener('error',e=>__uiErrors.push(e.message));addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)))")
     p = invoke('create_project', {'name':'Synthetic assisted export'})
     p = invoke('update_project', {'projectId':p['project_id'],'expectedRevision':p['revision'],'change':{'kind':'source','value':{
@@ -92,7 +96,7 @@ def main():
     idle()
     assert invoke('open_project', {'projectId':project_id})['sources'][0]['latest_snapshot_id'] == previous_snapshot
     assert not ev("document.querySelector('[data-assisted-confirm]').checked")
-    assert 'Предыдущий snapshot сохранён' in ev("document.querySelector('[data-assisted-status]').textContent")
+    assert 'Предыдущая копия сообщений сохранена' in ev("document.querySelector('[data-assisted-status]').textContent")
 
     # An unsupported selected wrapper fails without disabling manual fallback.
     picker('[data-assisted-pick-client]', invalid_client)

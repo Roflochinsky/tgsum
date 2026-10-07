@@ -8,15 +8,15 @@ export function mountAssisted({ invoke, act, project, update, invalidate, import
     section.dataset.assistedSource = source.source_id
     section.dataset.state = 'needs_user_action'
     section.innerHTML = `<summary>Обновить через Telegram Desktop</summary>
-      <p class="hint">Экспорт выполняется в Telegram Desktop. TGSUM получает выбранный JSON; сессиями и входом управляет сам клиент.</p>
+      <p class="hint">Экспорт выполняется в Telegram Desktop. Сначала сохраните экспорт в Telegram, затем выберите его JSON-файл здесь. TGSUM не входит в ваш аккаунт и не получает новые сообщения сам.</p>
       <p data-assisted-scope></p>
       <ol><li>Откройте нужный аккаунт и этот чат в Telegram Desktop.</li>
         <li>В меню чата ⋮ выберите «Экспорт истории чата», формат JSON и папку ниже.</li>
         <li>Дождитесь завершения в Telegram. Если он просит подтверждение с другого устройства или ожидание, выполните его инструкцию.</li>
-        <li>Выберите созданный result.json и подтвердите источник. TGSUM покажет файлы из назначенной папки, но не считает появление файла окончанием экспорта.</li></ol>
-      <label>Назначенная папка<input data-assisted-directory readonly></label>
+        <li>Выберите созданный result.json и подтвердите аккаунт и чат. TGSUM покажет файлы из назначенной папки, но не считает появление файла окончанием экспорта.</li></ol>
+      <label>Папка, куда Telegram сохраняет экспорт<input data-assisted-directory readonly></label>
       <div class="project-actions"><button type="button" class="btn btn-ghost" data-assisted-folder>Выбрать папку…</button></div>
-      <div data-assisted-candidates hidden><p class="hint">Замечены возможные JSON экспорты. Выберите файл только после завершения в Telegram Desktop.</p><div class="project-actions" data-assisted-candidate-list></div></div>
+      <div data-assisted-candidates hidden><p class="hint">В папке найдены JSON-файлы. Выберите файл только после завершения в Telegram Desktop.</p><div class="project-actions" data-assisted-candidate-list></div></div>
       <label>Выбранный клиент<input data-assisted-client readonly placeholder="Можно открыть Desktop самостоятельно"></label>
       <p class="hint">Выберите установленный исполняемый файл Desktop. TGSUM не проверяет его издателя. Пакет .app, Flatpak или ярлык можно открыть самостоятельно.</p>
       <div class="project-actions"><button type="button" class="btn btn-ghost" data-assisted-pick-client>Выбрать клиент…</button>
@@ -25,12 +25,12 @@ export function mountAssisted({ invoke, act, project, update, invalidate, import
       <label>JSON завершённого экспорта<input data-assisted-archive readonly placeholder="Выберите файл после завершения экспорта"></label>
       <div class="project-actions"><button type="button" class="btn btn-ghost" data-assisted-pick-archive>Выбрать готовый JSON…</button></div>
       <label class="project-check"><input type="checkbox" data-assisted-confirm> Я выбрал указанные аккаунт и чат; Telegram завершил этот экспорт.</label>
-      <p class="hint">Локальная метка аккаунта задаётся вами; JSON не подтверждает владельца аккаунта. При импорте TGSUM проверит ID чата.</p>
+      <p class="hint">Название аккаунта задаёте вы; JSON не подтверждает, кому принадлежит аккаунт. При импорте TGSUM проверит ID чата.</p>
       <p role="status" data-assisted-status></p>
       <button type="button" class="btn btn-primary" data-assisted-import>Импортировать завершённый экспорт</button>`
     card.append(section)
     const $ = (selector) => section.querySelector(selector)
-    $('[data-assisted-scope]').textContent = `Источник: ${title} · аккаунт ${source.scope.account_local_id} · ID чата ${source.scope.conversation_id}`
+    $('[data-assisted-scope]').textContent = `Чат: ${title} · аккаунт ${source.scope.account_local_id} · ID чата ${source.scope.conversation_id}`
     let archive = ''
     let watching = false
     const settings = () => project().assisted_exports?.[source.source_id]
@@ -112,7 +112,7 @@ export function mountAssisted({ invoke, act, project, update, invalidate, import
     })
     $('[data-assisted-import]').onclick = () => act(async () => {
       if (!$('[data-assisted-confirm]').checked || !archive || !settings()) return
-      if (!document.querySelector('#project-unsaved').hidden) throw new Error('Сначала сохраните выбор сообщений и вложений источника.')
+      if (!document.querySelector('#project-unsaved').hidden) throw new Error('Сначала сохраните выбор сообщений и вложений во всех изменённых чатах.')
       invalidate()
       status('Проверка и импорт JSON…', 'importing')
       startJob('import', 'Импорт завершённого экспорта Telegram')
@@ -122,10 +122,10 @@ export function mountAssisted({ invoke, act, project, update, invalidate, import
           archive_path: archive, scope_and_completion_confirmed: true } })
         await imported(completed.project)
         const delta = completed.delta
-        toast(`Источник обновлён: +${delta.created} новых · ${delta.edited} изменённых · ${delta.missing} отсутствуют в новом архиве`)
+        toast(`Чат обновлён: +${delta.created} новых · ${delta.edited} изменённых · ${delta.missing} отсутствуют в новом архиве`)
       } catch (error) {
         reset()
-        status(error?.kind === 'cancelled' ? 'Импорт отменён. Предыдущий snapshot сохранён.' : 'Импорт не завершён. Предыдущий snapshot сохранён; проверьте файл и повторите подтверждение.')
+        status(error?.kind === 'cancelled' ? 'Импорт отменён. Предыдущая копия сообщений сохранена.' : 'Импорт не завершён. Предыдущая копия сообщений сохранена; проверьте файл и повторите подтверждение.')
         if (error?.kind !== 'cancelled') throw error
       } finally { endJob(); show('projects') }
     })

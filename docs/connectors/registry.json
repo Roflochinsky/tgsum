@@ -178,6 +178,52 @@
       "qualifications": []
     },
     {
+      "id": "telegram_linux_notifications",
+      "platform": "Telegram",
+      "connector_type": "LocalDataConnector",
+      "access_method": "linux_desktop_notification_observation",
+      "support_status": "research",
+      "priority": "P1",
+      "credential_type": "local_user_session_bus_access_no_telegram_credentials",
+      "authorization_scope": "desktop session monitoring can observe emitted notifications beyond selected chats; actual bus policy and daemon unqualified",
+      "selected_scope": "proposed user-selected notification sources; ordinary Notify chat/sender names are ambiguous and do not provide exact Telegram identity",
+      "capabilities": {
+        "history": "none",
+        "delta": "events",
+        "attachments": "none",
+        "coverage": "future_only"
+      },
+      "ban_risk": "no_platform_calls",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-10-07",
+      "next_review_due_at": "2026-11-06",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-notifications-linux.md",
+      "sources": [
+        "https://specifications.freedesktop.org/notification/latest/protocol.html",
+        "https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-become-monitor",
+        "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/platform/linux/notifications_manager_linux.cpp",
+        "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/history/history_item.cpp",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "Research only, not implemented. Proposed isolated synthetic bus spike is not yet run; real Desktop/account observations require user control before support promotion.",
+        "Notification events are partial previews, not message deltas: v7.2.5 truncates text at 255 QString UTF-16 units; muted/hidden/grouped/open-chat/offline cases need qualification. No history, backfill, complete edits/deletes or attachment bytes.",
+        "Ordinary freedesktop Notify does not expose native chat/message/sender IDs. GNotification action targets may expose session/peer/topic/msgid depending on backend and buttons; stability, account namespace and installed-build behavior remain unqualified.",
+        "Installed Arch metadata: Telegram Desktop7.2.5-1, Omarchy4.0.4, Hyprland0.56.2, quickshell0.3.1; mako absent. Actual notification server/backend and monitoring permission not established. No real notifications or client data inspected.",
+        "Define selected-source filtering, sender verification, private storage limits/retention and explicit destination before real collection. No automatic merge with archive IDs or cloud handoff.",
+        "Local bus observation does not establish an exemption from Telegram content-use terms. Inference applicability remains unknown; follow ADR-0002 product responsibility boundary."
+      ],
+      "implementation": null,
+      "qualifications": []
+    },
+    {
       "id": "telegram_client_fork",
       "platform": "Telegram",
       "connector_type": "ArchiveImporter",

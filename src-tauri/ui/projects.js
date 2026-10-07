@@ -92,11 +92,15 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     current = await invoke('update_project', { projectId: current.project_id, expectedRevision: current.revision, change })
   }
 
-  async function open() {
-    if (busy()) return
+  function cancelConnecting() {
     connecting = false
     $('#project-attach-options').hidden = true
     $('#btn-next').textContent = 'Далее'
+  }
+
+  async function open() {
+    if (busy()) return
+    cancelConnecting()
     show('projects')
     const entries = await invoke('list_projects')
     const recent = recentProjects()
@@ -110,8 +114,15 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     await render({ discardPrivacy: true })
   }
 
-  async function render({ discardPrivacy = false } = {}) {
+  async function render({ discardPrivacy = false, preserveSourceDrafts = false } = {}) {
     const epoch = ++renderEpoch
+    // Keep unsaved cards alive, including their attachment choices and timers,
+    // while a different chat is saved. Rebuilding them discards the user's draft.
+    const drafts = new Map(preserveSourceDrafts
+      ? [...$('#project-sources').querySelectorAll('[data-source][data-dirty="true"]')]
+        .filter(card => current?.sources.some(source => source.source_id === card.dataset.source))
+        .map(card => [card.dataset.source, card])
+      : [])
     $('#project-detail').hidden = !current
     $('#project-home').hidden = !!current
     $('#projects-title').textContent = current?.name || 'Проекты'
@@ -120,21 +131,28 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     privacyVisible = false
     review = null
     privacy.clearReview()
+    exportedDirectory = null
+    $('#project-export-result').hidden = true
+    $('#project-export-result').textContent = ''
+    $('#btn-project-open-export').hidden = true
     await analysis.invalidate()
     if (!current) return
     await privacy.load({ discard: discardPrivacy })
     rememberProject(current.project_id)
-    exportedDirectory = null
     $('#project-review').hidden = true
-    $('#project-unsaved').hidden = true
-    $('#btn-project-review').disabled = !current.sources.some((s) => s.selection.enabled)
+    $('#project-unsaved').hidden = drafts.size === 0
+    $('#btn-project-review').disabled = drafts.size > 0 || !current.sources.some((s) => s.selection.enabled)
     $('#project-name').value = current.name
     $('#project-empty').hidden = current.sources.length > 0
     const access = await invoke('project_source_accesses', { projectId: current.project_id, expectedRevision: current.revision })
     if (epoch !== renderEpoch) return
-    $('#project-sources').replaceChildren()
+    $('#project-sources').replaceChildren(...drafts.values())
     const project = current
     for (const source of project.sources) {
+      if (drafts.has(source.source_id)) {
+        $('#project-sources').append(drafts.get(source.source_id))
+        continue
+      }
       const card = document.createElement('form')
       card.className = 'card project-source'
       card.dataset.source = source.source_id
@@ -149,9 +167,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       card.innerHTML = `<h3>${esc(preview?.title || source.scope.conversation_id)}</h3>
         <p class="muted">${esc(source.scope.platform)} · ${esc(source.scope.account_local_id)}</p>
         <div class="source-access"></div>
-        <label class="project-check"><input name="enabled" type="checkbox" ${source.selection.enabled ? 'checked' : ''}> Включать в анализ проекта</label>
-        <label class="project-check"><input name="only_changes" type="checkbox" ${source.selection.only_changes ? 'checked' : ''}> Новые и изменённые после успешного анализа</label>
-        <p class="hint">${preview?.baseline_analysis_id ? 'Есть сохранённая точка последнего успешного анализа.' : 'Первый анализ включает все выбранные сообщения. Обновление архива не отмечает сообщения как проанализированные.'}</p>
+        <label class="project-check"><input name="enabled" type="checkbox" ${source.selection.enabled ? 'checked' : ''}> Включать в результат</label>
+        <label class="project-check"><input name="only_changes" type="checkbox" ${source.selection.only_changes ? 'checked' : ''}> Только новые и изменённые после последнего анализа</label>
+        <p class="hint">${preview?.baseline_analysis_id ? 'Режим «Только новые и изменённые» сравнивает сообщения с последним успешным анализом.' : 'Пока анализов нет, выбираются все подходящие сообщения. Простое обновление файла не отмечает их как проанализированные.'}</p>
         <div class="project-fields">
           <label>С даты<input name="from" type="date" value="${esc(filter.dates?.from || '')}"></label>
           <label>По дату включительно<input name="through" type="date" value="${esc(filter.dates?.through || '')}"></label>
@@ -163,7 +181,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
           <label class="project-check"><input name="all_topics" type="checkbox" ${filter.topic_ids === null ? 'checked' : ''}> Все темы, включая новые</label>
           ${topics.map((topic) => `<label class="project-check"><input name="topic" type="checkbox" value="${esc(topic.id)}" ${filter.topic_ids?.includes(topic.id) ? 'checked' : ''}> ${esc(topic.title)} · ${topic.count}</label>`).join('')}
         </fieldset>
-        ${stats ? `<p class="project-stats" role="status">Сообщений в контексте: <b>${stats.selected}</b> · новых ${stats.created} · изменённых ${stats.edited} · отсутствуют в новом архиве ${stats.missing}</p>
+        ${stats ? `<p class="project-stats" role="status">Выбрано сообщений: <b>${stats.selected}</b> · новых ${stats.created} · изменённых ${stats.edited} · отсутствуют в новом архиве ${stats.missing}</p>
           <p class="hint">Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота архива: ${esc(preview.coverage.level === 'unknown' ? 'не подтверждена' : preview.coverage.level)}.</p>` : `<p class="alert">${esc(problem)}</p>`}
         <div class="project-actions"><button class="btn btn-primary" type="submit">Сохранить выбор</button>
           <button class="btn btn-ghost" type="button" data-refresh>Перечитать архив</button>
@@ -189,21 +207,21 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   }
 
   async function refresh(sourceId) {
-    startJob('import', 'Обновление выбранного источника')
+    startJob('import', 'Чтение обновлённого файла чата')
     try {
       current = await invoke('refresh_project_source', { projectId: current.project_id, sourceId, expectedRevision: current.revision })
     } finally { endJob(); show('projects') }
   }
 
   async function prepareReview() {
-    if (!$('#project-unsaved').hidden) throw new Error('Сохраните выбор источников перед подготовкой контекста')
+    if (!$('#project-unsaved').hidden) throw new Error('Сначала сохраните выбор сообщений во всех изменённых чатах.')
     invalidateReview()
     await privacy.persist()
     $('#btn-project-export').disabled = true
     $('#project-export-result').hidden = true
     $('#btn-project-open-export').hidden = true
     exportedDirectory = null
-    startJob('bundle', 'Проверка и подготовка выбранного контекста')
+    startJob('bundle', 'Подготовка выбранных сообщений и вложений')
     let prepared
     try {
       prepared = await invoke('prepare_project_bundle', { projectId: current.project_id, expectedRevision: current.revision })
@@ -211,7 +229,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       current = await invoke('open_project', { projectId: current.project_id })
     } finally { endJob(); show('projects') }
     const m = prepared.manifest
-    $('#project-review-summary').textContent = `Источников: ${m.sources.length} · сообщений: ${m.messages} · вложений включено: ${m.included_attachments} · ссылок на невключённые вложения: ${m.attachment_references - m.included_attachments}`
+    $('#project-review-summary').textContent = `Чатов: ${m.sources.length} · сообщений: ${m.messages} · вложений включено: ${m.included_attachments} · ссылок на невключённые вложения: ${m.attachment_references - m.included_attachments}`
     const coverage = { complete: 'полнота подтверждена для архивного диапазона', partial: 'неполная история', own_messages_only: 'только собственные сообщения', future_only: 'только новые события', unknown: 'полнота не подтверждена' }
     $('#project-review-sources').replaceChildren(...m.sources.map((source) => {
       const li = document.createElement('li')
@@ -222,7 +240,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       return li
     }))
     privacy.summary(m)
-    const fields = { project_title: 'Название проекта', source_title: 'Название источника', platform: 'Платформа', sender: 'Отправитель', timestamp: 'Дата', edited_at: 'Дата изменения', service_action: 'Событие', service_title: 'Название события', text: 'Сообщение', attachment_text: 'Текст вложения' }
+    const fields = { project_title: 'Название проекта', source_title: 'Название чата', platform: 'Платформа', sender: 'Отправитель', timestamp: 'Дата', edited_at: 'Дата изменения', service_action: 'Событие', service_title: 'Название события', text: 'Сообщение', attachment_text: 'Текст вложения' }
     $('#project-review-findings').replaceChildren(...prepared.findings.map((finding) => {
       const li = document.createElement('li')
       const label = document.createElement('strong')
@@ -233,7 +251,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       return li
     }))
     $('#project-review-omitted').hidden = prepared.omitted_findings === 0
-    $('#project-review-omitted').textContent = `Ещё находок: ${prepared.omitted_findings}. Скрытие подозрительных значений применяется ко всему выбранному контексту.`
+    $('#project-review-omitted').textContent = `Ещё находок: ${prepared.omitted_findings}. Скрытие подозрительных значений применяется ко всем выбранным сообщениям и вложениям.`
     $('#project-review-preview').textContent = prepared.preview
     $('#project-review-truncated').hidden = !prepared.preview_truncated
     await privacy.showReview(prepared)
@@ -249,7 +267,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
 
   $('#btn-project-review').addEventListener('click', () => act(prepareReview))
   $('#btn-project-review-again').addEventListener('click', () => act(prepareReview))
-  $('#project-sources').addEventListener('input', () => {
+  $('#project-sources').addEventListener('input', (event) => {
+    const card = event.target.closest('[data-source]')
+    if (card) card.dataset.dirty = 'true'
     invalidateReview()
     $('#btn-project-review').disabled = true
     $('#project-unsaved').hidden = false
@@ -259,12 +279,12 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     const sourcePath = current.sources.find((s) => s.selection.enabled && s.archive_path)?.archive_path
     const destination = await invoke('pick_out_dir', { current: exportedDirectory || sourcePath || index()?.outDir || null })
     if (!destination) return
-    startJob('bundle', 'Сохранение подготовленного контекста')
+    startJob('bundle', 'Сохранение подготовленных файлов')
     try {
       const result = await invoke('export_project_bundle', { projectId: current.project_id, bundleId: review.bundle_id,
         expectedRevision: review.project_revision, outDir: destination })
       exportedDirectory = result.directory
-      $('#project-export-result').textContent = `Контекст сохранён: ${result.directory}`
+      $('#project-export-result').textContent = `Файлы сохранены: ${result.directory}`
       $('#project-export-result').hidden = false
       $('#btn-project-open-export').hidden = false
       navigate('result')
@@ -283,9 +303,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   $('#btn-project-destination').addEventListener('click', () => navigate('analyze'))
   $('#btn-projects-back').addEventListener('click', () => {
     if (working) return
-    connecting = false
-    $('#project-attach-options').hidden = true
-    $('#btn-next').textContent = 'Далее'
+    cancelConnecting()
     show('start')
   })
   $('#new-project-form').addEventListener('submit', (e) => {
@@ -309,11 +327,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#project-attach-options').hidden = false
     $('#project-attach-title').textContent = current.name
     $('#btn-next').textContent = 'Подключить к проекту'
-    if (!await pickFile()) {
-      connecting = false
-      $('#project-attach-options').hidden = true
-      $('#btn-next').textContent = 'Далее'
-    }
+    if (!await pickFile({ fromProject: true })) cancelConnecting()
   }))
   $('#project-sources').addEventListener('submit', (e) => {
     e.preventDefault()
@@ -328,7 +342,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
           dates: f.from.value || f.through.value ? { from: f.from.value || null, through: f.through.value || null, basis: f.basis.value } : null,
           include_unknown_dates: f.include_unknown_dates.checked, include_service: f.include_service.checked }
       } } })
-      await render()
+      delete form.dataset.dirty
+      await render({ preserveSourceDrafts: true })
       toast('Выбор сохранён')
     })
   })
@@ -352,10 +367,11 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     open: () => act(open),
     busy: () => working || busy(),
     isConnecting: () => connecting,
+    cancelConnecting,
     async attachSelected() {
       await act(async () => {
         const account = $('#project-account-label').value.trim()
-        if (!account) throw new Error('Укажите локальную метку аккаунта')
+        if (!account) throw new Error('Укажите название аккаунта, чтобы различать экспорты.')
         const chats = new Map()
         for (const item of selection()) {
           if (!chats.has(item.chatId)) chats.set(item.chatId, item.topicIds ? [...item.topicIds] : null)

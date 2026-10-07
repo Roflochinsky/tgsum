@@ -13,24 +13,27 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
     section.className = 'card assisted-export'
     section.dataset.localPackage = 'project'
     section.open = !!state
-    section.innerHTML = `<summary>Обновляемый пакет выбранных чатов</summary>
-      <p class="hint">Один общий экспорт Telegram: отметьте нужные чаты и темы выше и сохраните выбор. TGSUM соберёт их в один пакет и будет обновлять его целиком. Исходники остаются на месте; предыдущая созданная копия удаляется после успешного обновления.</p>
+    section.innerHTML = `<summary>Собрать выбранные чаты в папку</summary>
+      <p class="hint">Сохраните выбор чатов и тем выше. Затем укажите папку готового экспорта Telegram и место для результата. TGSUM соберёт сообщения и выбранные вложения в один пакет файлов. Исходники остаются на месте; предыдущая созданная копия заменяется после успешного обновления.</p>
       <p data-package-selection></p>
-      <label>Папка выгрузки<input data-package-input readonly></label>
-      <button type="button" class="btn btn-ghost" data-package-pick-input>Выбрать папку выгрузки…</button>
-      <label>Папка готовых пакетов<input data-package-output readonly></label>
+      <label>Откуда читать экспорт<input data-package-input readonly></label>
+      <p class="hint">Выберите папку с result.json и папками вложений. Подойдёт и папка, содержащая ChatExport_* или DataExport_*: TGSUM возьмёт самый свежий result.json. Для нескольких чатов нужен общий экспорт, в котором есть все выбранные чаты.</p>
+      <button type="button" class="btn btn-ghost" data-package-pick-input>Выбрать папку экспорта…</button>
+      <label>Куда сохранять результат<input data-package-output readonly></label>
       <button type="button" class="btn btn-ghost" data-package-pick-output>Выбрать папку результата…</button>
+      <p class="hint">В этой папке TGSUM создаст отдельную подпапку проекта. Точный путь к готовым файлам появится ниже после сборки.</p>
       <label class="project-check"><input type="checkbox" data-package-images checked> Включать картинки без изменений, включая метаданные</label>
       <label class="project-check"><input type="checkbox" data-package-office checked> Включать DOCX/XLSX: Фамилия Имя Отчество → Фамилия И. О.</label>
       <p class="hint">Картинки не обезличиваются. Сокращение ФИО в документах не является полной анонимизацией. PDF, DOC, XLS, аудио и архивы пока отмечаются как не включённые. Текстовые вложения обрабатываются по правилам приватности проекта.</p>
       <label class="project-check"><input type="checkbox" data-package-auto> Автоматически обновлять пакет при изменении выгрузки, пока TGSUM открыт</label>
-      <label>Приватный GitHub-репозиторий<input data-package-repo placeholder="owner/TGSUM-IMPORT"></label>
-      <p class="hint">Заполненный адрес включает автоматическую публикацию готового пакета через текущий вход gh. Пустое поле — только локальная папка. Удалённые файлы сохраняются в истории Git.</p>
+      <p class="hint">Новый экспорт нужно сохранить из Telegram самостоятельно. TGSUM проверяет локальную папку, пока приложение открыто; сообщения и уведомления из Telegram он не получает.</p>
+      <label>Приватный репозиторий GitHub, необязательно<input data-package-repo placeholder="owner/TGSUM-IMPORT"></label>
+      <p class="hint">Оставьте поле пустым, чтобы сохранять только на компьютере. Указанный репозиторий включает публикацию через установленную программу gh и выполненный в ней вход. Удалённые файлы сохраняются в истории Git.</p>
       <div class="project-actions"><button type="button" class="btn btn-ghost" data-package-save>Сохранить настройки</button>
-        <button type="button" class="btn btn-primary" data-package-refresh>Обновить пакет</button>
-        <button type="button" class="btn btn-ghost" data-package-stop>Остановить</button>
+        <button type="button" class="btn btn-primary" data-package-refresh>Собрать пакет</button>
+        <button type="button" class="btn btn-ghost" data-package-stop>Остановить обновление</button>
         <button type="button" class="btn btn-ghost" data-package-open>Открыть готовую папку</button></div>
-      <p role="status" data-package-status></p><p class="hint" data-package-counts></p><p class="hint" data-package-github></p>`
+      <p role="status" data-package-status></p><p data-package-ready-directory hidden></p><p class="hint" data-package-counts></p><p class="hint" data-package-github></p>`
     container.append(section)
     const $ = s => section.querySelector(s)
     let running = false
@@ -49,8 +52,10 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
     }).join('; ')
     function renderStatus() {
       section.dataset.phase = running ? 'building' : state?.phase || 'unconfigured'
-      $('[data-package-status]').textContent = state?.message || 'Выберите папку общего JSON-экспорта и папку результата. Настройки применяются ко всем включённым чатам проекта.'
+      $('[data-package-status]').textContent = state?.message || 'Выберите папки, сохраните настройки и нажмите «Собрать пакет».'
       const ready = state?.ready
+      $('[data-package-ready-directory]').hidden = !ready
+      $('[data-package-ready-directory]').textContent = ready ? `Готовые файлы: ${ready.directory}` : ''
       $('[data-package-counts]').textContent = ready ? `Готово ${new Date(ready.prepared_at * 1000).toLocaleString()}: ${ready.conversations ?? 1} чатов · ${ready.messages} сообщений · ${ready.files} файлов · ${(ready.bytes / 1024 / 1024).toFixed(1)} МиБ · ${ready.skipped_attachments} вложений не включено · ${ready.initials_replacements} ФИО сокращено. Полнота истории неизвестна.` : ''
       $('[data-package-github]').textContent = state?.github_error || (state?.github_commit && ready?.content_sha256 === state.github_content_sha256 ? `GitHub: опубликовано, коммит ${state.github_commit.slice(0, 8)}` : state?.settings.github_repository ? 'GitHub: ожидается публикация готового пакета.' : 'Локальный пакет; публикация GitHub отключена.')
       if (!dirty) $('[data-package-auto]').checked = state?.settings.automatic || false

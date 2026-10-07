@@ -20,7 +20,7 @@ export function mountOnboarding({ invoke, busy }) {
     for (const panel of dialog.querySelectorAll('[data-onboarding]')) panel.hidden = Number(panel.dataset.onboarding) !== step
     $('#onboarding-progress').textContent = `Знакомство с TGSUM · ${step + 1} из 3`
     $('#onboarding-back').disabled = step === 0
-    $('#onboarding-next').textContent = step === 2 ? 'Готово · к проектам' : 'Далее'
+    $('#onboarding-next').textContent = step === 2 ? 'Закрыть помощь' : 'Далее'
   }
   async function open() {
     if (busy() || dialog.open) return
@@ -29,7 +29,7 @@ export function mountOnboarding({ invoke, busy }) {
     dialog.showModal()
     const request = ++epoch
     const select = $('#onboarding-agent')
-    select.replaceChildren(new Option('Export only · сохранить локально', 'export'))
+    select.replaceChildren(new Option('Сохранить в папку', 'export'))
     $('#onboarding-agents').textContent = 'Проверяем доступные программы…'
     try {
       const catalog = await invoke('analysis_catalog')

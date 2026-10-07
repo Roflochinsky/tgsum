@@ -1,7 +1,6 @@
 // tgsum UI — plain ES module, no build step. All heavy lifting happens in
 // Rust (`src-tauri`); this file only renders state and calls commands.
 
-import { mountPaintings } from './paint.js'
 import { mountProjects } from './projects.js'
 import { mountOnboarding } from './onboarding.js'
 
@@ -123,15 +122,16 @@ const state = {
   sort: 'export',
   outDir: '',
   budget: 90000,
+  picking: false,
   job: null, // { phase, started }
   result: null,
 }
 
 const STEPS = { start: 1, select: 2, save: 3, done: 3 }
 const projects = mountProjects({ invoke, show, pickFile, startJob,
-  endJob: () => { state.job = null }, busy: () => Boolean(state.job),
+  endJob: () => { state.job = null }, busy: () => Boolean(state.job) || state.picking,
   selection: () => [...state.selected.values()], index: () => state.index, toast })
-const onboarding = mountOnboarding({ invoke, busy: () => projects.busy() })
+mountOnboarding({ invoke, busy: () => projects.busy() || state.picking })
 
 function show(name) {
   state.screen = name
@@ -144,7 +144,6 @@ function show(name) {
     li.classList.toggle('is-active', n === step && name !== 'done')
     li.classList.toggle('is-done', n < step || name === 'done')
   }
-  if (name === 'start') requestAnimationFrame(placeStarTags)
 }
 
 let toastTimer
@@ -221,33 +220,55 @@ function showStartError(msg) {
   show('start')
 }
 
-async function pickFile() {
-  if (state.job) return
-  const path = await invoke('pick_export')
-  if (path) await openExport(path)
-  return Boolean(path)
+async function pickFile({ fromProject = false } = {}) {
+  if (state.job || state.picking || (!fromProject && projects.busy()) || $('#onboarding').open) return false
+  state.picking = true
+  try {
+    const path = await invoke('pick_export')
+    state.picking = false
+    return path ? await openExport(path, { fromProject }) : false
+  } catch (e) {
+    toast(`Не удалось открыть выбор файла: ${errText(e)}`, 'error')
+    return false
+  } finally { state.picking = false }
 }
 
-async function openExport(path) {
-  if (state.job) return
+// Global file actions respect project operations, including native dialogs.
+function requestFile() {
+  if (projects.busy() || state.picking) return
+  return pickFile({ fromProject: projects.isConnecting() })
+}
+
+async function openExport(path, { fromProject = false } = {}) {
+  if (state.job || state.picking || (!fromProject && projects.busy()) || $('#onboarding').open) return false
+  if (!fromProject) projects.cancelConnecting()
   $('#start-error').hidden = true
   startJob('index', basename(path))
   try {
     const idx = await invoke('index_export', { path })
     state.job = null
     if (!idx.chats.length) {
-      showStartError('В этом файле нет чатов. Нужен result.json из «Экспорта данных из Telegram» в формате «Машиночитаемый JSON».')
-      return
+      projects.cancelConnecting()
+      showStartError('В этом файле нет чатов. Выберите result.json из экспорта Telegram Desktop в формате «Машиночитаемый JSON».')
+      return false
     }
     loadIndex(idx)
+    return true
   } catch (e) {
     state.job = null
+    projects.cancelConnecting()
     if (isCancel(e)) show(state.index ? 'select' : 'start')
-    else showStartError(errText(e))
+    else showStartError(`Не удалось прочитать архив. Выберите завершённый JSON-экспорт Telegram. ${errText(e)}`)
+    return false
   }
 }
 
-$('#dropzone').addEventListener('click', pickFile)
+$('#dropzone').addEventListener('click', requestFile)
+$('#btn-start').addEventListener('click', () => {
+  if (projects.busy() || state.picking) return
+  projects.cancelConnecting()
+  show('start')
+})
 
 // ---------- step 2: chats ----------
 
@@ -337,8 +358,8 @@ function chatRow({ item, open }, q) {
   const forum = c.topics.length > 0
   const badge = forum ? `<span class="badge">форум · ${count(c.topics.length, TOPICS)}</span>` : ''
   const dates = period(c.firstDate, c.lastDate)
-  return `<div class="${rowClass(item.key)}${forum && open ? ' open' : ''}" data-key="${esc(item.key)}" role="option" tabindex="-1">
-    ${forum ? `<button class="chev" data-chev="${esc(c.chatId)}" tabindex="-1" aria-label="Топики">${CHEVRON}</button>` : '<span></span>'}
+  return `<div class="${rowClass(item.key)}${forum && open ? ' open' : ''}" data-key="${esc(item.key)}" role="option" aria-selected="${state.selected.has(item.key) || (forum && forumState(item) === 'selected')}" tabindex="-1">
+    ${forum ? `<button class="chev" data-chev="${esc(c.chatId)}" tabindex="-1" aria-label="Темы чата" aria-expanded="${open}">${CHEVRON}</button>` : '<span></span>'}
     ${CHECK}
     <span class="avatar" style="--h:${hue(c.chatId)}">${esc(initials(c.name))}</span>
     <span class="main"><span class="name">${highlight(c.name, q)}${badge}</span><span class="sub">${esc(typeLabel(c.type))}${dates ? ` · ${dates}` : ''}</span></span>
@@ -348,7 +369,7 @@ function chatRow({ item, open }, q) {
 
 function topicRow(topic, q) {
   const t = topic.t
-  return `<div class="${rowClass(topic.key)}" data-key="${esc(topic.key)}" role="option" tabindex="-1">
+  return `<div class="${rowClass(topic.key)}" data-key="${esc(topic.key)}" role="option" aria-selected="${state.selected.has(topic.key)}" tabindex="-1">
     <span></span>
     ${CHECK}
     <span class="avatar">#</span>
@@ -366,6 +387,7 @@ function renderList() {
     if (v.open) for (const t of v.topics) html.push(topicRow(t, q))
   }
   $('#list').innerHTML = html.join('')
+  if ($('#list').firstElementChild) $('#list').firstElementChild.tabIndex = 0
   $('#list').hidden = state.visible.length === 0
   $('#list-empty').hidden = state.visible.length > 0
 }
@@ -375,6 +397,7 @@ function syncRows() {
   for (const row of $('#list').children) {
     const open = row.classList.contains('open')
     row.className = rowClass(row.dataset.key) + (open ? ' open' : '')
+    row.setAttribute('aria-selected', row.classList.contains('selected'))
   }
   renderSummary()
 }
@@ -383,7 +406,7 @@ function renderFilters() {
   const counts = { all: state.items.length }
   for (const it of state.items) counts[it.cat] = (counts[it.cat] || 0) + 1
   $('#filters').innerHTML = FILTERS.filter(([k]) => k === 'all' || counts[k])
-    .map(([k, label]) => `<button class="chip${state.filter === k ? ' active' : ''}" data-filter="${k}" type="button">${label} <span class="n">${nf.format(counts[k])}</span></button>`)
+    .map(([k, label]) => `<button class="chip${state.filter === k ? ' active' : ''}" data-filter="${k}" type="button" aria-pressed="${state.filter === k}">${label} <span class="n">${nf.format(counts[k])}</span></button>`)
     .join('')
 }
 
@@ -432,14 +455,17 @@ function renderSummary() {
 
 function focusRow(key) {
   const row = [...$('#list').children].find((r) => r.dataset.key === key)
-  row?.focus()
+  if (row) {
+    for (const item of $('#list').children) item.tabIndex = item === row ? 0 : -1
+    row.focus()
+  }
 }
 
 $('#list').addEventListener('click', (e) => {
   const chev = e.target.closest('[data-chev]')
   if (chev) { toggleExpand(chev.dataset.chev); return }
   const row = e.target.closest('.row')
-  if (row) { toggleKey(row.dataset.key); row.focus() }
+  if (row) { toggleKey(row.dataset.key); focusRow(row.dataset.key) }
 })
 
 $('#list').addEventListener('keydown', (e) => {
@@ -449,7 +475,7 @@ $('#list').addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const next = e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling
-    if (next) next.focus()
+    if (next) focusRow(next.dataset.key)
     else if (e.key === 'ArrowUp') $('#search').focus()
   } else if (e.key === ' ' || e.key === 'Enter') {
     e.preventDefault()
@@ -519,7 +545,7 @@ $('#btn-clear-selection').addEventListener('click', () => {
   syncRows()
 })
 
-$('#btn-other-file').addEventListener('click', pickFile)
+$('#btn-other-file').addEventListener('click', requestFile)
 $('#btn-next').addEventListener('click', openSave)
 
 // ---------- step 3: save ----------
@@ -540,8 +566,7 @@ function renderSave() {
     .filter(Boolean).join(' и ') + ` · ${count(msgs, MSGS)}`
   $('#save-items').innerHTML = sel.map(([key, s]) =>
     `<li title="${esc(s.label)}"><span>${esc(s.label)}</span><button type="button" data-remove="${esc(key)}" aria-label="Убрать"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></li>`).join('')
-  // LRM marks keep the leading "/" in place in the left-truncating (rtl) box.
-  $('#out-dir').textContent = `\u200e${state.outDir}\u200e`
+  $('#out-dir').textContent = state.outDir
   $('#out-dir').title = state.outDir
   $('#budgets').innerHTML = BUDGETS.map(([v, label, note]) =>
     `<button type="button" role="radio" data-budget="${v}" class="${v === state.budget ? 'active' : ''}" aria-checked="${v === state.budget}">${label}${note ? ` <small>· ${note}</small>` : ''}</button>`).join('')
@@ -564,17 +589,19 @@ $('#budgets').addEventListener('click', (e) => {
 })
 
 $('#btn-pick-dir').addEventListener('click', async () => {
-  const dir = await invoke('pick_out_dir', { current: state.outDir })
-  if (dir) {
-    state.outDir = dir
-    renderSave()
-  }
+  if (state.picking || projects.busy()) return
+  state.picking = true
+  try {
+    const dir = await invoke('pick_out_dir', { current: state.outDir })
+    if (dir) { state.outDir = dir; renderSave() }
+  } catch (e) { toast(`Не удалось выбрать папку: ${errText(e)}`, 'error') }
+  finally { state.picking = false }
 })
 
 $('#btn-back').addEventListener('click', () => show('select'))
 
 $('#btn-export').addEventListener('click', async () => {
-  if (state.job || !state.selected.size) return
+  if (state.job || state.picking || !state.selected.size) return
   const selection = [...state.selected.values()].map(({ chatId, topicIds }) => (topicIds ? { chatId, topicIds } : { chatId }))
   startJob('extract', state.index.fileName)
   try {
@@ -606,7 +633,7 @@ function showDone(res) {
     ? `${count(n, FILES)} · ${formatBytes(res.files.reduce((s, f) => s + f.bytes, 0))} · ${res.outDir}`
     : 'В выбранных чатах нет обычных сообщений — только служебные.'
   $('#done-files').innerHTML = res.files.map((f, i) =>
-    `<li data-file="${i}" title="Показать в папке">${FILE_ICON}<span class="fname">${esc(f.name)}</span><span class="fsize">${formatBytes(f.bytes)}</span></li>`).join('')
+    `<li><button type="button" data-file="${i}" title="Показать в папке">${FILE_ICON}<span class="fname">${esc(f.name)}</span><span class="fsize">${formatBytes(f.bytes)}</span></button></li>`).join('')
   $('#done-files').hidden = !n
   $('#btn-open-folder').hidden = !n
   show('done')
@@ -620,17 +647,17 @@ $('#btn-open-folder').addEventListener('click', () => {
   invoke('open_folder', { path: state.result.outDir }).catch((err) => toast(errText(err), 'error'))
 })
 $('#btn-more').addEventListener('click', () => show('select'))
-$('#btn-new-file').addEventListener('click', pickFile)
+$('#btn-new-file').addEventListener('click', requestFile)
 
 // ---------- drag & drop, shortcuts ----------
 
 const overlay = $('#drop-overlay')
-listen('tauri://drag-enter', () => { if (!state.job) overlay.hidden = false })
+listen('tauri://drag-enter', () => { if (!projects.busy() && !state.picking && !$('#onboarding').open) overlay.hidden = false })
 listen('tauri://drag-leave', () => { overlay.hidden = true })
 listen('tauri://drag-drop', ({ payload }) => {
   overlay.hidden = true
   const path = payload?.paths?.[0]
-  if (path && !state.job) openExport(path)
+  if (path && !projects.busy() && !state.picking) openExport(path, { fromProject: projects.isConnecting() })
 })
 // Never let the webview navigate to a dropped file.
 window.addEventListener('dragover', (e) => e.preventDefault())
@@ -641,7 +668,7 @@ document.addEventListener('keydown', (e) => {
   if (mod && e.code === 'KeyO') {
     if ($('#onboarding').open) return
     e.preventDefault()
-    pickFile()
+    requestFile()
   } else if (mod && e.code === 'KeyF' && state.screen === 'select') {
     e.preventDefault()
     $('#search').focus()
@@ -652,7 +679,7 @@ document.addEventListener('keydown', (e) => {
 })
 
 document.addEventListener('contextmenu', (e) => {
-  if (!e.target.closest('input, .folder, .alert, .toast')) e.preventDefault()
+  if (!e.target.closest('input, textarea, .folder, .alert, .toast, .output-path, [data-package-ready-directory], #done-sub')) e.preventDefault()
 })
 
 // ---------- desktop theme (Omarchy) ----------
@@ -674,92 +701,10 @@ window.addEventListener('focus', syncTheme)
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTheme() })
 if (window.__TGSUM_THEME__) setInterval(() => { if (!document.hidden) syncTheme() }, 3000)
 
-// ---------- the night painting ----------
-
-// The neon sign lights up letter by letter, like the tubes of a sign.
-const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches
-for (const sign of document.querySelectorAll('svg.signature')) {
-  if (REDUCED) sign.classList.add('is-lit')
-  else requestAnimationFrame(() => sign.classList.add('is-lit'))
-}
-
-// Facts under the painting's stars on the first screen: three stars near the
-// edges get a ring, their facts sit underneath (as on the author's site).
-// With no room beside the text the facts stay in a row at the bottom.
-const RING_COLORS = ['#f5c451', '#9fc3e4', '#e2663a']
-let paintModel = null
-
-function placeStarTags() {
-  const list = $('.star-tags')
-  const rings = $('.constellation')
-  const tags = [...list.querySelectorAll('.star-tag')]
-  list.classList.remove('is-placed')
-  rings.classList.remove('is-placed')
-  rings.replaceChildren()
-  const painted = document.querySelector('.paint.is-done')
-  document.body.style.setProperty('--wait', painted ? '0ms' : '2400ms')
-  const m = paintModel
-  if (!m || state.screen !== 'start' || m.W < 900) return
-
-  const screen = $('#screen-start').getBoundingClientRect()
-  const rects = [...document.querySelectorAll('.hero > :not([hidden])')].map((el) => el.getBoundingClientRect())
-  const leftMax = Math.min(...rects.map((r) => r.left)) - 16
-  const rightMin = Math.max(...rects.map((r) => r.right)) + 16
-  const tw = Math.max(...tags.map((t) => t.offsetWidth))
-  if (leftMax - 12 < tw || m.W - 12 - rightMin < tw) return
-  const edge = m.orbs
-    .filter((o) => o.kind === 'star' && o.y > screen.top + 28 && o.y < m.H * 0.7 && (o.x < leftMax || o.x > rightMin))
-    .sort((a, b) => a.x - b.x)
-  const n = tags.length
-  if (edge.length < n) return
-  const chosen = Array.from({ length: n }, (_, k) => edge[Math.round((k * (edge.length - 1)) / Math.max(1, n - 1))])
-
-  rings.setAttribute('viewBox', `0 0 ${m.W} ${m.H}`)
-  chosen.forEach((o, i) => {
-    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-    ring.setAttribute('cx', o.x)
-    ring.setAttribute('cy', o.y)
-    ring.setAttribute('r', o.halo * 0.62)
-    ring.setAttribute('style', `--c:${RING_COLORS[i % RING_COLORS.length]};--k:${i}`)
-    rings.append(ring)
-  })
-  list.classList.add('is-placed')
-  rings.classList.add('is-placed')
-  // Under its star, inside its side band; a fact that would cover another
-  // one moves below it (in this window two stars can be close together).
-  const boxes = chosen
-    .map((o, i) => {
-      const w = tags[i].offsetWidth
-      const h = tags[i].offsetHeight
-      const band = o.x < m.W / 2 ? [12, leftMax] : [rightMin, m.W - 12]
-      const left = Math.min(Math.max(o.x - w / 2, band[0]), Math.max(band[0], band[1] - w))
-      return { i, left, top: Math.max(o.y + o.halo * 0.8 + 10, screen.top + 14), w, h }
-    })
-    .sort((a, b) => a.top - b.top)
-  boxes.forEach((b, k) => {
-    for (const a of boxes.slice(0, k)) {
-      const across = b.left < a.left + a.w + 8 && a.left < b.left + b.w + 8
-      if (across && b.top < a.top + a.h + 10) b.top = a.top + a.h + 10
-    }
-    b.top = Math.min(b.top, m.H - b.h - 16)
-    const tag = tags[b.i]
-    tag.style.setProperty('--k', b.i)
-    tag.style.left = `${b.left - screen.left}px`
-    tag.style.top = `${b.top - screen.top}px`
-  })
-}
-
-document.addEventListener('paint:model', (e) => {
-  paintModel = e.detail
-  placeStarTags()
-})
-
-mountPaintings()
-
 // ---------- boot ----------
 
-show('projects')
+show('start')
 invoke('initial_path').then(async (path) => {
   if (path) await openExport(path)
-  else { await projects.open(); await onboarding.firstRun() }
+  else show('start')
 }).catch((e) => toast(errText(e), 'error'))

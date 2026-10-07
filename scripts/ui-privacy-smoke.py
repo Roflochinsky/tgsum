@@ -34,10 +34,14 @@ def main():
     assert invoke('analysis_catalog')['fixtures'] is True
     assert invoke('list_projects') == [], 'Requires a fresh isolated XDG profile'
     ev("window.__uiErrors=[];addEventListener('error',e=>__uiErrors.push(e.message));addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)))")
+    ui.wait("document.body.dataset.screen==='start'")
+    assert not ev("document.querySelector('#onboarding').open")
+    ui.click('#btn-help')
     ui.wait("document.querySelector('#onboarding').open")
     for _ in range(3):
         ui.click('#onboarding-next')
     ui.wait("!document.querySelector('#onboarding').open")
+    assert ev("document.body.dataset.screen") == 'start'
 
     with tempfile.TemporaryDirectory(prefix='tgsum-privacy-fixture-') as temp:
         root = Path(temp)
@@ -95,7 +99,7 @@ def main():
         assert 'вложений включено: 1' in summary and 'невключённые вложения: 2' in summary, summary
         assert 'Отсутствующих выбранных файлов: 1' in content('#privacy-file-gaps')
         assert ev("document.querySelectorAll('#privacy-reviewed-files li').length") >= 2
-        assert 'PII:' in content('#project-review-privacy')
+        assert 'Личные данные:' in content('#project-review-privacy')
         assert 'Требуют решения: 1.' in content('#project-review-privacy')
         assert ev("document.querySelector('#btn-project-destination').disabled")
         assert ev("document.querySelector('#btn-project-export').disabled")

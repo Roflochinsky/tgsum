@@ -102,11 +102,12 @@ def prepare(root, nonce, port):
     (root / "malformed.json").write_text('{"chats": [', encoding="utf-8")
     for directory in ["bundle-output", "single-output", "data", "config", "cache"]:
         (root / directory).mkdir()
-    picks = [("export", "full.json"), ("output", "bundle-output"),
+    picks = [("export", "malformed.json"), ("export", "full.json"),
+             ("export", "full.json"), ("output", "bundle-output"),
              ("export", "single.json"), ("export", "single.json"),
              ("output", "single-output"), ("export", "malformed.json")]
     if platform.system() == "Linux":
-        picks.insert(3, ("export", "full.json"))
+        picks.insert(5, ("export", "full.json"))
     (root / "harness.json").write_text(json.dumps({"nonce": nonce, "port": port,
         "refresh_fixture": True,
         "picks": [{"kind": kind, "path": path} for kind, path in picks]}), encoding="utf-8")
@@ -126,16 +127,42 @@ def exercise(ui, root, report, report_dir):
       addEventListener('error',e=>__e2eErrors.push(e.message));
       addEventListener('unhandledrejection',e=>__e2eErrors.push(String(e.reason)));
     """, "args": []})
+    ui.wait("document.body.dataset.screen==='start'")
+    ui.screenshot(report_dir / "start.png")
+    ui.click("#btn-help")
     ui.wait("document.querySelector('#onboarding').open")
     ui.click("#onboarding-next")
     ui.click("#onboarding-next")
+    ui.click("#onboarding details summary")
     ui.wait("document.querySelectorAll('#onboarding-agent option').length===3")
     assert ui.evaluate("document.querySelector('#onboarding-agent').value") == "export"
     ui.click("#onboarding-next")
+    ui.click("#btn-projects")
+    ui.idle()
     ui.value("#new-project-name", "Synthetic desktop qualification")
     ui.click("#new-project-form button[type=submit]")
     ui.stage("source")
     passed("isolated onboarding and Project creation via controls")
+
+    # An unsuccessful project import must not capture the next one-off export.
+    ui.click("#btn-project-add-source")
+    ui.wait("document.body.dataset.screen==='start' && !document.querySelector('#start-error').hidden")
+    ui.wait("document.querySelector('#screen-projects').getAttribute('aria-busy')==='false'")
+    assert ui.evaluate("document.querySelector('#project-attach-options').hidden"), "Failed import left project connection active"
+    ui.click("#dropzone")
+    ui.wait("document.body.dataset.screen==='select'")
+    assert ui.evaluate("document.querySelector('#list [tabindex=\"0\"]')!==null")
+    ui.click('[data-key="c:111"]')
+    assert ui.evaluate("document.querySelector('[data-key=\"c:111\"]').getAttribute('aria-selected')==='true'")
+    ui.click("#btn-next")
+    ui.wait("document.body.dataset.screen==='save'")
+    assert ui.invoke("list_projects")[0]["project"]["sources"] == []
+    ui.click("#btn-projects")
+    ui.idle()
+    initial = ui.invoke("list_projects")[0]["project"]
+    ui.click('[data-project="' + initial["project_id"] + '"]')
+    ui.stage("source")
+    passed("failed project import resets connection; next one-off export leaves project unchanged")
 
     assert "прочитает выбранный JSON" in ui.evaluate("document.querySelector('#source-import-boundary').textContent")
     ui.click("#btn-project-add-source")
@@ -166,11 +193,22 @@ def exercise(ui, root, report, report_dir):
     ui.screenshot(report_dir / "source-access.png")
     ui.click(card + " .source-access-details summary")
     passed("source access distinguishes whole-file read, stored chat, context scope and manual refresh")
+    direct_source = next(s for s in project["sources"] if s["scope"]["conversation_id"] == "111")
+    draft_card = '[data-source="' + direct_source["source_id"] + '"]'
+    ui.value(draft_card + " [name=from]", "2026-06-18")
     ui.value(card + " [name=from]", "2026-06-20")
     ui.value(card + " [name=through]", "2026-06-20")
     assert ui.evaluate("document.querySelector('#btn-project-review').disabled")
     ui.click(card + " button[type=submit]")
     ui.stage("source")
+    assert ui.evaluate("document.querySelector(" + json.dumps(draft_card + " [name=from]") + ").value") == "2026-06-18", "Saving another chat discarded draft dates"
+    assert ui.evaluate("!document.querySelector('#project-unsaved').hidden && document.querySelector('#btn-project-review').disabled")
+    saved = ui.invoke("open_project", {"projectId": pid})
+    assert next(s for s in saved["sources"] if s["source_id"] == direct_source["source_id"])["selection"]["filter"]["dates"] is None
+    ui.click(draft_card + " button[type=submit]")
+    ui.stage("source")
+    assert ui.evaluate("document.querySelector('#project-unsaved').hidden")
+    passed("saving one chat preserves other drafts and blocks preparation until all are saved")
     ui.value("#privacy-preset", "people")
     ui.click("#btn-project-review")
     ui.stage("privacy")
@@ -184,10 +222,10 @@ def exercise(ui, root, report, report_dir):
     ui.click("#btn-project-destination")
     ui.stage("analyze")
     ui.value("#analysis-agent", "export")
-    assert "получатель: локальная папка" in ui.evaluate("document.querySelector('#analysis-status').textContent")
+    assert "Файлы сохранятся в выбранную папку" in ui.evaluate("document.querySelector('#analysis-status').textContent")
     ui.click("#btn-project-export")
     ui.stage("result")
-    assert "Контекст сохранён" in ui.evaluate("document.querySelector('#project-export-result').textContent")
+    assert "Файлы сохранены" in ui.evaluate("document.querySelector('#project-export-result').textContent")
     outputs = list((root / "bundle-output").rglob("*.md"))
     assert outputs, "No actual bundle Markdown written"
     assert all("SYNTHETIC_E2E_PASSWORD" not in p.read_text(encoding="utf-8") for p in outputs)
@@ -316,7 +354,7 @@ def exercise(ui, root, report, report_dir):
         ui.click(direct_card + " [data-assisted-confirm]")
         ui.click(direct_card + " [data-assisted-import]")
         ui.stage("source")
-        assert "Предыдущий snapshot сохранён" in ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-status]") + ").textContent")
+        assert "Предыдущая копия сообщений сохранена" in ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-status]") + ").textContent")
         assert not ui.evaluate("document.querySelector(" + json.dumps(direct_card + " [data-assisted-confirm]") + ").checked")
         failed = ui.invoke("open_project", {"projectId": pid})
         assert failed["revision"] == project["revision"], failure
@@ -527,12 +565,15 @@ def exercise(ui, root, report, report_dir):
     ui.idle()
     ui.click('[data-project="' + future["project_id"] + '"]')
     ui.stage("source")
-    assert "Права доступа не подтверждены" in ui.evaluate("document.querySelector('.source-access[data-access=unverified]').textContent")
+    assert "ещё не настроено чтение данных" in ui.evaluate("document.querySelector('.source-access[data-access=unverified]').textContent")
     assert ui.evaluate("document.querySelector('[data-refresh]').disabled && document.querySelector('[data-relink]').disabled")
     assert ui.evaluate("document.querySelector('.assisted-export')===null")
     assert "teams" in ui.evaluate("document.querySelector('.project-source').textContent")
     ui.screenshot(report_dir / "unverified-source.png")
-    passed("unimplemented OAuth source has no inferred grant or Telegram refresh controls")
+    ui.click('#project-steps [data-go=result]')
+    ui.stage("result")
+    assert ui.evaluate("document.querySelector('#project-export-result').hidden && document.querySelector('#btn-project-open-export').hidden"), "Another project showed previous project's export"
+    passed("unimplemented source has no inferred grant; another project cannot show stale output")
 
     ui.click("#btn-projects-back")
     ui.click("#dropzone")
@@ -550,6 +591,7 @@ def exercise(ui, root, report, report_dir):
     assert len(outputs) == 1
     text = outputs[0].read_text(encoding="utf-8")
     assert "found a bug" in text and "fixing it" in text and "general hello" not in text
+    ui.screenshot(report_dir / "saved-files.png")
     passed("single-chat topic selection and actual one-off Markdown output")
 
     ui.click("#btn-new-file")

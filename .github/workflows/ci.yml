@@ -147,15 +147,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # Omarchy is Arch Linux: build and test the real pacman package against
-  # Arch's own WebKitGTK and Rust.
+  # Build the pacman package and exercise the actual WebView against Arch's
+  # WebKitGTK and Rust. Xvfb covers the Arch runtime; local Wayland is separate.
   arch:
     name: arch (Omarchy)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     container: archlinux:base-devel
     steps:
-      - name: Install build dependencies
-        run: pacman -Syu --noconfirm --needed git rust cairo gdk-pixbuf2 glib2 gtk3 hicolor-icon-theme libsoup3 pango webkit2gtk-4.1 librsvg xdg-utils
+      - name: Install build and desktop test dependencies
+        run: pacman -Syu --noconfirm --needed git rust cairo gdk-pixbuf2 glib2 gtk3 hicolor-icon-theme libsoup3 pango webkit2gtk-4.1 librsvg xdg-utils python dbus xorg-server-xvfb xorg-xauth
       - uses: actions/checkout@v4
       - name: Build the package
         run: |
@@ -167,3 +168,22 @@ jobs:
           name: tgsum-arch-package
           path: packaging/arch/*.pkg.tar.zst
           if-no-files-found: error
+      - name: Build synthetic desktop harness with Arch Rust
+        run: su builder -c 'cargo build --locked -p tgsum --features desktop-e2e'
+      - name: Exercise actual Arch WebView as an unprivileged user
+        run: |
+          su builder -s /bin/bash <<'TGSUM_E2E'
+          set -euo pipefail
+          export GDK_BACKEND=x11
+          tgsum_runtime=$(mktemp -d /tmp/tgsum-arch-runtime.XXXXXX)
+          trap 'rm -rf "$tgsum_runtime"' EXIT
+          export XDG_RUNTIME_DIR="$tgsum_runtime"
+          dbus-run-session -- xvfb-run -a python scripts/desktop-e2e.py --report-dir desktop-e2e-report/arch
+          TGSUM_E2E
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-e2e-arch
+          path: desktop-e2e-report/arch/
+          if-no-files-found: warn
+          retention-days: 7

@@ -9,6 +9,10 @@ use tgsum_core::registry::{
 };
 use tgsum_core::snapshot::{SnapshotStore, SourceScope};
 
+// Fixed for reproducibility; covers the latest recorded research review.
+// Expiry and future-evidence cases deliberately use separate dates.
+const INVENTORY_REVIEW_DATE: &str = "2026-10-07";
+
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -41,7 +45,7 @@ fn repository_inventory_binds_qualified_formats_to_real_normalizers() {
         .validate_repository(
             &repo(),
             &inventory(),
-            date("2026-09-27"),
+            date(INVENTORY_REVIEW_DATE),
             ValidationMode::Release,
         )
         .unwrap();
@@ -51,7 +55,7 @@ fn repository_inventory_binds_qualified_formats_to_real_normalizers() {
         serde_json::to_string_pretty(&report).unwrap()
     );
     for id in ["telegram_full_export", "telegram_single_export"] {
-        let support = registry.technical_support(id, &observed(), date("2026-09-27"));
+        let support = registry.technical_support(id, &observed(), date(INVENTORY_REVIEW_DATE));
         assert_eq!(support.implemented_operations, [Operation::LocalImport]);
         assert_eq!(support.qualifications.len(), 1);
         assert_eq!(
@@ -60,12 +64,41 @@ fn repository_inventory_binds_qualified_formats_to_real_normalizers() {
         );
         assert_eq!(support.compatibility, Compatibility::Compatible);
     }
-    for id in ["discord_bot", "telegram_desktop_ui", "nonexistent_profile"] {
-        let support = registry.technical_support(id, &observed(), date("2026-09-27"));
+    for id in [
+        "discord_bot",
+        "telegram_desktop_ui",
+        "telegram_linux_notifications",
+        "nonexistent_profile",
+    ] {
+        let support = registry.technical_support(id, &observed(), date(INVENTORY_REVIEW_DATE));
         assert!(support.implemented_operations.is_empty());
         assert!(support.qualifications.is_empty());
         assert!(load_importer(id, &observed()).is_err());
     }
+}
+
+#[test]
+fn future_policy_review_cannot_qualify_an_unimplemented_profile() {
+    let mut input = value();
+    let profile = input["connectors"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|c| c["id"] == "telegram_linux_notifications")
+        .unwrap();
+    profile["last_policy_reviewed_at"] = "2026-10-08".into();
+    let report = parse(&input)
+        .validate_repository(
+            &repo(),
+            &inventory(),
+            date(INVENTORY_REVIEW_DATE),
+            ValidationMode::Development,
+        )
+        .unwrap();
+    assert!(!report.passed());
+    assert!(report.findings.iter().any(|finding| {
+        finding.code == "future_review" && finding.connector == "telegram_linux_notifications"
+    }));
 }
 
 #[test]
@@ -122,7 +155,7 @@ fn registry_flags_and_borrowed_implementation_cannot_create_a_connector_or_upgra
         .validate_repository(
             &repo(),
             &inventory(),
-            date("2026-09-27"),
+            date(INVENTORY_REVIEW_DATE),
             ValidationMode::Development,
         )
         .unwrap();
@@ -131,20 +164,25 @@ fn registry_flags_and_borrowed_implementation_cannot_create_a_connector_or_upgra
         .findings
         .iter()
         .any(|f| f.code == "operation_not_implemented"));
-    let support = registry.technical_support("discord_bot", &observed(), date("2026-09-27"));
+    let support =
+        registry.technical_support("discord_bot", &observed(), date(INVENTORY_REVIEW_DATE));
     assert!(support.implementation.is_none() && support.qualifications.is_empty());
 
     let mut stale = value();
     stale["connectors"][0]["implementation"]["revision"] = "old-revision".into();
     let stale = parse(&stale);
-    let support = stale.technical_support("telegram_full_export", &observed(), date("2026-09-27"));
+    let support = stale.technical_support(
+        "telegram_full_export",
+        &observed(),
+        date(INVENTORY_REVIEW_DATE),
+    );
     assert_eq!(support.implemented_operations, [Operation::LocalImport]);
     assert!(support.qualifications.is_empty());
     assert!(!stale
         .validate_repository(
             &repo(),
             &inventory(),
-            date("2026-09-27"),
+            date(INVENTORY_REVIEW_DATE),
             ValidationMode::Development
         )
         .unwrap()
@@ -174,14 +212,18 @@ fn registry_flags_and_borrowed_implementation_cannot_create_a_connector_or_upgra
     };
     let registry = parse(&forged);
     assert!(registry
-        .technical_support("telegram_full_export", &runtime, date("2026-09-27"))
+        .technical_support(
+            "telegram_full_export",
+            &runtime,
+            date(INVENTORY_REVIEW_DATE)
+        )
         .qualifications
         .is_empty());
     assert!(!registry
         .validate_repository(
             &repo(),
             &inventory(),
-            date("2026-09-27"),
+            date(INVENTORY_REVIEW_DATE),
             ValidationMode::Release
         )
         .unwrap()
@@ -265,10 +307,11 @@ fn release_command_has_reproducible_exit_codes_and_never_rewrites_inventory() {
         }
         process.output().unwrap()
     };
-    let valid = command(true, "2026-09-27");
+    let valid = command(true, INVENTORY_REVIEW_DATE);
     assert!(
         valid.status.success(),
-        "{}",
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&valid.stdout),
         String::from_utf8_lossy(&valid.stderr)
     );
     let output: Value = serde_json::from_slice(&valid.stdout).unwrap();
@@ -298,14 +341,18 @@ fn missing_or_escaped_artifacts_and_future_evidence_cannot_pass_release_validati
             .validate_repository(
                 &repo(),
                 &inventory(),
-                date("2026-09-27"),
+                date(INVENTORY_REVIEW_DATE),
                 ValidationMode::Release
             )
             .unwrap()
             .passed());
         if field == "verified_at" {
             assert!(registry
-                .technical_support("telegram_full_export", &observed(), date("2026-09-27"))
+                .technical_support(
+                    "telegram_full_export",
+                    &observed(),
+                    date(INVENTORY_REVIEW_DATE)
+                )
                 .qualifications
                 .is_empty());
         }
@@ -373,7 +420,7 @@ fn missing_successful_review_stays_unknown_even_with_a_future_deadline() {
     input["connectors"][0]["review_level"] = "not_reviewed".into();
     let registry = parse(&input);
     let before = serde_json::to_vec(&registry).unwrap();
-    let rows = registry.review_reminders(date("2026-09-27"), 0);
+    let rows = registry.review_reminders(date(INVENTORY_REVIEW_DATE), 0);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].state, ReviewState::Unknown);
     assert!(rows[0].last_policy_reviewed_at.is_none());
