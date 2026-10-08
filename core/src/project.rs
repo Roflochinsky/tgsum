@@ -1269,6 +1269,25 @@ pub(crate) struct RevisionLease(File);
 impl RevisionLease {
     pub(crate) fn acquire(root: &Path) -> io::Result<Self> {
         use fs4::{FileExt, TryLockError};
+        // Darwin's own temporary paths start with a system alias. Resolve only
+        // these verified host prefixes; project/child links remain forbidden by
+        // the retained-directory opener, rather than canonicalizing arbitrary
+        // untrusted paths.
+        #[cfg(target_os = "macos")]
+        let host_root = {
+            let mut normalized = root.to_path_buf();
+            for (alias, target) in [("/var", "/private/var"), ("/tmp", "/private/tmp")] {
+                if let Ok(relative) = root.strip_prefix(alias) {
+                    if fs::read_link(alias).is_ok_and(|link| link == Path::new(target)) {
+                        normalized = Path::new(target).join(relative);
+                        break;
+                    }
+                }
+            }
+            normalized
+        };
+        #[cfg(target_os = "macos")]
+        let root = host_root.as_path();
         let path = root.join(".publication-lease");
         match File::create_new(&path) {
             Ok(_) => (),

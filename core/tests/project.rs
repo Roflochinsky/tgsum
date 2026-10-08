@@ -9,6 +9,40 @@ use tgsum_core::project::{
 };
 use tgsum_core::snapshot::SourceScope;
 
+#[cfg(unix)]
+#[test]
+fn publication_lease_refuses_leaf_and_arbitrary_ancestor_links() {
+    use std::os::unix::fs::symlink;
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path());
+    let project = store.create("Host temporary path").unwrap();
+    let leaf = root
+        .path()
+        .join(&project.project_id)
+        .join(".publication-lease");
+    let outside = root.path().join("owned-outside-fixture");
+    fs::write(&outside, "KEEP_OUTSIDE_FIXTURE").unwrap();
+    fs::remove_file(&leaf).unwrap();
+    symlink(&outside, &leaf).unwrap();
+    assert!(store
+        .update(
+            &project.project_id,
+            project.revision,
+            ProjectChange::Rename("Refused".into())
+        )
+        .is_err());
+    assert_eq!(
+        store.open(&project.project_id).unwrap().revision,
+        project.revision
+    );
+    assert_eq!(fs::read_to_string(outside).unwrap(), "KEEP_OUTSIDE_FIXTURE");
+    let target = root.path().join("owned-ancestor-fixture");
+    fs::create_dir(&target).unwrap();
+    let alias = root.path().join("untrusted-alias");
+    symlink(&target, &alias).unwrap();
+    assert!(ProjectStore::new(alias).create("Refused ancestor").is_err());
+}
+
 fn source(path: &Path) -> ProjectSource {
     ProjectSource {
         source_id: "client".into(),

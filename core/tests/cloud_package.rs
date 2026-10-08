@@ -10,7 +10,7 @@ use tgsum_core::{
 #[test]
 fn structured_topics_are_selected_and_hidden_dates_have_no_numeric_bypass() {
     use tgsum_core::custom_terms::{CustomTerm, CustomTerms, TermBoundary};
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let input = root.path().join("input");
     fs::create_dir(&input).unwrap();
     fs::write(
@@ -91,7 +91,7 @@ fn structured_topics_are_selected_and_hidden_dates_have_no_numeric_bypass() {
 
 #[test]
 fn structured_handoff_is_opt_in_selected_private_and_stable_across_edits() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let input = root.path().join("input");
     let output = root.path().join("output");
     fs::create_dir(&input).unwrap();
