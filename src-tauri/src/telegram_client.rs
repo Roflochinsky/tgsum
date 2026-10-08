@@ -269,8 +269,25 @@ impl<D: Desktop> Controller<D> {
     }
 }
 
-fn error(message: &str) -> io::Error {
-    io::Error::other(message)
+#[derive(Debug)]
+struct ControlError(&'static str);
+
+impl std::fmt::Display for ControlError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl std::error::Error for ControlError {}
+
+/// Only fixed controller messages may enter the service diagnostic. Ordinary
+/// I/O errors can contain private paths; callers log their kind instead.
+pub(crate) fn diagnostic(error: &io::Error) -> Option<&'static str> {
+    error.get_ref()?.downcast_ref::<ControlError>().map(|e| e.0)
+}
+
+fn error(message: &'static str) -> io::Error {
+    io::Error::other(ControlError(message))
 }
 fn changed() -> io::Error {
     error("Запуск Telegram изменился или не успел получить подтверждение владения. TGSUM сохранил исходный запуск и не завершает неизвестный процесс. Верните Telegram к обычному запуску и повторите действие.")

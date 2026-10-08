@@ -115,6 +115,13 @@ mod native {
         }
 
         pub fn fail(&mut self, error: &io::Error, enabled_sources: usize) {
+            if !self.blocked {
+                if let Some(message) = crate::telegram_client::diagnostic(error) {
+                    eprintln!("tgsum: Telegram client control failed: {message}");
+                } else {
+                    eprintln!("tgsum: Telegram client control failed ({:?})", error.kind());
+                }
+            }
             self.blocked = true;
             self.view.phase = Phase::Failed;
             self.view.enabled_sources = enabled_sources;

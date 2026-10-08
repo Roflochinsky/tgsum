@@ -1,0 +1,153 @@
+{
+  "date": "2026-10-08",
+  "source_base": "fcb51a5e412f4884146ec5b497ac54ef5808f223",
+  "scope": "Ordinary installed default-features release on own Arch/Omarchy/Wayland with pinned stock Telegram Desktop7.2.5-1 and one user-confirmed account; selected chat only. Finite controlled qualification, not a complete accepted-message feed or general connector support.",
+  "implementation_files_sha256": {
+    "core/src/project.rs": "385aeb364b41cee2bd3583558d9cb005cd1b268d29e94776ba868a2303da6a5a",
+    "core/src/telegram_debug/continuous.rs": "6b616ad78fd9d6e237af0fd5337758216e75c7e5623b7deb9b3e2ada48a52e5c",
+    "core/src/telegram_debug/project.rs": "1032a8e15d8505a181aad1e2265b6ee1a09ecbc43937497b518ca19d65a932a0",
+    "core/src/telegram_debug/settings.rs": "d1074b481e998a040fa3e7129d40b59b65bda7ba3437cc048759d4b7e06bf57f",
+    "src-tauri/src/telegram_client.rs": "c14be8ffd0a9d232b69252a3b4d097fcaaf2e90963c3e6e03e751c6322a14c74",
+    "src-tauri/src/telegram_client/linux.rs": "83ccd8c8d146ab951b373c62008af3a0ee42b8bd04dfff93797bded8364322c5",
+    "src-tauri/src/telegram_client/journal.rs": "6e04c1ebd5f5d49b76ab9b8d517c1b0994d85ce6cf662c9ebfdd4c3c2260973a",
+    "src-tauri/src/telegram_client/tests.rs": "c0ac571b2cfc1cb6758eb96e1dc03ca6b2c631f38aa68c2a4ff6289ea6a792b0",
+    "src-tauri/src/telegram_continuous.rs": "bfef1b65e45b8f993d2be137ab58f6e8c372f25d13f8eeec1b98ddfe62e1d20f",
+    "src-tauri/src/telegram_continuous/client.rs": "3606b9ce8b064f9b87502fef29a68d515e580ba50c36f58787b94d90642bb8bc",
+    "src-tauri/src/background.rs": "ac5b3c0c65e057e4bc247495b41edc9482b06d8f2e11661e4ce600da9dbb96a0",
+    "src-tauri/src/lib.rs": "e9a1d27b661f97fb8cc933a26900a876d87681bacfc401a1a1161a644c4f276d",
+    "src-tauri/ui/telegram-client.js": "f0841d769a271f9400b6e40ec2e4b6576cd01311900b998dffe4260e4edb243c",
+    "src-tauri/ui/telegram-continuous.js": "5266bd75ed2fdc96cb246590caf4ed89da77fcbb72fa382e720b58589acc1b18",
+    "src-tauri/ui/background.js": "eda7aca21a1da29e44f1ce440001f40d88d0a79302ae8ff60990294de3fa2ab1"
+  },
+  "ordinary_installed_binary_sha256": "7b000f909fd098ec96112dfd7f16040bb049ef2820d975e32d4ef595cf858857",
+  "installed": {
+    "default_features_release": true,
+    "desktop_e2e_or_fake_backend": false,
+    "previous_binary_launcher_all33_app_files_backed_up": true,
+    "previous_launcher_bytes_preserved": true,
+    "existing_projects_preserved": 2,
+    "rollback": "Private rollback script inspected/syntax-checked, not executed. Stops app/service with checked errors; retains newer data in a separate backup directory before restoring original binary/data. Never deletes Telegram logs/history.",
+    "stock_normal_debug_normal_same_profile": true,
+    "native_start_stop_ui_verified": true,
+    "native_window_close_keeps_worker": true,
+    "secondary_launch_returns_same_process": true
+  },
+  "real_selected_checkpoint": {
+    "journal_closed_before_independent_inspection": true,
+    "only_owned_private_database_copy_opened": true,
+    "original_database_unchanged_during_verification": true,
+    "verified_events": 72,
+    "observed": 70,
+    "new": 1,
+    "edit": 1,
+    "delete": 0,
+    "user_confirmed_sent_new_message": true,
+    "typed_chat_native_message_sender_ids_exact": true,
+    "new_text_and_original_sent_time_match_immutable_checkpoint": true,
+    "edit_same_key_text_and_edit_time_match_later_checkpoint": true,
+    "one_native_key_each_no_duplicate": true,
+    "checkpoint_snapshot_unique_messages": 166,
+    "bootstrap_messages": 96,
+    "all_bootstrap_keys_preserved": true
+  },
+  "final_projection": {
+    "unique_messages": 167,
+    "messages": 167,
+    "bootstrap_messages": 96,
+    "all_bootstrap_keys_preserved": true,
+    "local_package_phase": "ready",
+    "local_package_messages": 167,
+    "local_package_reported_files": 4,
+    "local_package_regular_entries_including_receipt": 5,
+    "local_only": true,
+    "automatic_package_refresh": true,
+    "current_regular_files_privately_hash_verified": true
+  },
+  "ordinary_permanent_service": {
+    "enabled": true,
+    "graphical_session_target_currently_active": true,
+    "exec_background_current_personal_binary": true,
+    "restart_on_failure": true,
+    "no_runtime_drop_ins": true,
+    "owned_inspector_endpoint_closed": true,
+    "native_client_separate_scope": true,
+    "same_original_profile": true,
+    "ordinary_stop_seconds": 1.1588581048417836,
+    "plain_restart_cycles": [
+      {
+        "healthy": true,
+        "pid_changed": true,
+        "generation_same": true,
+        "restart_manager_seconds": 2.3805630730930716,
+        "resumed_seconds": 4.998532064026222,
+        "helpers_seen": 3
+      },
+      {
+        "healthy": true,
+        "pid_changed": true,
+        "generation_same": true,
+        "restart_manager_seconds": 2.063045780872926,
+        "resumed_seconds": 4.684608602896333,
+        "helpers_seen": 2
+      }
+    ],
+    "checkpoint_advanced_each_restart": true,
+    "timing_claim": "These measured successful cycles only; package checks/process scans and repeated lifecycle stages add time. Retry window8s is not an absolute lifecycle bound.",
+    "fresh_graphical_login_performed": false,
+    "fresh_login_backlog": "tgsum-i1w.16"
+  },
+  "restart_repair": {
+    "observed_failure": "Plain restart safely refused an unknown launch; original mode/data preserved. Cached owned UI reason was unsupported arguments. Increasing duplicate-scan window alone did not eliminate the failure.",
+    "launch_metadata_without_values": "Observed stock argv0 Telegram / flag -webviewhelper / argc3 during normal-debug transition. No argument values recorded in public evidence.",
+    "source_pins": [
+      "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/platform/linux/launcher_linux.cpp",
+      "https://github.com/desktop-app/lib_webview/blob/71301e35911f0801ee2890c8b4f04555e34d4f72/webview/platform/linux/webview_linux_webkitgtk.cpp"
+    ],
+    "fix": "Ignore only known helper role in candidate scan; do not adopt/control helper or add flag to Desktop relaunch whitelist. Lasting multiple main clients and unknown executable/main parameters still refuse control.",
+    "regression": "Compiled removal of helper exclusion fails101 with the same fixed unsupported-arguments reason; restored helper test GREEN. Transient-multiple scan-once mutation also RED101, restored GREEN.",
+    "service_diagnostics": "First failure only, fixed static controller literal or io::ErrorKind; dynamic I/O/path/message strings never printed."
+  },
+  "checks": {
+    "quick": "bash scripts/check.sh quick PASS on final Rust tree",
+    "focused": "cargo test --all-features --locked -p tgsum --lib telegram_:49/49 PASS",
+    "full": "bash scripts/check.sh PASS55535, 76desktop lib tests; existing optional sandbox suites remain ignored",
+    "earlier_full_attempt": "98846 failed once on existing borrowed_user_debug_and_legacy_passive_plans_never_switch_client shutdown/control-lock assertion; exact target repeat and subsequent whole full gate passed. Cause not isolated; not concealed as a fix.",
+    "real_ui": "Historical managed integration actual cargo-run WebView28/28 PASS; installed ordinary Start/Stop/detect/background/menu/Close verified privately. No personal screenshot/payload published.",
+    "published_base_ci": {
+      "commit": "fcb51a5e412f4884146ec5b497ac54ef5808f223",
+      "run": 37780705414,
+      "conclusion": "success",
+      "arch": "success",
+      "url": "https://github.com/Roflochinsky/tgsum/actions/runs/37780705414"
+    },
+    "final_commit_ci": "Recorded after publication in Beads; this WIP evidence binds exact code hashes, not an as-yet-uncreated commit."
+  },
+  "independent_verification": {
+    "real_new_edit": "PASS: closed-journal owned-copy check, immutable NEW/EDIT checkpoint comparison,96bootstrap retained; original file hash unchanged; copy removed",
+    "diagnostics": "PASS: negative dynamic-message leak mutation RED101 then GREEN; captured stderr excludes sentinel/repeat blocked log; owned copies removed",
+    "helper": "PASS:3owned tests cover helper alone/with main, lasting two-main ambiguity, malformed/unknown exe; compiled removed exclusion RED101 then restoredGREEN; separate pinned-source review; owned tmp removed",
+    "prior_runtime_evidence": "telegram-managed-runtime-2026-10-08.json"
+  },
+  "connector_status": {
+    "support_status": "research",
+    "enabled_operations": [],
+    "implementation": null,
+    "qualifications": []
+  },
+  "not_qualified": [
+    "fresh graphical login",
+    "real DELETE",
+    "multiple accounts or account switching",
+    "new attachments/media download",
+    "complete history or application-accepted event feed",
+    "exhaustive long offline behavior",
+    "other stock versions or OS",
+    "new external publication or AI handoff"
+  ],
+  "privacy": {
+    "native_account_api_export_or_send_initiated_by_agent": false,
+    "session_tdata_cookie_process_memory_environment_payload_read": false,
+    "raw_logs_real_ids_texts_or_private_ui_published": false,
+    "source_logs_user_history_or_retention_deleted_or_changed": false
+  }
+}

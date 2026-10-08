@@ -747,3 +747,54 @@ fn desktop_launch_uses_its_own_scope_and_literal_profile_arguments() {
         Some(launch.working_directory.as_path())
     );
 }
+
+#[test]
+fn service_diagnostics_never_format_dynamic_private_io_errors() {
+    let fixed = error("synthetic fixed controller failure");
+    assert_eq!(
+        diagnostic(&fixed),
+        Some("synthetic fixed controller failure")
+    );
+    assert_eq!(fixed.to_string(), "synthetic fixed controller failure");
+    assert_eq!(
+        diagnostic(&io::Error::other("/synthetic/private-path-and-content")),
+        None
+    );
+    assert_eq!(diagnostic(&io::Error::from_raw_os_error(13)), None);
+}
+
+#[test]
+fn stock_webview_helper_is_not_a_desktop_candidate_or_relaunch_option() {
+    let directory = Path::new("/synthetic/profile");
+    assert_eq!(
+        linux::client_arguments(
+            b"/usr/bin/Telegram\0-webviewhelper\0/tmp/0123456789abcdef\0",
+            directory
+        )
+        .unwrap(),
+        None
+    );
+    assert_eq!(
+        linux::client_arguments(b"/usr/bin/Telegram\0-debug\0", directory).unwrap(),
+        Some(vec![
+            "-debug".into(),
+            "-workdir".into(),
+            "/synthetic/profile".into()
+        ])
+    );
+    for bytes in [
+        &b"Telegram\0-many\0"[..],
+        &b"Telegram\0-webviewhelper\0"[..],
+        &b"Telegram\0-webviewhelper\0/tmp/socket\0-debug\0"[..],
+        &b"Telegram\0-webviewhelper\0tg://unknown\0"[..],
+        &b"Telegram\0-webviewhelper\0/tmp/../socket\0"[..],
+        &b"Telegram\0-webviewhelper\0/tmp/bad\nsocket\0"[..],
+        &b"Telegram\0-debug\0-webviewhelper\0/tmp/socket\0"[..],
+    ] {
+        assert!(linux::client_arguments(bytes, directory).is_err());
+    }
+    assert!(
+        linux::validate_arguments(&["-webviewhelper".into(), "/tmp/socket".into()], directory)
+            .is_err()
+    );
+}

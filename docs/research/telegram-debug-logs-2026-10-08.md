@@ -191,6 +191,30 @@ qualifications. Последний successful initial policy/source review **202
 проверки и evidence установленного клиента. [Предварительное предложение](telegram-local-message-bridge.md)
 остаётся контекстом; текущий review уточняет activation/framing.
 
+## Последующая проверка постоянной установки
+
+Beads `tgsum-i1w.13` отдельно реализовал durable selected journal, Project apply
+и обычную личную release-установку. Independent verifier подтвердил закрытый
+checkpoint из 72 событий: 70 observed, 1 NEW и 1 EDIT, точные ID/автор/текст,
+сохранение 96 bootstrap-сообщений. После дальнейшего сбора snapshot и готовый
+локальный пакет содержат 167 уникальных сообщений. Исторические 51 наблюдение
+первого spike не выдаются за эту последующую проверку.
+
+Перед исправлением scan перечитаны закреплённый
+[Linux launcher](https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/platform/linux/launcher_linux.cpp)
+и [lib_webview spawn](https://github.com/desktop-app/lib_webview/blob/71301e35911f0801ee2890c8b4f04555e34d4f72/webview/platform/linux/webview_linux_webkitgtk.cpp).
+Helper использует тот же executable, но `-webviewhelper` направляет его в
+WebKitGTK до Core launcher. Кандидаты Desktop теперь исключают эту известную
+служебную форму; whitelist управляемого запуска не расширен. Два финальных
+plain restart постоянного пользовательского сервиса со штатными helpers
+продолжили прежний журнал. Unit enabled для graphical session; свежий login
+не выполнялся и записан отдельным user-controlled backlog `tgsum-i1w.16`.
+
+[Публичный агрегированный отчёт](../development/evidence/telegram-continuous-installed-2026-10-08.json)
+не содержит личных IDs, текстов, профиля или screenshots. Registry остаётся
+`research`; реальные DELETE, много аккаунтов, новые медиа, полнота и AI-handoff
+не квалифицированы. Scope и platform policy этой частной проверкой не расширяются.
+
 [launcher]: https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/core/launcher.cpp
 [sandbox]: https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/core/sandbox.cpp
 [logs]: https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/logs.cpp

@@ -83,7 +83,9 @@ impl Desktop for StockDesktop {
         let boot_id = metadata_text(Path::new("/proc/sys/kernel/random/boot_id"))?
             .trim()
             .to_owned();
-        let deadline = Instant::now() + Duration::from_secs(1);
+        // Use the same readiness window as launch/quit: the next service can
+        // start before the restored Desktop's secondary launcher disappears.
+        let deadline = Instant::now() + WAIT;
         retry_process_scan(
             || scan_running(&boot_id),
             || {
@@ -256,7 +258,8 @@ fn scan_running(boot_id: &str) -> io::Result<Option<Running>> {
             return Err(error("Обнаружено несколько или неизвестный запуск Telegram. Управление клиентом остановлено."));
         }
         let running = match inspect(&path, pid, boot_id) {
-            Ok(running) => running,
+            Ok(Some(running)) => running,
+            Ok(None) => continue,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error),
         };
@@ -293,12 +296,40 @@ pub(super) fn scope_command(launch: &Launch, unit: &str) -> Command {
     command
 }
 
-fn inspect(path: &Path, pid: u32, boot_id: &str) -> io::Result<Running> {
+fn inspect(path: &Path, pid: u32, boot_id: &str) -> io::Result<Option<Running>> {
     let before = start_ticks(&metadata_text(&path.join("stat"))?)?;
     let executable = fs::read_link(path.join("exe"))?;
     let metadata = fs::metadata(path.join("exe"))?;
     let working_directory = fs::read_link(path.join("cwd"))?;
     let bytes = metadata_bytes(&path.join("cmdline"))?;
+    let arguments = client_arguments(&bytes, &working_directory)?;
+    let after = start_ticks(&metadata_text(&path.join("stat"))?)?;
+    if before != after || executable != Path::new(EXECUTABLE) {
+        return Err(error("Telegram изменился во время проверки запуска."));
+    }
+    let Some(arguments) = arguments else {
+        return Ok(None);
+    };
+    Ok(Some(Running {
+        identity: Identity {
+            pid,
+            start_ticks: before,
+            boot_id: boot_id.into(),
+            executable_device: metadata.dev(),
+            executable_inode: metadata.ino(),
+        },
+        launch: Launch {
+            executable,
+            arguments,
+            working_directory,
+        },
+    }))
+}
+
+pub(super) fn client_arguments(
+    bytes: &[u8],
+    working_directory: &Path,
+) -> io::Result<Option<Vec<String>>> {
     let all: Vec<_> = bytes
         .split(|byte| *byte == 0)
         .filter(|arg| !arg.is_empty())
@@ -314,25 +345,17 @@ fn inspect(path: &Path, pid: u32, boot_id: &str) -> io::Result<Running> {
                 .map_err(|_| error("Неизвестные параметры запуска Telegram."))
         })
         .collect::<io::Result<_>>()?;
-    let arguments = pinned_arguments(&arguments, &working_directory)?;
-    let after = start_ticks(&metadata_text(&path.join("stat"))?)?;
-    if before != after || executable != Path::new(EXECUTABLE) {
-        return Err(error("Telegram изменился во время проверки запуска."));
+    // Pinned launcher_linux.cpp routes this exact invocation into WebKitGTK,
+    // before Core::Launcher::exec. It has no Desktop session or stock quit IPC.
+    // Do not adopt or control the helper, and do not accept this flag for a
+    // main-client relaunch. Extra flags and unknown forms still fail closed.
+    if arguments.len() == 2
+        && arguments[0] == "-webviewhelper"
+        && clean_absolute_path(Path::new(&arguments[1]))
+    {
+        return Ok(None);
     }
-    Ok(Running {
-        identity: Identity {
-            pid,
-            start_ticks: before,
-            boot_id: boot_id.into(),
-            executable_device: metadata.dev(),
-            executable_inode: metadata.ino(),
-        },
-        launch: Launch {
-            executable,
-            arguments,
-            working_directory,
-        },
-    })
+    pinned_arguments(&arguments, working_directory).map(Some)
 }
 
 fn metadata_bytes(path: &Path) -> io::Result<Vec<u8>> {
@@ -360,17 +383,18 @@ pub(super) fn start_ticks(stat: &str) -> io::Result<u64> {
         .ok_or_else(|| error("Не удалось проверить время запуска Telegram."))
 }
 
+fn clean_absolute_path(path: &Path) -> bool {
+    path.is_absolute()
+        && !path
+            .components()
+            .any(|p| matches!(p, Component::ParentDir | Component::CurDir))
+        && path
+            .to_str()
+            .is_some_and(|s| !s.chars().any(char::is_control))
+}
+
 pub(super) fn validate_arguments(arguments: &[String], working_directory: &Path) -> io::Result<()> {
-    fn clean(path: &Path) -> bool {
-        path.is_absolute()
-            && !path
-                .components()
-                .any(|p| matches!(p, Component::ParentDir | Component::CurDir))
-            && path
-                .to_str()
-                .is_some_and(|s| !s.chars().any(char::is_control))
-    }
-    if !clean(working_directory) || arguments.len() > 16 {
+    if !clean_absolute_path(working_directory) || arguments.len() > 16 {
         return Err(error("Неизвестная папка запуска Telegram."));
     }
     let mut seen = BTreeSet::new();
