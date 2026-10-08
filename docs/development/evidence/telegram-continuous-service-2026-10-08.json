@@ -1,0 +1,87 @@
+{
+  "status": "passed",
+  "checks": [
+    "ordinary cargo-installed app starts hidden under actual user service; fixture backend absent",
+    "hidden ordinary installed worker journals and applies selected synthetic native message",
+    "actual service restart changes PID, preserves journal/binding and applies next message; final offline snapshot assertion confirms both expected messages exactly once",
+    "real secondary --quit shuts down installed service app cleanly and releases D-Bus"
+  ],
+  "commit": "0c89fc6f90c872adc1a4c6bb54d9c7cc390db685",
+  "profile": "owned temporary",
+  "backend": "ordinary installed debug binary, no harness/analysis fixture",
+  "messenger": "synthetic logs only",
+  "service": "actual transient user unit",
+  "message_count": 2,
+  "pid_changed": true,
+  "clean_exit_code": 0,
+  "real_system_configuration_changed": false,
+  "limitations": [
+    "Transient service; no login/startup qualification",
+    "Personal application unchanged",
+    "Stock Telegram lifecycle and real incoming message unqualified"
+  ],
+  "date": "2026-10-08",
+  "task": "tgsum-i1w.13",
+  "scope": "Ordinary installed debug binary and actual transient user-service restart on own Arch; owned synthetic profile/logs only. Login autostart and personal installation remain unqualified.",
+  "platform": "Arch/Omarchy/Hyprland/Wayland",
+  "binary_sha256": "d7a3ad1c0f2741293f266399957ec1e85bd772cdd27c1346a22199efaeae39ac",
+  "probe_source_sha256": "1ea7171cb259e2ec3893aaa980bd651a637b956aeef4a3ba346dde4c7662b690",
+  "commands": [
+    "CARGO_TARGET_DIR=<workspace>/target cargo install --path src-tauri --debug --locked --root <owned-prefix>",
+    "uv run --with websocket-client python <owned-prefix>/probe.py",
+    "systemd-run --user --service-type=exec --remain-after-exit --property=Restart=on-failure --property=TimeoutStopSec=30 <owned-installed-binary> --background",
+    "systemctl --user restart <owned-unit>",
+    "<owned-installed-binary> --quit",
+    "systemctl --user stop <owned-unit>",
+    "systemctl --user reset-failed <owned-unit>"
+  ],
+  "probe_source": "telegram-background-service-probe-2026-10-08.py",
+  "transient_units_remaining_after_cleanup": 0,
+  "rollback": "Probe stopped/reset its uniquely named transient services. Owned install/profile directories are disposable and cleaned after evidence verification. No personal application/configuration backup was needed because those files were unchanged.",
+  "final_snapshot_check": {
+    "status": "passed",
+    "method": "read-only final owned Project/snapshot assertion after orderly app exit",
+    "checkpoint_sequence": 2,
+    "manifest_revision": 6,
+    "manifest_sha256": "d7333c28b62dfc86c9eba978a24db249fa427e39e4917dba1281a980b208e369",
+    "snapshot_sha256": "023f020561fd5804bcfb791ca9c8924b9a434bbd9f4faa6061c6b4d6a9752870",
+    "snapshot_total_messages": 6,
+    "bootstrap_messages_preserved": 4,
+    "selected_native_messages": [
+      {
+        "native_message_id": "700",
+        "occurrences": 1,
+        "text": "Synthetic installed service Ж 😀",
+        "sender_id": "user1",
+        "conversation_id": "222",
+        "identity_quality": "native"
+      },
+      {
+        "native_message_id": "701",
+        "occurrences": 1,
+        "text": "Synthetic after actual service restart",
+        "sender_id": "user1",
+        "conversation_id": "222",
+        "identity_quality": "native"
+      }
+    ],
+    "collector_restart_gap_present": true,
+    "qualification": "Both expected native IDs/texts occur exactly once in the final selected snapshot. This assertion supplements the historical probe counters; it does not inspect journal event payloads or qualify a real messenger.",
+    "bootstrap_snapshot_sha256": "b23b016a0965bc8393e8665fd3753508a7c6df2515631a7bd79578f0bba30c57",
+    "bootstrap_native_ids": [
+      "50",
+      "100",
+      "101",
+      "102"
+    ],
+    "bootstrap_comparison": "All four original messages occur exactly once with unchanged identity, text, author, dates, replies, topic, service fields and attachments; derived provenance is excluded."
+  },
+  "source_ci": {
+    "head_sha": "0c89fc6f90c872adc1a4c6bb54d9c7cc390db685",
+    "run_id": 37759583266,
+    "status": "completed",
+    "conclusion": "success",
+    "arch_job": "success",
+    "url": "https://github.com/Roflochinsky/tgsum/actions/runs/37759583266"
+  }
+}
