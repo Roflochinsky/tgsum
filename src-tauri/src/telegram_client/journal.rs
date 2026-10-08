@@ -42,6 +42,14 @@ pub struct LeaseJournal {
     pub(super) fail_after_link: Cell<bool>,
 }
 
+impl Drop for LeaseJournal {
+    fn drop(&mut self) {
+        // Closing our descriptor alone can leave flock held by a concurrently
+        // forked child until its exec. End controller ownership explicitly.
+        let _ = rustix::fs::flock(&self.owner, rustix::fs::FlockOperation::Unlock);
+    }
+}
+
 impl LeaseJournal {
     /// The parent must already exist; an existing unbranded leaf is preserved.
     pub fn open(path: &Path) -> io::Result<Self> {
@@ -321,4 +329,27 @@ fn sync(directory: &Dir) -> io::Result<()> {
 
 fn unsafe_path() -> io::Error {
     error("Журнал управления Telegram отсутствует, изменился или принадлежит другой программе. Клиент и существующие файлы сохранены без изменений.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_journal_releases_lock_while_a_duplicate_descriptor_survives() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("client");
+        let journal = LeaseJournal::open(&path).unwrap();
+        // A forked subprocess shares this open file description until exec,
+        // even when the original descriptor is marked close-on-exec.
+        let inherited = journal.owner.try_clone().unwrap();
+        assert!(LeaseJournal::open(&path).is_err());
+        drop(journal);
+        let reopened = LeaseJournal::open(&path).unwrap();
+        assert!(LeaseJournal::open(&path).is_err());
+        drop(inherited);
+        assert!(LeaseJournal::open(&path).is_err());
+        drop(reopened);
+        assert!(LeaseJournal::open(&path).is_ok());
+    }
 }
