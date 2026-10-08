@@ -104,6 +104,10 @@ pub struct ContinuousCapture {
 }
 
 impl ContinuousCapture {
+    pub fn binding(&self) -> &CaptureBinding {
+        &self.owner.binding
+    }
+
     pub fn open(config: CaptureConfig) -> Result<Self, CaptureError> {
         Self::open_with(config, |file| {
             Database::builder()

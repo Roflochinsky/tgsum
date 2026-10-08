@@ -404,7 +404,7 @@ fn schema_eight_migrates_without_rewriting_or_accepting_refresh_state() {
     let bytes = serde_json::to_vec(&value).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     let opened = store.open(&project.project_id).unwrap();
-    assert_eq!(opened.schema_version, 9);
+    assert_eq!(opened.schema_version, 10);
     assert!(opened.telegram_refresh.is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     value["telegram_refresh"] = serde_json::json!({"pilot":{"cadence":"daily"}});

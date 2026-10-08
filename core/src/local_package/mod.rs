@@ -68,6 +68,9 @@ impl TryFrom<PackageSettingsInput> for PackageSettings {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PackageReceipt {
+    /// Diagnostic observations are authorized for local results in this scope.
+    #[serde(default)]
+    pub local_only: bool,
     #[serde(default = "single_conversation")]
     pub conversations: usize,
     pub directory: PathBuf,
@@ -113,6 +116,8 @@ pub struct PackageFile {
 #[derive(Serialize, Deserialize)]
 pub struct PackageManifest {
     pub schema_version: u32,
+    #[serde(default)]
+    pub local_only: bool,
     pub messages: usize,
     pub attachment_references: usize,
     pub skipped_attachments: usize,
@@ -192,6 +197,22 @@ impl ProjectStore {
     }
     pub fn local_package(&self, project_id: &str) -> io::Result<Option<PackageState>> {
         storage::read(self, project_id)
+    }
+
+    /// Preserve saved GitHub preferences while keeping newly acquired
+    /// diagnostic content local. Also checks the current Project so a cached
+    /// archive receipt cannot race activation of the continuous source.
+    pub fn local_package_allows_publication(&self, project_id: &str) -> io::Result<bool> {
+        let project = self.open(project_id)?;
+        let Some(state) = self.local_package(project_id)? else {
+            return Ok(false);
+        };
+        Ok(state.ready.as_ref().is_some_and(|r| !r.local_only)
+            && state
+                .settings
+                .source_ids
+                .iter()
+                .all(|id| !project.telegram_continuous.contains_key(id)))
     }
 
     pub fn configure_local_package(
@@ -347,10 +368,14 @@ impl ProjectStore {
         storage::write(self, &state)?;
         match self.build_local_package(&state, now, &cancelled) {
             Ok(receipt) => {
+                let local_only = receipt.local_only;
                 state.ready = Some(receipt);
                 state.phase = "ready".into();
-                state.message =
-                    "Пакет готов. Полнота истории определяется предоставленной выгрузкой.".into();
+                state.message = if local_only {
+                    "Локальный пакет готов. История дополнена наблюдениями Telegram; возможны пропуски. Отправка на GitHub для этого источника отключена."
+                } else {
+                    "Пакет готов. Полнота истории определяется предоставленной выгрузкой."
+                }.into();
             }
             Err(error) => {
                 state.phase = if crate::is_cancelled(&error) {
@@ -412,39 +437,54 @@ impl ProjectStore {
         if sources.is_empty() || sources.len() != state.settings.source_ids.len() {
             return Err(invalid("Выбранные чаты больше не подключены к проекту."));
         }
-        let input = find_input(&state.settings.input_directory)?;
-        let root = input
-            .parent()
-            .ok_or_else(|| invalid("input has no parent"))?
-            .to_path_buf();
-        let files = ArchiveFiles::open(&root)?;
-        let mut staged = crate::assisted::stage_with_opener(
-            || {
-                let f = files.open_regular(Path::new("result.json"))?;
-                if f.metadata()?.len() > MAX_ARCHIVE_BYTES {
-                    return Err(invalid("Выгрузка превышает 512 МиБ."));
-                }
-                Ok(f)
-            },
-            &self.directory(id)?,
-            &mut |_, _| check(cancelled),
-            cancelled,
-        )?;
-        let archive_hash = digest_reader(&mut staged, cancelled)?;
-        staged.seek(SeekFrom::Start(0))?;
-        let snapshot_ids = sources
-            .iter()
-            .map(|s| {
-                let identity = serde_json::to_vec(&(&archive_hash, &s.scope)).map_err(invalid)?;
-                Ok((format!("local-{}", hash(&identity)), s.scope.clone()))
-            })
-            .collect::<io::Result<Vec<_>>>()?;
         let snapshots = self.snapshots(id)?;
-        snapshots.import_telegram_selection(
-            &snapshot_ids,
-            crate::ProgressReader::new(staged, |_| check(cancelled)),
-            cancelled,
-        )?;
+        let mut imported = std::collections::BTreeMap::new();
+        let mut input = None;
+        let mut archive_hash = None;
+        // A retained continuous binding (including Stop) owns its observed
+        // history. Re-import only the OTHER selected archive sources; otherwise
+        // an old inbox JSON would discard every newly acquired message.
+        if sources
+            .iter()
+            .any(|s| !project.telegram_continuous.contains_key(&s.source_id))
+        {
+            let path = find_input(&state.settings.input_directory)?;
+            let root = path
+                .parent()
+                .ok_or_else(|| invalid("input has no parent"))?;
+            let files = ArchiveFiles::open(root)?;
+            let mut staged = crate::assisted::stage_with_opener(
+                || {
+                    let f = files.open_regular(Path::new("result.json"))?;
+                    if f.metadata()?.len() > MAX_ARCHIVE_BYTES {
+                        return Err(invalid("Выгрузка превышает 512 МиБ."));
+                    }
+                    Ok(f)
+                },
+                &self.directory(id)?,
+                &mut |_, _| check(cancelled),
+                cancelled,
+            )?;
+            let digest = digest_reader(&mut staged, cancelled)?;
+            staged.seek(SeekFrom::Start(0))?;
+            let snapshot_ids = sources
+                .iter()
+                .filter(|s| !project.telegram_continuous.contains_key(&s.source_id))
+                .map(|s| {
+                    let identity = serde_json::to_vec(&(&digest, &s.scope)).map_err(invalid)?;
+                    let snapshot_id = format!("local-{}", hash(&identity));
+                    imported.insert(s.source_id.clone(), snapshot_id.clone());
+                    Ok((snapshot_id, s.scope.clone()))
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            snapshots.import_telegram_selection(
+                &snapshot_ids,
+                crate::ProgressReader::new(staged, |_| check(cancelled)),
+                cancelled,
+            )?;
+            archive_hash = Some(digest);
+            input = Some(path);
+        }
         let mut refreshed = Vec::new();
         let mut text_count = 0;
         let mut text_evidence = Vec::new();
@@ -455,13 +495,84 @@ impl ProjectStore {
         let mut count = 0;
         let mut remaining = MAX_PACKAGE_BYTES;
         let mut fingerprint = Sha256::new();
-        fingerprint.update(archive_hash.as_bytes());
+        if let Some(digest) = archive_hash {
+            fingerprint.update(digest.as_bytes());
+        }
         fingerprint.update(serde_json::to_vec(&state.settings).map_err(invalid)?);
         fingerprint.update(state.scope_sha256.as_bytes());
-        for (mut source, (snapshot_id, _)) in sources.into_iter().zip(snapshot_ids) {
+        for mut source in sources {
             check(cancelled)?;
+            let continuous = project.telegram_continuous.contains_key(&source.source_id);
+            let snapshot_id = if continuous {
+                source
+                    .latest_snapshot_id
+                    .clone()
+                    .ok_or_else(|| invalid("Нет сохранённой истории источника."))?
+            } else {
+                imported
+                    .remove(&source.source_id)
+                    .ok_or_else(|| invalid("missing imported snapshot"))?
+            };
             let snapshot = snapshots.load(&snapshot_id)?;
+            if continuous {
+                fingerprint.update(
+                    serde_json::to_vec(&(
+                        &snapshot.source,
+                        snapshot.metadata.as_ref().map(|m| &m.content_digest),
+                        &snapshot.coverage,
+                    ))
+                    .map_err(invalid)?,
+                );
+            }
             let selected = select_messages(&snapshot, &source.selection, None)?;
+            let media_root = if continuous {
+                source
+                    .selection
+                    .attachments
+                    .as_ref()
+                    .map(|a| a.root.clone())
+                    .or_else(|| {
+                        project.telegram_continuous[&source.source_id]
+                            .media_directory
+                            .clone()
+                    })
+                    .or_else(|| {
+                        source
+                            .archive_path
+                            .as_ref()
+                            .and_then(|p| p.parent())
+                            .map(Path::to_path_buf)
+                    })
+            } else {
+                input
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .map(Path::to_path_buf)
+            };
+            let files = if selected
+                .messages
+                .iter()
+                .flat_map(|m| &m.attachments)
+                .any(|a| {
+                    a.availability == AttachmentAvailability::UnverifiedReference
+                        && (TextReference::new(a).is_ok()
+                            || a.relative_path.as_ref().is_some_and(|p| {
+                                let extension = Path::new(p)
+                                    .extension()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("")
+                                    .to_ascii_lowercase();
+                                include_media(&extension, &state.settings)
+                            }))
+                }) {
+                Some(std::sync::Arc::new(ArchiveFiles::open(
+                    media_root
+                        .as_ref()
+                        .ok_or_else(|| invalid("Не найдена папка исходных вложений."))?,
+                )?))
+            } else {
+                None
+            };
             let mut text_choices = Vec::new();
             for message in selected.messages {
                 for (position, attachment) in message.attachments.iter().enumerate() {
@@ -477,8 +588,10 @@ impl ProjectStore {
                         continue;
                     }
                     if TextReference::new(attachment).is_ok() {
-                        let value =
-                            files.read(TextReference::new(attachment)?, remaining, cancelled)?;
+                        let value = files
+                            .as_ref()
+                            .ok_or_else(|| invalid("missing attachment root"))?
+                            .read(TextReference::new(attachment)?, remaining, cancelled)?;
                         if attachment
                             .size
                             .is_some_and(|size| size != value.source_bytes)
@@ -491,7 +604,15 @@ impl ProjectStore {
                             .checked_sub(value.source_bytes)
                             .ok_or_else(|| invalid("file budget exceeded"))?;
                         fingerprint.update(value.sha256.as_bytes());
-                        text_evidence.push((attachment.clone(), value.sha256));
+                        text_evidence.push((
+                            std::sync::Arc::clone(
+                                files
+                                    .as_ref()
+                                    .ok_or_else(|| invalid("missing attachment root"))?,
+                            ),
+                            attachment.clone(),
+                            value.sha256,
+                        ));
                         text_choices.push(AttachmentChoice {
                             message_id: message.key.message_id.clone(),
                             position,
@@ -508,16 +629,20 @@ impl ProjectStore {
                         .and_then(|s| s.to_str())
                         .unwrap_or("")
                         .to_ascii_lowercase();
-                    let image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif");
                     let office = matches!(ext.as_str(), "docx" | "xlsx");
-                    if !(image && state.settings.include_images
-                        || office && state.settings.include_office)
-                    {
+                    if !include_media(&ext, &state.settings) {
                         skipped += 1;
                         continue;
                     }
-                    let content =
-                        read_attachment(&files, path, attachment.size, remaining, cancelled)?;
+                    let content = read_attachment(
+                        files
+                            .as_ref()
+                            .ok_or_else(|| invalid("missing attachment root"))?,
+                        path,
+                        attachment.size,
+                        remaining,
+                        cancelled,
+                    )?;
                     remaining -= content.len() as u64;
                     fingerprint.update(hash(&content).as_bytes());
                     let (content, handling) = if office {
@@ -549,12 +674,14 @@ impl ProjectStore {
                 ));
             }
             source.latest_snapshot_id = Some(snapshot_id);
-            source.archive_path = Some(input.clone());
+            if !continuous {
+                source.archive_path.clone_from(&input);
+            }
             source.selection.attachments = if text_choices.is_empty() {
                 None
             } else {
                 Some(AttachmentSelection {
-                    root: root.clone(),
+                    root: media_root.ok_or_else(|| invalid("missing attachment root"))?,
                     files: text_choices,
                 })
             };
@@ -585,12 +712,16 @@ impl ProjectStore {
         let staged = publication::Staging::new(exported.directory);
         let mut manifest = PackageManifest {
             schema_version: 1,
+            local_only: state.settings.source_ids.iter().any(|id| project.telegram_continuous.contains_key(id)),
             messages: review.manifest.messages,
             attachment_references: review.manifest.attachment_references,
             skipped_attachments: skipped,
             initials_replacements: initials,
-            coverage: "unknown: local supplied export, not a proof of complete Telegram history"
-                .into(),
+            coverage: if state.settings.source_ids.iter().any(|id| project.telegram_continuous.contains_key(id)) {
+                "partial: supplied history plus diagnostic observations; accepted updates and complete history are not proven"
+            } else {
+                "unknown: local supplied export, not a proof of complete Telegram history"
+            }.into(),
             files: exported
                 .files
                 .into_iter()
@@ -634,7 +765,7 @@ impl ProjectStore {
         }
         let bytes = serde_json::to_vec_pretty(&manifest).map_err(invalid)?;
         write_file(&staged.path().join("package.json"), &bytes)?;
-        for (attachment, digest) in text_evidence {
+        for (files, attachment, digest) in text_evidence {
             let current = files.read(
                 TextReference::new(&attachment)?,
                 MAX_PACKAGE_BYTES,
@@ -652,6 +783,11 @@ impl ProjectStore {
         }
         publication::publish(self, state, staged, &manifest, &input_hash, now, cancelled)
     }
+}
+
+fn include_media(extension: &str, settings: &PackageSettings) -> bool {
+    matches!(extension, "png" | "jpg" | "jpeg" | "webp" | "gif") && settings.include_images
+        || matches!(extension, "docx" | "xlsx") && settings.include_office
 }
 
 fn find_input(root: &Path) -> io::Result<PathBuf> {

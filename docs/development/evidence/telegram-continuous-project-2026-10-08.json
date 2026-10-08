@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-08",
+  "source_base": "bd6c9e86f9b3caf0562bc962b492c3005d667795",
+  "scope": "Linux journal -> Project -> local package; synthetic/public fixtures only; runtime/UI/client/background/install/live remain incomplete",
+  "implementation_files_sha256": {
+    "core/src/telegram_debug/settings.rs": "bae8ade46b0340a78b3fb87aadc5948f7bb0057cb8847f5e8cefcaee5e61d689",
+    "core/src/telegram_debug/project.rs": "1032a8e15d8505a181aad1e2265b6ee1a09ecbc43937497b518ca19d65a932a0",
+    "core/src/telegram_debug/project/tests.rs": "d6631bf4cedc88fdf4c3e8815ea07cf38ce7360b3c66207a14b5fc6deaec22c5",
+    "core/src/telegram_debug/parser.rs": "01c60af193367b0195905cdf617e9374e6d7e5a48e95783757a848e1c76ff5c0",
+    "core/src/telegram_debug/continuous.rs": "f54572e2bf2711f213ce8d55bbc92707a26426a1d17d7037aa1732df04b291e4",
+    "core/src/project.rs": "9483966b31f7f16abf662a236108be35eb7007288511ed1139f9a4f972f8db6c",
+    "core/src/local_package/mod.rs": "0972e447ad00eaa7796e61d861a43da3306862447788e473e264178cba6165e6",
+    "core/src/local_package/publication.rs": "f362c61bd0597c3e810eb86f865d897217224fbb12df52ffb2195b5d2ad4139f",
+    "src-tauri/src/local_package.rs": "f817734c4b01e76162fc90483186634a087db1bd93fb0cd5fc98c77199deb007",
+    "src-tauri/src/package_github.rs": "eb19ef8647b099d1b553a7ce687171aca6a5ed011581f18efd21218cf84e6f41"
+  },
+  "checks": {
+    "quick": "PASS",
+    "full": "bash scripts/check.sh PASS on final implementation tree",
+    "focused": "56 passed, 0 failed; ignored subprocess helper exercised by parent crash test",
+    "projection_regressions": 14,
+    "independent_review": "PASS: separate source/parser/package verifier and Project/Spec/CAS/recovery reviewer on matching hashes",
+    "registry": "exit 0, findings []",
+    "local_document_links": "PASS",
+    "diff_check": "PASS"
+  },
+  "behaviors": [
+    "bootstrap/media/replies/topics/native IDs preserved",
+    "separate sent/edit timestamp and General topic including empty forum",
+    "late history does not revert newer edits; observed deletion retains stored body",
+    "page projection does not consume future latest index; gap-only frontier supported",
+    "snapshot publication and Project CAS atomic frontier before journal ack",
+    "crash before CAS reuses verified snapshot; crash after CAS recovers without duplicate revision",
+    "recovery file/directory durability barriers; injected sync failure leaves applied unchanged",
+    "Stop/CAS conflict and foreign journal/replay snapshot reject without advancing frontier",
+    "schema1-9 migration in memory; legacy plan spoofing rejected",
+    "live-only local package without JSON; mixed archive sources refreshed separately",
+    "explicit moved media root retained; image bytes preserved; repeat generation unchanged",
+    "text-only package without old media root",
+    "diagnostic receipt/manifest local_only; current binding and receipt checked before external publication"
+  ],
+  "regression_mutations": [
+    {
+      "change": "Disable live snapshot branch",
+      "result": "RED after successful compilation: package error instead of ready"
+    },
+    {
+      "change": "Acknowledge journal before Project CAS",
+      "result": "RED after successful compilation: applied unexpectedly advanced"
+    },
+    {
+      "change": "Skip recovery barrier",
+      "result": "RED after successful compilation: injected sync failure incorrectly accepted"
+    }
+  ],
+  "independent_fixtures": "General empty bootstrap and moved/missing media RED -> GREEN; exact image bytes/new Markdown/repeat generation PASS",
+  "privacy": {
+    "real_data_used": false,
+    "account_actions": false,
+    "client_control": false,
+    "system_install_or_config": false,
+    "raw_payload_published": false,
+    "own_temporary_mutation_workspace_cleaned": true
+  },
+  "connector_status": {
+    "support_status": "research",
+    "enabled_operations": [],
+    "qualifications": []
+  },
+  "remaining_scope": [
+    "Tauri worker/Start/Stop/status and truthful generated result instructions",
+    "Managed stock Desktop debug lifecycle and backup/rollback",
+    "Installed background/autostart/restart on own Arch Linux",
+    "User-controlled actual new-message/edit/delete qualification",
+    "Exact final goal SHA GitHub Actions including Arch"
+  ]
+}

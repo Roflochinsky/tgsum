@@ -255,6 +255,7 @@
         "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/core/launcher.cpp",
         "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/logs.cpp",
         "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/mtproto/session_private.cpp",
+        "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/mtproto/scheme/api.tl",
         "https://github.com/desktop-app/lib_tl/blob/29746d31247c915a9ec870241399a9d103c39f87/tl/generate_tl.py",
         "https://telegram.org/tos/content-licensing"
       ],
@@ -265,7 +266,7 @@
         "One confirmed account only; account switching/multiple accounts, initial history/backfill, message acceptance ordering, anonymous sender attribution and original media are unqualified. Non-channel delete requires known peer mapping; missing mapping remains unresolved.",
         "Runtime -debug itself is not persistent; existing tdata/withdebug can keep debug enabled. Graceful -quit/relaunch activation and disable were verified for this controlled installed-client run; second-instance -debug forwards show only. Quarter-hour rotation/day reuse, restart, truncation and offline gaps have synthetic checks, not real live-feed qualification.",
         "Prototype output assumes one private experiment-owned directory without concurrent same-user path replacement or file mutation. Path-based publication requires hardening before permanent unattended collection.",
-        "Continuous acquisition is being implemented under tgsum-i1w.13; the source and storage contract is ../specs/telegram-continuous-source.md. Durable journal, Project apply, background lifecycle and installed live/UI qualification remain required. This design does not enable acquisition or promote support."
+        "Continuous acquisition is being implemented under tgsum-i1w.13; the source and storage contract is ../specs/telegram-continuous-source.md. Durable journal and Project/package projection are implemented with synthetic checks; worker/UI/client lifecycle and installed live qualification remain required. Diagnostic package receipts are local_only; saved external-publication preferences do not authorize this new source. This design does not enable acquisition or promote support."
       ],
       "implementation": null,
       "qualifications": []

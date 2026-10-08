@@ -41,6 +41,15 @@ pub enum MessageKind {
     Observed,
 }
 
+#[derive(Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDetails {
+    pub sent_timestamp: i64,
+    pub edited_timestamp: Option<i64>,
+    pub reply_to: Option<String>,
+    pub thread_id: Option<String>,
+}
+
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum ParsedEvent {
@@ -51,6 +60,9 @@ pub enum ParsedEvent {
         sender: Option<TypedPeer>,
         timestamp: i64,
         text: String,
+        /// Old diagnostic journals did not retain the original sent time.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<MessageDetails>,
     },
     Delete {
         peer: TypedPeer,
@@ -658,11 +670,10 @@ fn full_message(
     // A catch-up "new_messages" entry can already contain edited text. Its
     // revision time must not become the original sent time just because the
     // transport envelope calls it new rather than an edit update.
-    let timestamp = integer(
-        object
-            .optional("edit_date")
-            .unwrap_or(object.field("date")?),
-    )?;
+    let sent_timestamp = integer(object.field("date")?)?;
+    let edited_timestamp = object.optional("edit_date").map(integer).transpose()?;
+    let timestamp = edited_timestamp.unwrap_or(sent_timestamp);
+    let (reply_to, thread_id) = reply_details(object, &chat_peer)?;
     let text = as_text(object.field("message")?)?.to_owned();
     packet.events.push(ParsedEvent::Message {
         kind,
@@ -671,6 +682,12 @@ fn full_message(
         sender,
         timestamp,
         text,
+        details: Some(MessageDetails {
+            sent_timestamp,
+            edited_timestamp,
+            reply_to,
+            thread_id,
+        }),
     });
     Ok(())
 }
@@ -703,15 +720,65 @@ fn short_message(
         };
         (peer, Some(sender))
     };
+    let timestamp = integer(object.field("date")?)?;
+    let (reply_to, thread_id) = reply_details(object, &peer)?;
     packet.events.push(ParsedEvent::Message {
         kind: MessageKind::New,
         peer,
         message_id: identity(object.field("id")?, false)?,
         sender,
-        timestamp: integer(object.field("date")?)?,
+        timestamp,
         text: as_text(object.field("message")?)?.to_owned(),
+        details: Some(MessageDetails {
+            sent_timestamp: timestamp,
+            edited_timestamp: None,
+            reply_to,
+            thread_id,
+        }),
     });
     Ok(())
+}
+
+fn reply_details(
+    object: &Object<'_>,
+    selected: &TypedPeer,
+) -> Result<(Option<String>, Option<String>), ParseError> {
+    let Some(value) = object.optional("reply_to") else {
+        return Ok((None, None));
+    };
+    let reply = as_object(value)?;
+    if reply.name != "messageReplyHeader" {
+        return Ok((None, None));
+    }
+    // Native message IDs are scoped to a chat. A cross-chat reply must not
+    // accidentally refer to a same-numbered message in the selected chat.
+    if reply
+        .optional("reply_to_peer_id")
+        .map(peer)
+        .transpose()?
+        .is_some_and(|p| p != *selected)
+    {
+        return Ok((None, None));
+    }
+    let reply_to = reply
+        .optional("reply_to_msg_id")
+        .map(|id| identity(id, false))
+        .transpose()?;
+    let forum = reply
+        .optional("flags")
+        .map(integer)
+        .transpose()?
+        .is_some_and(|flags| flags & 8 != 0);
+    let thread = if forum {
+        reply
+            .optional("reply_to_top_id")
+            .map(|id| identity(id, false))
+            .transpose()?
+            .or_else(|| reply_to.clone())
+    } else {
+        None
+    };
+    Ok((reply_to, thread))
 }
 
 #[cfg(test)]

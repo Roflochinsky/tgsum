@@ -119,6 +119,9 @@ pub(super) fn publish(
     state: &PackageState,
     cancelled: impl Fn() -> bool,
 ) -> io::Result<String> {
+    if !store.local_package_allows_publication(&state.project_id)? {
+        return Err(failure("Этот пакет доступен только локально."));
+    }
     let repo = state
         .settings
         .github_repository
@@ -165,6 +168,9 @@ pub(super) fn publish(
         return Err(failure(
             "Пакет изменился перед публикацией. Повторите обновление.",
         ));
+    }
+    if !store.local_package_allows_publication(&state.project_id)? {
+        return Err(failure("Этот пакет доступен только локально."));
     }
     private(repo, &cancelled)?;
     // A normal fast-forward push only. A race with another writer is retried

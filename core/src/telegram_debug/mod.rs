@@ -9,3 +9,6 @@ pub mod capture;
 #[cfg(target_os = "linux")]
 pub mod continuous;
 pub mod parser;
+#[cfg(target_os = "linux")]
+pub mod project;
+pub mod settings;

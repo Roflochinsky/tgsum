@@ -198,6 +198,7 @@ pub(super) fn publish(
     // back into the previous one. A subsequent refresh retries cleanup.
     let _ = cleanup(state, &generation);
     Ok(PackageReceipt {
+        local_only: manifest.local_only,
         conversations: state.settings.source_ids.len(),
         directory: current,
         generation,

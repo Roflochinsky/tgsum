@@ -48,7 +48,10 @@ fn execute<R: Runtime>(
             .unwrap_or_default()
             .as_secs();
         let mut state = store.refresh_local_package(id, now, cancelled)?;
-        if state.phase == "ready" && state.settings.github_repository.is_some() {
+        if state.phase == "ready"
+            && state.settings.github_repository.is_some()
+            && store.local_package_allows_publication(id)?
+        {
             if let Some(receipt) = &state.ready {
                 if state.github_content_sha256.as_ref() != Some(&receipt.content_sha256) {
                     let digest = receipt.content_sha256.clone();

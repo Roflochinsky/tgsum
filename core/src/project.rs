@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 9;
+const SCHEMA_VERSION: u32 = 10;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,6 +119,9 @@ pub struct Project {
     /// Private export scheduling state; absent sources stay manual.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub telegram_refresh: BTreeMap<String, crate::bridge_schedule::TelegramRefreshPlan>,
+    /// Retained when stopped: later packaging must keep the observed history.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub telegram_continuous: BTreeMap<String, crate::telegram_debug::settings::ContinuousPlan>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +140,10 @@ pub enum ProjectChange {
     TelegramRefreshCadence {
         source_id: String,
         cadence: crate::bridge_schedule::RefreshCadence,
+    },
+    TelegramContinuous {
+        source_id: String,
+        settings: crate::telegram_debug::settings::ContinuousSettings,
     },
     Selection {
         source_id: String,
@@ -235,6 +242,7 @@ impl ProjectStore {
             privacy_options: Default::default(),
             assisted_exports: Default::default(),
             telegram_refresh: Default::default(),
+            telegram_continuous: Default::default(),
         };
         let revisions = directory.path().join("revisions");
         fs::create_dir(&revisions)?;
@@ -291,7 +299,7 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=9)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=10)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
@@ -320,11 +328,17 @@ impl ProjectStore {
         if project.schema_version < 9 && !project.telegram_refresh.is_empty() {
             return Err(invalid("legacy project cannot configure Telegram refresh"));
         }
+        if project.schema_version < 10 && !project.telegram_continuous.is_empty() {
+            return Err(invalid(
+                "legacy project cannot configure continuous Telegram",
+            ));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
         // private mappings; v4 lacked custom terms. Reading migrates in memory;
         // v5 lacked attachment selection; v6 lacked saved privacy options.
         // v7 lacked assisted export plans; v8 lacked Telegram refresh state.
+        // v9 lacked continuous diagnostic observations.
         // Only a later write publishes the current schema.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
@@ -397,6 +411,16 @@ impl ProjectStore {
                     .iter_mut()
                     .find(|s| s.source_id == source.source_id)
                 {
+                    if project.telegram_continuous.contains_key(&source.source_id)
+                        && (old.scope != source.scope
+                            || old.connector_id != source.connector_id
+                            || old.archive_path != source.archive_path
+                            || old.latest_snapshot_id != source.latest_snapshot_id)
+                    {
+                        return Err(invalid(
+                            "disconnect the continuous source before replacing its history",
+                        ));
+                    }
                     if old.scope != source.scope || old.connector_id != source.connector_id {
                         if project
                             .telegram_refresh
@@ -432,6 +456,7 @@ impl ProjectStore {
                 project.baselines.retain(|b| b.source_id != id);
                 project.assisted_exports.remove(&id);
                 project.telegram_refresh.remove(&id);
+                project.telegram_continuous.remove(&id);
             }
             ProjectChange::Settings(settings) => project.settings = settings,
             ProjectChange::CustomTerms(terms) => project.custom_terms = terms,
@@ -452,6 +477,13 @@ impl ProjectStore {
                 }
             }
             ProjectChange::TelegramRefreshCadence { source_id, cadence } => {
+                if cadence != crate::bridge_schedule::RefreshCadence::Manual
+                    && project.telegram_continuous.contains_key(&source_id)
+                {
+                    return Err(invalid(
+                        "continuous observations cannot run with scheduled exports",
+                    ));
+                }
                 if !project.sources.iter().any(|source| {
                     source.source_id == source_id
                         && source.connector_id == "telegram_json"
@@ -473,6 +505,69 @@ impl ProjectStore {
                     .entry(source_id)
                     .or_default()
                     .cadence = cadence;
+            }
+            ProjectChange::TelegramContinuous {
+                source_id,
+                settings,
+            } => {
+                let source = project
+                    .sources
+                    .iter()
+                    .find(|s| s.source_id == source_id)
+                    .ok_or_else(|| invalid("source not connected"))?;
+                settings.validate(source)?;
+                if project
+                    .telegram_refresh
+                    .get(&source_id)
+                    .is_some_and(|plan| {
+                        plan.cadence != crate::bridge_schedule::RefreshCadence::Manual
+                            || plan.checkpoint.unresolved_attempt
+                    })
+                {
+                    return Err(invalid(
+                        "stop scheduled exports and resolve pending attempts first",
+                    ));
+                }
+                if let Some(plan) = project.telegram_continuous.get_mut(&source_id) {
+                    if !plan.settings.same_binding(&settings) {
+                        return Err(invalid(
+                            "disconnect the source before changing its journal binding",
+                        ));
+                    }
+                    plan.settings = settings;
+                } else {
+                    if source.latest_snapshot_id.as_ref() != Some(&settings.bootstrap_snapshot_id) {
+                        return Err(invalid(
+                            "continuous capture needs the current bootstrap snapshot",
+                        ));
+                    }
+                    let bootstrap = self
+                        .snapshots(project_id)?
+                        .load(&settings.bootstrap_snapshot_id)?;
+                    if bootstrap.source != source.scope {
+                        return Err(invalid("bootstrap belongs to a different source"));
+                    }
+                    settings.validate_bootstrap(&bootstrap)?;
+                    project.telegram_continuous.insert(
+                        source_id,
+                        crate::telegram_debug::settings::ContinuousPlan {
+                            settings,
+                            checkpoint: None,
+                            media_directory: source
+                                .selection
+                                .attachments
+                                .as_ref()
+                                .map(|a| a.root.clone())
+                                .or_else(|| {
+                                    source
+                                        .archive_path
+                                        .as_ref()
+                                        .and_then(|p| p.parent())
+                                        .map(Path::to_path_buf)
+                                }),
+                        },
+                    );
+                }
             }
             ProjectChange::Privacy(profile) => {
                 profile.validate()?;
@@ -566,12 +661,34 @@ impl ProjectStore {
                 source_id,
                 snapshot_id,
             } => {
+                if project.telegram_continuous.contains_key(&source_id)
+                    && project
+                        .sources
+                        .iter()
+                        .find(|s| s.source_id == source_id)
+                        .and_then(|s| s.latest_snapshot_id.as_ref())
+                        != Some(&snapshot_id)
+                {
+                    return Err(invalid(
+                        "continuous history cannot be replaced by an archive refresh",
+                    ));
+                }
                 let source = project
                     .sources
                     .iter_mut()
                     .find(|s| s.source_id == source_id)
                     .ok_or_else(|| invalid("source not connected to this project"))?;
                 source.latest_snapshot_id = Some(snapshot_id);
+            }
+        }
+        for (id, plan) in &mut project.telegram_continuous {
+            if let Some(attachments) = project
+                .sources
+                .iter()
+                .find(|s| s.source_id == *id)
+                .and_then(|s| s.selection.attachments.as_ref())
+            {
+                plan.media_directory = Some(attachments.root.clone());
             }
         }
         project.revision = project
@@ -636,6 +753,11 @@ impl ProjectStore {
                 .iter_mut()
                 .find(|s| s.source_id == source.source_id)
                 .ok_or_else(|| invalid("source not connected"))?;
+            if project.telegram_continuous.contains_key(&source.source_id)
+                && old.latest_snapshot_id != source.latest_snapshot_id
+            {
+                return Err(invalid("archive refresh cannot replace continuous history"));
+            }
             if old.scope != source.scope
                 || old.connector_id != source.connector_id
                 || old.selection.enabled != source.selection.enabled
@@ -664,6 +786,66 @@ impl ProjectStore {
                 e
             }
         })?;
+        Ok(project)
+    }
+
+    /// Source pointer and diagnostic frontier share the same durable revision.
+    /// A stopped/reconfigured source or any concurrent edit invalidates the CAS.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn publish_telegram_observation(
+        &self,
+        project_id: &str,
+        expected_revision: u64,
+        source_id: &str,
+        checkpoint: crate::telegram_debug::settings::ProjectionCheckpoint,
+    ) -> io::Result<Project> {
+        let mut project = self.open(project_id)?;
+        if project.revision != expected_revision {
+            return Err(conflict());
+        }
+        let plan = project
+            .telegram_continuous
+            .get_mut(source_id)
+            .ok_or_else(|| invalid("continuous source is disconnected"))?;
+        if !plan.settings.enabled
+            || plan.checkpoint.as_ref().is_some_and(|old| {
+                checkpoint.sequence < old.sequence
+                    || checkpoint.observation_revision < old.observation_revision
+                    || (checkpoint.sequence == old.sequence
+                        && checkpoint.observation_revision == old.observation_revision)
+            })
+        {
+            return Err(invalid("stopped or non-advancing continuous observation"));
+        }
+        let source = project
+            .sources
+            .iter_mut()
+            .find(|s| s.source_id == source_id)
+            .ok_or_else(|| invalid("continuous source is disconnected"))?;
+        let snapshot = self.snapshots(project_id)?.load(&checkpoint.snapshot_id)?;
+        if snapshot.source != source.scope
+            || snapshot
+                .metadata
+                .as_ref()
+                .is_none_or(|m| m.connector_id != crate::telegram_debug::project::DESCRIPTOR.id)
+        {
+            return Err(invalid("diagnostic snapshot does not match the source"));
+        }
+        source.latest_snapshot_id = Some(checkpoint.snapshot_id.clone());
+        plan.checkpoint = Some(checkpoint);
+        project.revision = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("project revision exhausted"))?;
+        validate_project(&project)?;
+        write_revision(&self.directory(project_id)?.join("revisions"), &project).map_err(
+            |error| {
+                if error.kind() == io::ErrorKind::AlreadyExists {
+                    conflict()
+                } else {
+                    error
+                }
+            },
+        )?;
         Ok(project)
     }
 
@@ -922,6 +1104,26 @@ fn validate_project(project: &Project) -> io::Result<()> {
         {
             return Err(invalid(
                 "scheduled refresh requires assisted export settings",
+            ));
+        }
+    }
+    let mut generations = BTreeSet::new();
+    for (id, plan) in &project.telegram_continuous {
+        let source = project
+            .sources
+            .iter()
+            .find(|s| s.source_id == *id)
+            .ok_or_else(|| invalid("continuous source is disconnected"))?;
+        plan.validate(source)?;
+        if !generations.insert(&plan.settings.generation) {
+            return Err(invalid("continuous sources must have separate journals"));
+        }
+        if project.telegram_refresh.get(id).is_some_and(|plan| {
+            plan.cadence != crate::bridge_schedule::RefreshCadence::Manual
+                || plan.checkpoint.unresolved_attempt
+        }) {
+            return Err(invalid(
+                "continuous observations conflict with scheduled exports",
             ));
         }
     }
