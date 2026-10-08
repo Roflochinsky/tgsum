@@ -224,6 +224,52 @@
       "qualifications": []
     },
     {
+      "id": "telegram_desktop_debug_logs",
+      "platform": "Telegram",
+      "connector_type": "LocalDataConnector",
+      "access_method": "official_client_diagnostic_log_observation",
+      "support_status": "research",
+      "priority": "P0",
+      "credential_type": "existing_desktop_session_no_external_telegram_credentials",
+      "authorization_scope": "stock Desktop debug logs contain global account transport payloads including unrelated chats before TGSUM filtering; initial spike requires one user-confirmed account",
+      "selected_scope": "explicit typed native peer ID filtered by local collector; chat and sender names are labels, not identity",
+      "capabilities": {
+        "history": "none",
+        "delta": "events",
+        "attachments": "none",
+        "coverage": "unknown"
+      },
+      "ban_risk": "unknown",
+      "ai_policy": {
+        "local_inference": "unknown",
+        "cloud_inference": "unknown",
+        "training": "restricted"
+      },
+      "enabled_operations": [],
+      "review_level": "initial",
+      "last_policy_reviewed_at": "2026-10-08",
+      "next_review_due_at": "2026-11-07",
+      "owner": "TGSUM maintainer",
+      "evidence": "../research/telegram-debug-logs-2026-10-08.md",
+      "sources": [
+        "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/core/launcher.cpp",
+        "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/logs.cpp",
+        "https://github.com/telegramdesktop/tdesktop/blob/2f41383dddd338fe17fd4711afd02688c418fd47/Telegram/SourceFiles/mtproto/session_private.cpp",
+        "https://github.com/desktop-app/lib_tl/blob/29746d31247c915a9ec870241399a9d103c39f87/tl/generate_tl.py",
+        "https://telegram.org/tos/content-licensing"
+      ],
+      "open_questions": [
+        "Controlled Arch Desktop 7.2.5-1 one-account spike on 2026-10-08 captured 51 selected history observations with native message/sender IDs; 46 nonempty texts. Enable/disable and scoped output were verified; see research evidence. Live new/edit/delete, full history and TGSUM integration remain unqualified. No enabled acquisition or AI handoff.",
+        "Global raw debug logs can contain other chats and auth/sign-in fields; selected peer filtering happens after Telegram writes them. Source logs are not deleted, copied to public diagnostics or included in AI bundles.",
+        "Diagnostic transport packets precede duplicate registration/application acceptance. Parser must handle exact source-pinned grammar with bounded memory, type annotations, string escapes, containers, short/new/edit/delete and unknown outcomes; never infer account identity from DC/key/session.",
+        "One confirmed account only; account switching/multiple accounts, initial history/backfill, message acceptance ordering, anonymous sender attribution and original media are unqualified. Non-channel delete requires known peer mapping; missing mapping remains unresolved.",
+        "Runtime -debug itself is not persistent; existing tdata/withdebug can keep debug enabled. Graceful -quit/relaunch activation and disable were verified for this controlled installed-client run; second-instance -debug forwards show only. Quarter-hour rotation/day reuse, restart, truncation and offline gaps have synthetic checks, not real live-feed qualification.",
+        "Prototype output assumes one private experiment-owned directory without concurrent same-user path replacement or file mutation. Path-based publication requires hardening before permanent unattended collection."
+      ],
+      "implementation": null,
+      "qualifications": []
+    },
+    {
       "id": "telegram_client_fork",
       "platform": "Telegram",
       "connector_type": "ArchiveImporter",

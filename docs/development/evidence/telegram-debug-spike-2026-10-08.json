@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-08",
+  "source_base": "01d6c1c7303ddf322d80e703ac6c9952403459d9",
+  "scope": "Controlled stock Telegram Desktop on Arch Linux; one user-confirmed account and one selected typed peer; local private output only",
+  "client_version": "7.2.5-1",
+  "upstream_commit": "2f41383dddd338fe17fd4711afd02688c418fd47",
+  "lib_tl_commit": "29746d31247c915a9ec870241399a9d103c39f87",
+  "implementation_files_sha256": {
+    "core/src/telegram_debug/mod.rs": "61d208c9c88a2f263e7755a8417a73910762b037ba314863f20399d9d67d35c3",
+    "core/src/telegram_debug/parser.rs": "63f3e15e3c475c79369b72448efb974b2b8a6f4f990973385298bebd0fb36dda",
+    "core/src/telegram_debug/capture.rs": "4c86eee38ce5eee30b1347b9af785933226d7ad1dba58ab1bfd86f06c8ecd324",
+    "core/src/bin/telegram-debug-capture.rs": "6d728ddf032a4a573dbc1045562bce3360dabd35fc0c1eb74ba0c2ebe44b4834",
+    "core/src/lib.rs": "436e63c8dff922481ebaf577fbe5672f72008918f07636fb627ef0aebe186dce",
+    "core/tests/registry.rs": "134c9bfc4044463c3be29eaa0a3ebed411b8065c9fc6407936c6a02889128f02",
+    "docs/connectors/registry.json": "c30c40b38d76be68a8cbd8cbdf828dc3fa919cec32c62b573c24c419372a6089"
+  },
+  "controlled_client": {
+    "duration_seconds": 120,
+    "user_confirmed_single_account_and_opened_selected_chat": true,
+    "runtime_debug_arguments_verified": true,
+    "normal_client_launch_restored": true,
+    "mtp_logs_stopped_growing_after_restore": true,
+    "persistent_debug_setting_absent_before_and_after": true,
+    "account_api_or_authenticated_export_initiated_by_collector": false,
+    "client_modified": false,
+    "raw_logs_uploaded": false
+  },
+  "selected_result": {
+    "processing": "Offline replay of the controlled private logs after source-confirmed signed vector grammar and DC suffix fixes",
+    "observations": 51,
+    "unique_message_ids": 51,
+    "messages_with_sender_id": 51,
+    "nonempty_texts": 46,
+    "all_events_match_selected_typed_peer": true,
+    "exact_source_string_representation_matches": 51,
+    "event_kinds": {
+      "observed": 51,
+      "new": 0,
+      "edit": 0,
+      "delete": 0
+    },
+    "file_permissions": "0600",
+    "directory_permissions": "0700",
+    "private_journal_and_ids_published": false
+  },
+  "checks": {
+    "quick": "bash scripts/check.sh quick: PASS",
+    "full": "bash scripts/check.sh: PASS",
+    "parser_and_capture": "28 focused tests: PASS",
+    "cli": "2 tests: PASS",
+    "connector_schema": "Schema v2: PASS",
+    "regression_mutations": [
+      "LF string decoder: isolated mutation RED, restored GREEN",
+      "Signed vector type tag: isolated mutation RED, restored GREEN"
+    ],
+    "independent_verifier": "PASS on the final parser/capture/CLI hashes; synthetic mixed fixture, filtering, deduplication, malformed-record recovery and private modes",
+    "ci_revision_and_run": "See Beads tgsum-i1w.12 for the published revision and CI run"
+  },
+  "limitations": [
+    "Actual selected events came from a history RPC while opening the chat; real live new/edit/delete events were not observed.",
+    "Append, restart, rotation, duplicates and edit/delete logic are qualified only against synthetic fixtures in this spike.",
+    "Diagnostic transport records do not prove Telegram application acceptance, complete history or gap-free delivery.",
+    "Unsupported packet/update and incomplete-history outcomes remain visible in the private journal.",
+    "One account only; no account switching, media download, AI handoff or TGSUM GUI integration.",
+    "Private output assumes no concurrent same-user path replacement or file mutation; publication must be hardened before unattended collection.",
+    "Raw source logs contain all client traffic before selected-peer filtering and remain private on disk; no deletion or retention change was performed.",
+    "Full workspace checks retain existing opt-in ignored sandbox tests; they do not expand this experimental source qualification."
+  ],
+  "connector_status": {
+    "support_status": "research",
+    "enabled_operations": [],
+    "runtime_implementation": null,
+    "qualifications": []
+  },
+  "rollback": "Gracefully quit the debug instance, wait for exit, then restore the exact original Telegram launch without -debug; verified for this stable client with initially absent persistent debug setting. Source logs and selected journal remain on disk."
+}

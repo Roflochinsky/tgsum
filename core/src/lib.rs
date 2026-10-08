@@ -36,6 +36,7 @@ pub mod sanitize;
 pub mod scope;
 pub mod snapshot;
 pub mod stream;
+pub mod telegram_debug;
 pub mod text;
 
 use std::path::{Path, PathBuf};

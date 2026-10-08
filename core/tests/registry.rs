@@ -11,7 +11,7 @@ use tgsum_core::snapshot::{SnapshotStore, SourceScope};
 
 // Fixed for reproducibility; covers the latest recorded research review.
 // Expiry and future-evidence cases deliberately use separate dates.
-const INVENTORY_REVIEW_DATE: &str = "2026-10-07";
+const INVENTORY_REVIEW_DATE: &str = "2026-10-08";
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -68,6 +68,7 @@ fn repository_inventory_binds_qualified_formats_to_real_normalizers() {
         "discord_bot",
         "telegram_desktop_ui",
         "telegram_linux_notifications",
+        "telegram_desktop_debug_logs",
         "nonexistent_profile",
     ] {
         let support = registry.technical_support(id, &observed(), date(INVENTORY_REVIEW_DATE));
@@ -86,7 +87,7 @@ fn future_policy_review_cannot_qualify_an_unimplemented_profile() {
         .iter_mut()
         .find(|c| c["id"] == "telegram_linux_notifications")
         .unwrap();
-    profile["last_policy_reviewed_at"] = "2026-10-08".into();
+    profile["last_policy_reviewed_at"] = "2026-10-09".into();
     let report = parse(&input)
         .validate_repository(
             &repo(),
