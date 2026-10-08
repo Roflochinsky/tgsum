@@ -114,7 +114,7 @@ def prepare(root, nonce, port):
     (root / "refresh-control.json").write_text(json.dumps({"mode": "locked", "now": 100}), encoding="utf-8")
 
 
-def exercise(ui, root, report, report_dir):
+def exercise(ui, root, report, report_dir, launch_env, binary):
     def passed(name):
         report["checks"].append(name)
         print("PASS " + name, flush=True)
@@ -627,7 +627,47 @@ def exercise(ui, root, report, report_dir):
             with (logs / "mtp_12_00.txt").open("a", encoding="utf-8") as log:
                 log.write(packet)
 
+        background = ui.invoke("background_status")
+        assert background["keeps_running"] and background["window_visible"]
+        assert not background["autostart_enabled"]
+        ui.click('#btn-background')
+        ui.wait('document.querySelector("#background-dialog").open')
+        ui.wait('!document.querySelector("[data-background-autostart]").disabled')
+        ui.click('[data-background-autostart]')
+        ui.wait('document.querySelector("[data-background-autostart]").checked && !document.querySelector("[data-background-autostart]").disabled')
+        assert ui.invoke("background_status")["autostart_enabled"]
+        service = root / 'config/systemd/user/tgsum-background.service'
+        assert '--background' in service.read_text() and 'Restart=on-failure' in service.read_text()
+        ui.click('[data-background-autostart]')
+        ui.wait('!document.querySelector("[data-background-autostart]").checked && !document.querySelector("[data-background-autostart]").disabled')
+        assert not ui.invoke("background_status")["autostart_enabled"]
+        assert service.is_file(), "Disabling startup must preserve its configuration"
+        ui.screenshot(report_dir / 'background-dialog.png')
+        ui.click('#background-dialog form button')
+        result = ui.command('execute/async', {'script': '''
+          const done = arguments[arguments.length - 1];
+          window.__TAURI__.window.getCurrentWindow().close().then(() => done(true), e => done({failure:String(e)}));
+        ''', 'args': []})
+        assert result is True, result
+        deadline = time.monotonic() + 10
+        while ui.invoke('background_status')['window_visible']:
+            assert time.monotonic() < deadline, 'Window did not hide on CloseRequested'
+            time.sleep(0.1)
         append_observation(600, "Synthetic continuous body Ж 😀")
+        deadline = time.monotonic() + 20
+        while ui.invoke('open_project', {'projectId': continuous_id})['revision'] == initial['revision']:
+            assert time.monotonic() < deadline, 'Hidden collector did not apply observation'
+            time.sleep(0.1)
+        with (report_dir / 'secondary.log').open('w') as secondary_log:
+            secondary = subprocess.run([str(binary), '--e2e-secondary'], env=launch_env, cwd=REPO,
+                                       stdout=secondary_log, stderr=subprocess.STDOUT, timeout=15)
+        assert secondary.returncode == 0, 'Secondary launch did not reach the existing owned instance'
+        deadline = time.monotonic() + 10
+        while not ui.invoke('background_status')['window_visible']:
+            assert time.monotonic() < deadline, 'Secondary launch did not reopen the main window'
+            time.sleep(0.1)
+        assert ui.evaluate('window.__TGSUM_E2E__.pid') == report['webview']['pid']
+        passed('Linux background: native CloseRequested hides window; journal applies while hidden; real secondary launch reopens the same process; autostart configuration uses only owned fixture state')
         ui.wait('document.querySelector(' + json.dumps(collector + ' [data-continuous-counts]') + ')?.textContent.includes("Применено к проекту: 1")')
         current = ui.invoke("open_project", {"projectId": continuous_id})
         assert current["revision"] > initial["revision"]
@@ -652,6 +692,15 @@ def exercise(ui, root, report, report_dir):
         ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "stopped"')
         ui.screenshot(report_dir / "continuous-stopped.png")
         passed("continuous controls: native selected journal, Project apply, drafts survive, Stop/resume and explicit gap; synthetic logs only")
+        forwarded = root / 'forwarded-result.json'
+        forwarded.write_bytes((root / 'full.json').read_bytes())
+        with (report_dir / 'secondary-open.log').open('w') as log:
+            result = subprocess.run([str(binary), '--e2e-secondary', forwarded.name], cwd=root,
+                                    env=launch_env, stdout=log, stderr=subprocess.STDOUT, timeout=15)
+        assert result.returncode == 0
+        ui.wait('document.body.dataset.screen === "select" && document.querySelector("#file-name").textContent.includes("forwarded-result.json")')
+        assert ui.evaluate('window.__TGSUM_E2E__.pid') == report['webview']['pid']
+        passed('Linux Open with: relative JSON passed by secondary launch reaches the existing renderer with sender cwd')
 
     # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.
@@ -714,8 +763,12 @@ def main():
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
     prepare(root, nonce, port)
+    if platform.system() == 'Linux':
+        (root / 'defer-main-window').write_text(nonce)
     binary = REPO / "target/debug" / ("tgsum.exe" if os.name == "nt" else "tgsum")
     command = ["cargo", "run", "--locked", "-p", "tgsum", "--features", "desktop-e2e"] if args.cargo_run else [str(binary)]
+    if platform.system() == 'Linux':
+        command += ['--', '--background'] if args.cargo_run else ['--background']
     env = dict(os.environ, TGSUM_DESKTOP_E2E_ROOT=str(root), TGSUM_ANALYSIS_FIXTURE="1",
                XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"),
                XDG_CACHE_HOME=str(root / "cache"), GTK_CSD="1")
@@ -736,8 +789,16 @@ def main():
         with (report_dir / "app.log").open("w", encoding="utf-8") as log:
             child = subprocess.Popen(command, cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 120
+            startup_secondary = False
             while True:
                 assert child.poll() is None, "Application exited; see app.log"
+                if platform.system() == 'Linux' and not startup_secondary and (root / 'window-deferred').is_file():
+                    with (report_dir / 'startup-secondary.log').open('w') as secondary_log:
+                        probe = subprocess.run([str(binary), '--e2e-secondary'], cwd=REPO, env=env,
+                                               stdout=secondary_log, stderr=subprocess.STDOUT, timeout=15)
+                    assert probe.returncode == 0, 'Startup secondary could not reach its owned primary'
+                    (root / 'defer-main-window').unlink()
+                    startup_secondary = True
                 try:
                     if (root / "webview-ready").exists() and ui.request("GET", "/status")["ready"]:
                         break
@@ -750,8 +811,12 @@ def main():
             info = ui.wait("window.__TGSUM_E2E__")
             assert info["nonce"] == nonce, "Refusing a WebDriver from another process"
             report["webview"] = info
+            if platform.system() == 'Linux':
+                assert startup_secondary and ui.invoke('background_status')['window_visible'], 'Foreground request was lost before main window creation'
+                report['checks'].append('Linux hidden startup: secondary foreground request before main window creation is retained and shown')
+                print('PASS ' + report['checks'][-1], flush=True)
             report["user_agent"] = ui.evaluate("navigator.userAgent")
-            exercise(ui, root, report, report_dir)
+            exercise(ui, root, report, report_dir, env, binary)
             ui.screenshot(report_dir / "malformed-archive.png")
             report["status"] = "passed"
     except Exception:

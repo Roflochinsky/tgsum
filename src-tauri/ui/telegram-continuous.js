@@ -7,7 +7,7 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
     panel.dataset.telegramContinuous = source.source_id
     panel.innerHTML = `<summary>Собирать сообщения из Telegram</summary>
       <p>Экспериментальный сбор текста из диагностических логов Telegram Desktop 7.2.5 на Linux. Начальная история и вложения остаются из подключённого архива.</p>
-      <p class="hint">Telegram должен работать с отладкой и записывать папку DebugLogs. Сейчас сбор работает, пока TGSUM запущен. Полная история и получение каждого нового сообщения не гарантированы.</p>
+      <p class="hint">Telegram должен работать с отладкой и записывать папку DebugLogs. При включённом сборе окно TGSUM можно закрыть: процесс продолжит работу. Автозапуск настраивается в «Работа в фоне». Полная история и получение каждого нового сообщения не гарантированы.</p>
       <label>Папка DebugLogs<input type="text" data-continuous-directory spellcheck="false" placeholder="Абсолютный путь к DebugLogs"></label>
       <button type="button" class="btn btn-ghost" data-continuous-pick>Выбрать папку…</button>
       <label class="project-check"><input type="checkbox" data-continuous-account> В этом Telegram Desktop подключён один аккаунт.</label>

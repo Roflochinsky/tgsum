@@ -3,6 +3,7 @@
 
 import { mountProjects } from './projects.js'
 import { mountOnboarding } from './onboarding.js'
+import { mountBackground } from './background.js'
 
 const { invoke } = window.__TAURI__.core
 const { listen } = window.__TAURI__.event
@@ -132,6 +133,7 @@ const projects = mountProjects({ invoke, show, pickFile, startJob,
   endJob: () => { state.job = null }, busy: () => Boolean(state.job) || state.picking,
   selection: () => [...state.selected.values()], index: () => state.index, toast })
 mountOnboarding({ invoke, busy: () => projects.busy() || state.picking })
+mountBackground({ invoke, toast })
 
 function show(name) {
   state.screen = name
@@ -704,8 +706,34 @@ if (window.__TGSUM_THEME__) setInterval(() => { if (!document.hidden) syncTheme(
 
 // ---------- boot ----------
 
+let launchExportsReady = false
+let openingLaunchExport = false
+let retainedLaunchExport = null
+function launchExportBusy() {
+  return !launchExportsReady || state.job || state.picking || projects.busy() || $('#onboarding').open
+}
+async function openLaunchExport() {
+  if (openingLaunchExport || launchExportBusy()) return
+  openingLaunchExport = true
+  try {
+    if (!retainedLaunchExport) retainedLaunchExport = await invoke('next_launch_export')
+    // Another operation can start while IPC is pending. Retain a popped path
+    // until openExport can synchronously reserve its indexing operation.
+    if (!retainedLaunchExport || launchExportBusy()) return
+    const path = retainedLaunchExport
+    retainedLaunchExport = null
+    await openExport(path)
+  } catch (e) { toast(errText(e), 'error') }
+  finally { openingLaunchExport = false }
+}
+listen('tgsum:open-export', openLaunchExport)
+setInterval(openLaunchExport, 1000)
+
 show('start')
 invoke('initial_path').then(async (path) => {
   if (path) await openExport(path)
   else show('start')
-}).catch((e) => toast(errText(e), 'error'))
+}).catch((e) => toast(errText(e), 'error')).finally(() => {
+  launchExportsReady = true
+  openLaunchExport()
+})

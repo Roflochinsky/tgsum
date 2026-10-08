@@ -43,3 +43,10 @@ desktop-e2e = ["analysis-fixtures", "dep:tauri-plugin-wdio-webdriver"]
 [dev-dependencies]
 tauri = { version = "2", features = ["custom-protocol", "test"] }
 tempfile = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tauri-plugin-single-instance = "=2.4.4"
+signal-hook = "=0.3.18"
+cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
+rustix = { version = "=1.1.5", features = ["fs", "process"] }

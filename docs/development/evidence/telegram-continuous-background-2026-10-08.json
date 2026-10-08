@@ -1,0 +1,129 @@
+{
+  "date": "2026-10-08",
+  "task": "tgsum-i1w.13",
+  "scope": "Linux hidden-window collection, single instance, forwarded JSON and opt-in login service configuration; owned synthetic data only. Full permanent automation remains incomplete.",
+  "source_base_commit": "d38c9f635832ab2c6354f23f84117367ecf5f540",
+  "source_working_tree_dirty_at_verification": true,
+  "source_sha256": {
+    "Cargo.lock": "0023ca5b0174797885275bcefd9cc0ad9d2979dfe5155f1699e443d9da48a096",
+    "src-tauri/Cargo.toml": "fff43f58d2a04399fb8c855432d2485bddcff7be7ad85d9d848ee81162e9f365",
+    "src-tauri/capabilities/default.json": "0240a41b67eff0778d16c5365a5b628fa4bc349d4b0d64eb253fa3763cb65096",
+    "src-tauri/src/background.rs": "ac5b3c0c65e057e4bc247495b41edc9482b06d8f2e11661e4ce600da9dbb96a0",
+    "src-tauri/src/background/linux.rs": "dd108ebf2b401200fcb25ceef91a098b2009f5c73866e1e72d808349a38cdf1b",
+    "src-tauri/src/background/tests.rs": "eb06e53e99357e82272ba6aaed11f72f520f163593d5f28c76898d62959ca29d",
+    "src-tauri/src/lib.rs": "6d32fbce3083f3fffb58d3a2c7c1e61445ee62672ead7d66f856063a0f324162",
+    "src-tauri/src/desktop_e2e.rs": "5ce394f22fbc65a79022dcffb0bb5f81e2cfcf239224be4eff337c96ea595305",
+    "src-tauri/ui/app.js": "319affa0bdc431fe969271b89449415b48c49eb7a63622f9fa13359defb8e585",
+    "src-tauri/ui/background.js": "7baec7eb52d40fe36ba8ecf9db0a515ced56a610d8f34efe8ec571ba830feafe",
+    "src-tauri/ui/index.html": "c6149882bdaac5478626d28442becb64fa936fa6bf81ec76897ab8b093fef6a9",
+    "src-tauri/ui/style.css": "196716ef5336b3fd891e1c4c4cd2c8c55d5bd06762d68f9eea132148b9fe8cc8",
+    "src-tauri/ui/telegram-continuous.js": "2acb93e368b757f84386f5a4e5e836744e6b8f09d1c3a284a3c0cb73cba3e532",
+    "scripts/desktop-e2e.py": "25b6a2a400b4cb0da0f76559c28f478c6f1621e4a00a3f63cd5ca2235de46da0"
+  },
+  "checks": [
+    {
+      "command": "bash scripts/check.sh quick",
+      "result": "PASS"
+    },
+    {
+      "command": "cargo test --locked -p tgsum --features analysis-fixtures --lib background",
+      "result": "PASS",
+      "test_count": 9,
+      "scope": "8 background tests plus startup lifecycle regression",
+      "independent": true
+    },
+    {
+      "command": "bash scripts/check.sh",
+      "result": "PASS",
+      "scope": "Full workspace format, check, clippy, tests and doctests; existing opt-in ignored isolation tests remain ignored."
+    },
+    {
+      "command": "python scripts/desktop-e2e.py --cargo-run --report-dir <owned-temporary-directory>",
+      "result": "PASS",
+      "check_count": 25,
+      "checks": [
+        "Linux hidden startup: secondary foreground request before main window creation is retained and shown",
+        "isolated onboarding and Project creation via controls",
+        "failed project import resets connection; next one-off export leaves project unchanged",
+        "source access distinguishes whole-file read, stored chat, context scope and manual refresh",
+        "saving one chat preserves other drafts and blocks preparation until all are saved",
+        "full JSON, chat/topic/date scope, saved privacy and sanitized Review",
+        "Export only writes sanitized bundle through real IPC",
+        "codex synthetic agent through Review, explicit Run and rendered result",
+        "claude synthetic agent through Review, explicit Run and rendered result",
+        "single JSON refresh preserves saved scope, invalidates Review and reopens Project",
+        "selected-folder candidate requires confirmation; stable repeated Telegram import updates snapshot without Run",
+        "missing and truncated assisted JSON require a new confirmation and preserve both snapshots",
+        "two assisted Telegram sources reject wrong chat then retry one source without analysis",
+        "schedule opt-in persists and a locked session never starts the synthetic client",
+        "unlocked timer imports the correlated output path once and preserves the other chat and analysis",
+        "refresh cancellation waits for the fake client terminal event and preserves snapshots",
+        "lost active session requires explicit review and manual cadence can stop future scheduling",
+        "local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause",
+        "one common export: UI selects multiple chats/topics, one package control, missing-chat rollback and automatic combined update",
+        "Linux background: native CloseRequested hides window; journal applies while hidden; real secondary launch reopens the same process; autostart configuration uses only owned fixture state",
+        "continuous controls: native selected journal, Project apply, drafts survive, Stop/resume and explicit gap; synthetic logs only",
+        "Linux Open with: relative JSON passed by secondary launch reaches the existing renderer with sender cwd",
+        "unimplemented source has no inferred grant; another project cannot show stale output",
+        "single-chat topic selection and actual one-off Markdown output",
+        "malformed archive displays an error; no uncaught renderer failures"
+      ],
+      "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+      "architecture": "x86_64",
+      "webview_version": "2.52.6",
+      "picker": "simulated native response",
+      "agents": "synthetic",
+      "telegram_refresh": "synthetic driver/session; no messenger process",
+      "service_manager": "owned in-memory fixture state; no actual user systemd configuration"
+    },
+    {
+      "method": "Separate Rust/source and real WebKit review with synthetic IPC",
+      "result": "Scoped PASS",
+      "reviewer": "debug_source_review with separate project_clarity and FD review",
+      "mutations": [
+        "Restore pending flag: delayed empty response plus new event loses queued file (RED); restoration GREEN.",
+        "Remove second busy guard: path popped during another operation is lost (RED); restoration GREEN.",
+        "Remove background status-generation guards: checkbox shows stale state (RED); restoration GREEN."
+      ]
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    }
+  ],
+  "verified_behavior": [
+    "Native CloseRequested hides the main window when continuous collection is enabled.",
+    "The writer applies a selected synthetic native message to its Project while the window is hidden.",
+    "A real secondary process reopens the same main process; a foreground request arriving before window creation is retained.",
+    "Relative JSON passed by a real secondary process is resolved from its cwd and delivered to the existing renderer.",
+    "Renderer retains a popped path while busy and polls again after an empty result.",
+    "Owned login-unit configuration can be enabled/disabled through UI; disabling preserves the file and current process.",
+    "Unit publication uses a retained directory, anonymous temporary inode and atomic no-clobber link.",
+    "Foreign unit, symlink, unsafe directories, late foreign leaf and FIFO are rejected without overwrite or indefinite blocking.",
+    "Signal handling requests normal Tauri shutdown and the writer is joined before the single-instance plugin releases its D-Bus name."
+  ],
+  "dependencies": {
+    "tauri": "2.11.6 unchanged",
+    "single_instance": "2.4.4 pinned Linux only",
+    "signal_hook": "0.3.18 pinned Linux only",
+    "unrelated_dependency_upgrade": false
+  },
+  "not_qualified": [
+    "Actual login service activation, login and service restart on the installed user application.",
+    "Installation/update of the personal binary and schema-10 manifest backup/rollback.",
+    "Managed stock Telegram debug activation and restoration.",
+    "A real newly arriving VibeCoders message, edits or deletes.",
+    "Full history, gap-free delivery, multi-account attribution, production support or AI handoff."
+  ],
+  "data_handling": "Owned synthetic roots and private temporary profiles only. No Telegram process/account API/export/messages/tdata/session database/process memory, real diagnostic payload, user application installation or system configuration accessed or changed. Source logs and retained user data were not deleted.",
+  "screenshots": [
+    "telegram-continuous-background-2026-10-08.png"
+  ],
+  "base_ci": {
+    "head_sha": "bfea95ca388209f524e833eb2e6e131d901031a2",
+    "run_id": 37752083897,
+    "conclusion": "success",
+    "scope": "Published preceding worker milestone; does not certify current uncommitted background source."
+  },
+  "rollback": "This pass changed source only. Use normal git revert for the background commit. Future user-service disable is systemctl --user disable tgsum-background.service without --now; app quit keeps journals/configuration. Actual installation requires a separate backup and recorded restore command."
+}

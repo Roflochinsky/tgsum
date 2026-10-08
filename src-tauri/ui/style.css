@@ -143,10 +143,10 @@ h1, h2 { font-family: var(--display); font-weight: 500; letter-spacing: -0.02em;
 body[data-screen="projects"] .titlebar { grid-template-columns: auto 1fr; }
 #project-steps { align-items: center; }
 #project-steps [aria-current="step"] { color: var(--on-primary); background: var(--primary); }
-#onboarding { width: min(650px, calc(100% - 40px)); max-height: calc(100% - 40px); padding: 28px; color: var(--text); overflow: auto; }
-#onboarding::backdrop { background: #050a20b8; }
-#onboarding form { text-align: right; }
-#onboarding p, #onboarding li { line-height: 1.6; }
+#onboarding, #background-dialog { width: min(650px, calc(100% - 40px)); max-height: calc(100% - 40px); padding: 28px; color: var(--text); overflow: auto; }
+#onboarding::backdrop, #background-dialog::backdrop { background: #050a20b8; }
+#onboarding form, #background-dialog form { text-align: right; }
+#onboarding p, #onboarding li, #background-dialog p { line-height: 1.6; }
 #onboarding li { margin-block: 10px; }
 #onboarding .project-actions { justify-content: space-between; margin-top: 24px; margin-bottom: 0; }
 .local-badge {

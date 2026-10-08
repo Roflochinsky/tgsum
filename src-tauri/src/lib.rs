@@ -6,6 +6,7 @@
 
 pub mod analysis;
 mod assisted;
+mod background;
 mod desktop;
 #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
 mod desktop_e2e;
@@ -553,12 +554,36 @@ fn current_theme() -> Option<desktop::DesktopTheme> {
 /// the system title bar on tiling compositors, and with the desktop theme
 /// available to `ui/theme.js` before the first paint.
 fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    #[cfg(all(debug_assertions, feature = "desktop-e2e", target_os = "linux"))]
+    if let Some(harness) = app.try_state::<desktop_e2e::Harness>() {
+        let deferred = harness.root.join("defer-main-window");
+        if deferred.is_file() {
+            fs::write(harness.root.join("window-deferred"), &harness.nonce)?;
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while deferred.is_file() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if deferred.is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "owned deferred-window fixture timed out",
+                )
+                .into());
+            }
+        }
+    }
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else {
         return Ok(());
     };
     let decorations = config.decorations && desktop::native_decorations(|k| std::env::var(k).ok());
     let theme = serde_json::to_string(&current_theme())?;
     let builder = WebviewWindowBuilder::from_config(app, config)?
+        .visible(
+            !app.try_state::<background::BackgroundState>()
+                .is_some_and(|state| {
+                    state.launch_hidden && !state.foreground_requested.load(Ordering::Acquire)
+                }),
+        )
         .decorations(decorations)
         .initialization_script(format!("window.__TGSUM_THEME__ = {theme};"));
     #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
@@ -624,6 +649,9 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(local_package::PackageRuntime::default())
         .manage(telegram_continuous::TelegramContinuousState::default())
         .setup(|app| {
+            if app.try_state::<background::BackgroundState>().is_none() {
+                app.manage(background::BackgroundState::default());
+            }
             if app.try_state::<analysis::AnalysisState>().is_none() {
                 app.manage(analysis::AnalysisState::for_app());
             }
@@ -645,6 +673,11 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .invoke_handler(tauri::generate_handler![
             initial_path,
             desktop_theme,
+            background::background_status,
+            background::set_background_autostart,
+            background::hide_application,
+            background::quit_application,
+            background::next_launch_export,
             pick_export,
             pick_out_dir,
             index_export,
@@ -696,7 +729,46 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let arguments: Vec<String> = std::env::args().collect();
+    let builder = tauri::Builder::default().manage(background::BackgroundState::for_launch(
+        cfg!(target_os = "linux") && arguments.iter().any(|arg| arg == "--background"),
+        arguments.iter().any(|arg| arg == "--quit"),
+    ));
+    #[cfg(all(debug_assertions, feature = "desktop-e2e", target_os = "linux"))]
+    if arguments.iter().any(|arg| arg == "--e2e-secondary") {
+        desktop_e2e::validate_secondary().expect("refusing unsafe secondary probe");
+    }
+    #[cfg(target_os = "linux")]
+    let builder = {
+        let id = "com.roflochinsky.tgsum".to_owned();
+        #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
+        let id = if desktop_e2e::requested() {
+            use std::hash::{Hash, Hasher};
+            let mut hash = std::collections::hash_map::DefaultHasher::new();
+            std::env::var_os("TGSUM_DESKTOP_E2E_ROOT").hash(&mut hash);
+            format!("{id}.fixture_{}", hash.finish())
+        } else {
+            id
+        };
+        builder.plugin(
+            tauri_plugin_single_instance::Builder::new()
+                .dbus_id(id)
+                .callback(|app, arguments, cwd| background::forward_launch(app, &arguments, &cwd))
+                .build(),
+        )
+    };
+    #[cfg(all(debug_assertions, feature = "desktop-e2e", target_os = "linux"))]
+    if arguments.iter().any(|arg| arg == "--e2e-secondary") {
+        // The plugin exits a secondary process before setup. If no owned
+        // primary exists, this probe must fail without creating a Project,
+        // renderer, client or user launcher entry.
+        let probe = builder
+            .setup(|_| Err(io::Error::other("secondary probe requires its owned primary").into()))
+            .build(tauri::generate_context!())
+            .expect("secondary probe build");
+        probe.run(|_, _| {});
+        std::process::exit(1);
+    }
     #[cfg(all(debug_assertions, feature = "desktop-e2e"))]
     let builder =
         desktop_e2e::configure(builder).expect("refusing unsafe desktop E2E configuration");
@@ -742,6 +814,29 @@ fn run_app<R: Runtime>(app: tauri::App<R>) {
         // Tauri calls setup on Ready, not during Builder::build. State created
         // by setup is available only once this event reaches our callback.
         tauri::RunEvent::Ready => {
+            if app
+                .try_state::<background::BackgroundState>()
+                .is_some_and(|state| state.foreground_requested.load(Ordering::Acquire))
+            {
+                background::reopen(app);
+            }
+            if app
+                .try_state::<background::BackgroundState>()
+                .is_some_and(|state| state.quit_on_ready)
+            {
+                background::quit_application(app.clone());
+                return;
+            }
+            #[cfg(target_os = "linux")]
+            if app
+                .try_state::<background::BackgroundState>()
+                .is_some_and(|state| state.handle_signals)
+                && background::start_signal_handler(app.clone()).is_err()
+            {
+                eprintln!("tgsum: could not register graceful service shutdown");
+                app.exit(1);
+                return;
+            }
             telegram_continuous::start_worker(app.clone(), Arc::clone(&stop));
             local_package::start_timer(app.clone(), Arc::clone(&stop));
             assisted::start_background_watcher(
@@ -756,6 +851,27 @@ fn run_app<R: Runtime>(app: tauri::App<R>) {
                     .clone(),
                 Arc::clone(&stop),
             );
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } if label == "main" && background::keep_alive(app) => {
+            api.prevent_close();
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
+        }
+        tauri::RunEvent::ExitRequested {
+            code: None, api, ..
+        } if background::keep_alive(app) => {
+            api.prevent_exit();
+        }
+        tauri::RunEvent::ExitRequested { .. } => {
+            // Release the writer before the single-instance plugin releases
+            // its D-Bus name on Exit, so a replacement process can reopen it.
+            stop.store(true, Ordering::Relaxed);
+            telegram_continuous::finish_worker(app);
         }
         tauri::RunEvent::Exit => {
             stop.store(true, Ordering::Relaxed);

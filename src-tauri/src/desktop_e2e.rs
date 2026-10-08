@@ -34,6 +34,26 @@ pub(crate) fn requested() -> bool {
     std::env::var_os("TGSUM_DESKTOP_E2E_ROOT").is_some()
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn validate_secondary() -> io::Result<()> {
+    let root = fs::canonicalize(
+        std::env::var_os("TGSUM_DESKTOP_E2E_ROOT")
+            .ok_or_else(|| io::Error::other("secondary probe needs an owned root"))?,
+    )?;
+    if !root.starts_with(fs::canonicalize(std::env::temp_dir())?)
+        || !root
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("tgsum-desktop-e2e-"))
+        || std::env::var("TGSUM_ANALYSIS_FIXTURE").as_deref() != Ok("1")
+        || !(root.join("webview-ready").is_file() || root.join("window-deferred").is_file())
+    {
+        return Err(io::Error::other(
+            "secondary probe requires a running owned harness",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn configure<R: Runtime>(builder: Builder<R>) -> io::Result<Builder<R>> {
     let Some(root) = std::env::var_os("TGSUM_DESKTOP_E2E_ROOT") else {
         return Ok(builder);

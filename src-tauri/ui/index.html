@@ -21,12 +21,29 @@
       <button id="btn-start" class="btn btn-ghost btn-sm" type="button">Открыть архив</button>
       <button id="btn-help" class="btn btn-ghost btn-sm" type="button">Помощь</button>
       <button id="btn-projects" class="btn btn-ghost btn-sm" type="button">Проекты</button>
+      <button id="btn-background" class="btn btn-ghost btn-sm" type="button">Работа в фоне</button>
       <span class="local-badge" title="Чтение архива и сохранение файлов выполняются на компьютере">
         <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         подготовка локально
       </span>
     </div>
   </header>
+
+  <dialog id="background-dialog" class="glass" aria-labelledby="background-title">
+    <form method="dialog"><button class="btn btn-ghost" aria-label="Закрыть настройки фоновой работы">Закрыть</button></form>
+    <h2 id="background-title">Работа в фоне</h2>
+    <p>Когда сбор включён, закрытие окна оставляет TGSUM работать. Чтобы вернуться, откройте TGSUM через меню приложений — появится то же окно.</p>
+    <p data-background-status class="hint" aria-live="polite">Проверяю состояние…</p>
+    <label><input type="checkbox" data-background-autostart disabled> Запускать TGSUM при входе в систему</label>
+    <p class="hint">При следующем входе приложение запустится без окна и возобновит включённый сбор. Выключение автозапуска сохраняет историю и не останавливает текущий процесс.</p>
+    <p data-background-path class="hint output-path"></p>
+    <p data-background-error class="alert" role="alert" hidden></p>
+    <div class="project-actions">
+      <button data-background-hide class="btn btn-primary" type="button">Скрыть окно</button>
+      <button data-background-quit class="btn btn-ghost" type="button">Завершить TGSUM</button>
+    </div>
+    <p class="hint">Завершение останавливает процесс. Настройки и история остаются; включённый сбор возобновится при следующем запуске.</p>
+  </dialog>
 
   <dialog id="onboarding" class="glass" aria-labelledby="onboarding-title">
     <form method="dialog"><button class="btn btn-ghost" aria-label="Закрыть помощь">Закрыть</button></form>
