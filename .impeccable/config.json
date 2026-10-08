@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "src-tauri/ui/index.html"
+        ],
+        "createdAt": "2026-10-08T09:34:42.169Z",
+        "reason": "Agent review 2026-10-08: the only div.card is div.card.save-card; style.css overrides its border to 0 and background to none. Visible outer .save container has 26px/32px/24px padding, or 18px on narrow windows. No text is flush against a visible card edge."
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "src-tauri/ui/index.html"
+        ],
+        "createdAt": "2026-10-08T09:34:42.221Z",
+        "reason": "Agent review 2026-10-08: finding targets .bar-fill::after with empty content. shine animates a decorative progress-bar highlight during work; no text/content scrolls and no reading is obscured. This is a task-progress indicator, not a marquee."
+      }
+    ]
+  }
+}
