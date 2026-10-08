@@ -662,7 +662,7 @@ impl TelegramContinuousState {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = host;
+            drop(host);
             Ok(client::View::default())
         }
     }
