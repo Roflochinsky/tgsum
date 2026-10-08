@@ -496,6 +496,9 @@ fn local_package_uses_current_snapshot_and_retains_it_after_stop_without_json() 
     assert_eq!(state.phase, "ready", "{}", state.message);
     let receipt = state.ready.unwrap();
     assert!(receipt.local_only);
+    let readme = fs::read_to_string(receipt.directory.join("README.md")).unwrap();
+    assert!(readme.contains("локальные наблюдения из диагностических логов"));
+    assert!(readme.contains("автоматическая публикация отключена"));
     assert!(!f
         .store
         .local_package_allows_publication(&f.project.project_id)

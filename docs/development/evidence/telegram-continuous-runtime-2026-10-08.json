@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-08",
+  "task": "tgsum-i1w.13",
+  "scope": "Experimental app-open desktop worker, Start/Stop/status IPC and UI with synthetic Telegram diagnostic logs; full permanent automation is not complete.",
+  "source_base_commit": "5e5fd746886f75cd5a7d3add927fa6bc7ac64dd8",
+  "source_working_tree_dirty_at_verification": true,
+  "source_sha256": {
+    "src-tauri/src/telegram_continuous.rs": "0f0b7452585f56ddd482a0b737b3048f5148deb4088d4cee61bc89e0de34a253",
+    "src-tauri/src/telegram_continuous/tests.rs": "5134d74c5919a4684b1e976fd5a7b0fab8cd5e7d395213f6d1536250c7589c96",
+    "src-tauri/src/analysis.rs": "07f19d67f938f01aea49d927dcef71f6561ebdf101f00976c9944d79760e7784",
+    "src-tauri/src/lib.rs": "d47141780367ff12c63391bf7c6a6f131f5104f52bb99f43d320d79ab88e8c0e",
+    "src-tauri/src/source_access.rs": "ba5232e2a3ce30c33ddec48946afca4875cd710f3c7a265741ffd7a63cf9f5e9",
+    "src-tauri/ui/telegram-continuous.js": "274b85fd587f647b43db5fac05f3eeabd4e49f0a0a14d62addc9f3b3ed749212",
+    "src-tauri/ui/projects.js": "4a752a76f27fa8a311330dbb283c8b10a9e9e12e26bc29642e63d25a2fa35f9c",
+    "src-tauri/ui/local-package.js": "b96eab98275a4c86d2e22811bdcfa8e9572f3a9672480e19076873d89af6f817",
+    "src-tauri/ui/source-access.js": "b44a184daebb0a1ebe4c0f57ce8a468e61a283306fdee1c0647ede532037d98b",
+    "src-tauri/ui/telegram-refresh.js": "f940284d886f3a9e08b0f1753132a3ad8c6bddf70dae3fa9ec36bbee6a603d30",
+    "core/src/telegram_debug/settings.rs": "82cd3fdd1419293bf260a6dec90e04566f36e6e7ea62c9e2a8c96dea3adc7e18",
+    "core/src/telegram_debug/continuous.rs": "6b616ad78fd9d6e237af0fd5337758216e75c7e5623b7deb9b3e2ada48a52e5c",
+    "core/src/telegram_debug/capture.rs": "69f8ec1154c4b8bf6d84f016bcd562c5fe7d05bb25a2613bc3c2962a363e0233",
+    "core/src/local_package/mod.rs": "c57647690e871260999f45b39faf06b21bd52b5326b239dbb1eaacf7ee75545f",
+    "core/src/telegram_debug/project/tests.rs": "c1c7601079f8d5f8cdb624769caad71ec1f669b985b22fb0ad1e8f569aa76760",
+    "scripts/desktop-e2e.py": "792e58996a66ba2cf69f8f5dddadceb72bd3f2dcb338f7564b8c8f090e2e12ff"
+  },
+  "checks": [
+    {
+      "command": "bash scripts/check.sh quick",
+      "result": "PASS"
+    },
+    {
+      "command": "cargo test --locked -p tgsum --features analysis-fixtures --lib telegram_continuous",
+      "result": "PASS",
+      "test_count": 7,
+      "independent": true
+    },
+    {
+      "command": "bash scripts/check.sh",
+      "result": "PASS",
+      "scope": "Full workspace format, checks, clippy, tests and doctests"
+    },
+    {
+      "command": "python scripts/desktop-e2e.py --cargo-run --report-dir <owned-temporary-directory>",
+      "result": "PASS",
+      "check_count": 22,
+      "checks": [
+        "isolated onboarding and Project creation via controls",
+        "failed project import resets connection; next one-off export leaves project unchanged",
+        "source access distinguishes whole-file read, stored chat, context scope and manual refresh",
+        "saving one chat preserves other drafts and blocks preparation until all are saved",
+        "full JSON, chat/topic/date scope, saved privacy and sanitized Review",
+        "Export only writes sanitized bundle through real IPC",
+        "codex synthetic agent through Review, explicit Run and rendered result",
+        "claude synthetic agent through Review, explicit Run and rendered result",
+        "single JSON refresh preserves saved scope, invalidates Review and reopens Project",
+        "selected-folder candidate requires confirmation; stable repeated Telegram import updates snapshot without Run",
+        "missing and truncated assisted JSON require a new confirmation and preserve both snapshots",
+        "two assisted Telegram sources reject wrong chat then retry one source without analysis",
+        "schedule opt-in persists and a locked session never starts the synthetic client",
+        "unlocked timer imports the correlated output path once and preserves the other chat and analysis",
+        "refresh cancellation waits for the fake client terminal event and preserves snapshots",
+        "lost active session requires explicit review and manual cadence can stop future scheduling",
+        "local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause",
+        "one common export: UI selects multiple chats/topics, one package control, missing-chat rollback and automatic combined update",
+        "continuous controls: native selected journal, Project apply, drafts survive, Stop/resume and explicit gap; synthetic logs only",
+        "unimplemented source has no inferred grant; another project cannot show stale output",
+        "single-chat topic selection and actual one-off Markdown output",
+        "malformed archive displays an error; no uncaught renderer failures"
+      ],
+      "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+      "architecture": "x86_64",
+      "rust": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "webview_version": "2.52.6",
+      "picker": "simulated native response",
+      "agents": "synthetic",
+      "telegram_refresh": "synthetic driver, clock and session; no messenger process"
+    },
+    {
+      "method": "Independent WebKit fixtures using the real UI modules and synthetic IPC",
+      "result": "Scoped PASS",
+      "check_count": 11,
+      "reviewer": "debug_source_review",
+      "mutations": "Owned fixtures reproduced stale source/package facts before the fixes; guard-removal mutations reproduced draft loss, stale revision and closed panels; fixes/restoration returned GREEN."
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    }
+  ],
+  "verified_behavior": [
+    "Only the selected native peer is journaled; exact IDs and UTF-8 are preserved.",
+    "Start validates one-account confirmation and a safe existing log directory before persisting an immutable binding.",
+    "One writer polls and applies journal pages while the TGSUM process is running.",
+    "Stop persists the disabled plan and closes the writer before returning; retained observations are not deleted.",
+    "Resume/restart uses the retained journal and records a separate collector interruption gap.",
+    "Prepared or running analysis delays Project application while journal collection continues.",
+    "Stopped status after process restart reports unknown remaining counts instead of treating the applied checkpoint as the full journal.",
+    "UI preserves neighboring source/collector/package drafts and open collector panels while refreshing source facts.",
+    "Diagnostic packages remain local-only; publication preferences are preserved."
+  ],
+  "screenshots": [
+    "telegram-continuous-ui-2026-10-08.png"
+  ],
+  "not_qualified": [
+    "A real newly arriving VibeCoders message, real edits and real deletions.",
+    "Automatic stock Telegram debug activation, graceful restoration and client lifecycle.",
+    "Closed-window background operation and login autostart.",
+    "Installation of this worker in the user application, installed restart and rollback including schema-10 manifests.",
+    "Complete history, complete delivery or multi-account attribution.",
+    "Production source support or AI handoff."
+  ],
+  "data_handling": "This pass used owned synthetic fixtures only. No Telegram process, account API, real chat export, tdata/session database, real diagnostic payload, user installation or system configuration was accessed or changed.",
+  "base_ci": {
+    "head_sha": "5e5fd746886f75cd5a7d3add927fa6bc7ac64dd8",
+    "run_id": 37745423047,
+    "conclusion": "success",
+    "url": "https://github.com/Roflochinsky/tgsum/actions/runs/37745423047",
+    "scope": "Previous Project/package milestone only; does not certify the current working tree."
+  }
+}

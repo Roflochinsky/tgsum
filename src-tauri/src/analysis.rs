@@ -74,6 +74,35 @@ impl AnalysisState {
         Ok(())
     }
 
+    /// Background observations wait for a prepared or running analysis. Unlike
+    /// explicit editing, polling must never discard the user's reviewed run.
+    #[cfg(target_os = "linux")]
+    pub(super) fn background_edit(
+        &self,
+        project: &str,
+        edit: impl FnOnce() -> std::io::Result<()>,
+    ) -> std::io::Result<bool> {
+        let session = self
+            .shared
+            .lock()
+            .map_err(|_| std::io::Error::other("Analysis state unavailable"))?;
+        let busy = match &session.active {
+            Active::Working {
+                project: active, ..
+            } => active == project,
+            Active::Ready(run) => run.ticket.request().project_id == project,
+            Active::Idle => false,
+        };
+        if busy {
+            return Ok(false);
+        }
+        // Hold the reservation lock through publication. A run cannot start
+        // between the busy check and the corresponding Project mutation.
+        edit()?;
+        drop(session);
+        Ok(true)
+    }
+
     pub(super) fn cancel(&self, store: &ProjectStore) -> Result<(), CmdError> {
         let mut session = self.shared.lock().unwrap();
         if let Active::Working { cancel, .. } = &session.active {

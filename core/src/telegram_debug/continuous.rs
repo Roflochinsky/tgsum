@@ -412,6 +412,31 @@ impl ContinuousCapture {
         result
     }
 
+    /// A worker reopening an existing journal records an unknown observation
+    /// interval. This is distinct from a Telegram log header/day restart.
+    pub fn record_collector_restart(&mut self) -> Result<(), CaptureError> {
+        self.check_paths()?;
+        let mut checkpoint = self.checkpoint()?;
+        if let Some(gap) = checkpoint
+            .follower
+            .gaps
+            .iter_mut()
+            .find(|gap| gap.gap == CaptureGap::CollectorRestarted)
+        {
+            gap.count = gap.count.checked_add(1).ok_or(CaptureError::Capacity)?;
+        } else {
+            checkpoint.follower.gaps.push(GapCount {
+                gap: CaptureGap::CollectorRestarted,
+                count: 1,
+            });
+        }
+        checkpoint.observation_revision = checkpoint
+            .observation_revision
+            .checked_add(1)
+            .ok_or(CaptureError::Capacity)?;
+        self.write_checkpoint(&checkpoint)
+    }
+
     fn poll_inner(&mut self) -> Result<PollReport, CaptureError> {
         let result = self.poll_transaction(|| Ok(()), || Ok(()));
         if result == Err(CaptureError::SourceChanged) {

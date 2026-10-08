@@ -3,6 +3,7 @@ import { mountAnalysis } from './analysis.js'
 import { mountPrivacy } from './privacy.js'
 import { mountAssisted } from './assisted.js'
 import { mountTelegramRefresh } from './telegram-refresh.js'
+import { mountTelegramContinuous } from './telegram-continuous.js'
 import { mountLocalPackage } from './local-package.js'
 import { recentProjects, rememberProject } from './onboarding.js'
 import { renderSourceAccess } from './source-access.js'
@@ -29,14 +30,30 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     startJob, endJob, show, toast })
   const telegramRefresh = mountTelegramRefresh({ invoke, act, project: () => current, toast,
     changed: async (updated, sourceId) => {
+      if (current?.project_id !== updated.project_id || updated.revision < current.revision) return
       current = updated
       invalidateReview()
-      await render()
+      await render({ preserveSourceDrafts: true })
+      if (current?.project_id !== updated.project_id) return
       const panel = document.querySelector(`[data-telegram-refresh="${CSS.escape(sourceId)}"]`)
       if (panel) panel.open = true
     } })
   const localPackage = mountLocalPackage({ invoke, act, project: () => current, toast,
     reload: async () => { current = await invoke('open_project', { projectId: current.project_id }); await render() } })
+  const telegramContinuous = mountTelegramContinuous({ invoke, act, project: () => current, busy: () => working || busy(),
+    changed: async (updated, sourceId) => {
+      if (current?.project_id !== updated.project_id || updated.revision < current.revision) return
+      const openCollectors = new Set([...document.querySelectorAll('[data-telegram-continuous][open]')].map(panel => panel.dataset.telegramContinuous))
+      openCollectors.add(sourceId)
+      current = updated
+      invalidateReview()
+      await render({ preserveSourceDrafts: true })
+      if (current?.project_id !== updated.project_id) return
+      for (const id of openCollectors) {
+        const panel = document.querySelector(`[data-telegram-continuous="${CSS.escape(id)}"]`)
+        if (panel) panel.open = true
+      }
+    } })
 
   function invalidateReview() {
     review = null
@@ -119,7 +136,8 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     // Keep unsaved cards alive, including their attachment choices and timers,
     // while a different chat is saved. Rebuilding them discards the user's draft.
     const drafts = new Map(preserveSourceDrafts
-      ? [...$('#project-sources').querySelectorAll('[data-source][data-dirty="true"]')]
+      ? [...$('#project-sources').querySelectorAll('[data-source]')]
+        .filter(card => card.dataset.dirty === 'true' || card.dataset.continuousDirty === 'true')
         .filter(card => current?.sources.some(source => source.source_id === card.dataset.source))
         .map(card => [card.dataset.source, card])
       : [])
@@ -140,8 +158,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     await privacy.load({ discard: discardPrivacy })
     rememberProject(current.project_id)
     $('#project-review').hidden = true
-    $('#project-unsaved').hidden = drafts.size === 0
-    $('#btn-project-review').disabled = drafts.size > 0 || !current.sources.some((s) => s.selection.enabled)
+    const scopeDrafts = [...drafts.values()].some(card => card.dataset.dirty === 'true')
+    $('#project-unsaved').hidden = !scopeDrafts
+    $('#btn-project-review').disabled = scopeDrafts || !current.sources.some((s) => s.selection.enabled)
     $('#project-name').value = current.name
     $('#project-empty').hidden = current.sources.length > 0
     const access = await invoke('project_source_accesses', { projectId: current.project_id, expectedRevision: current.revision })
@@ -150,7 +169,25 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     const project = current
     for (const source of project.sources) {
       if (drafts.has(source.source_id)) {
-        $('#project-sources').append(drafts.get(source.source_id))
+        const retained = drafts.get(source.source_id)
+        let preview
+        try { preview = await invoke('preview_project_source', { projectId: project.project_id, sourceId: source.source_id }) }
+        catch { /* Keep the draft and show only independently known access facts. */ }
+        if (epoch !== renderEpoch) return
+        const facts = access.sources.find(s => s.source_id === source.source_id)
+        renderSourceAccess(retained.querySelector('.source-access'), facts, preview?.coverage)
+        const continuous = !!project.telegram_continuous?.[source.source_id]
+        retained.querySelector('[data-refresh]').disabled = !facts?.method || continuous
+        retained.querySelector('[data-relink]').disabled = !facts?.method || continuous
+        if (preview?.stats) {
+          const stats = preview.stats
+          const label = retained.querySelector('.project-stats')
+          if (label) {
+            label.textContent = `Выбрано сообщений: ${stats.selected} · новых ${stats.created} · изменённых ${stats.edited} · отсутствуют в новом архиве ${stats.missing}`
+            label.nextElementSibling.textContent = `Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота: ${preview.coverage.level === 'partial' ? 'неполная история' : preview.coverage.level === 'unknown' ? 'не подтверждена' : preview.coverage.level}.`
+          }
+        }
+        $('#project-sources').append(retained)
         continue
       }
       const card = document.createElement('form')
@@ -189,8 +226,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
           <button class="btn btn-ghost" type="button" data-remove>Отключить</button></div>`
       const facts = access.sources.find((s) => s.source_id === source.source_id)
       renderSourceAccess(card.querySelector('.source-access'), facts, preview?.coverage)
-      card.querySelector('[data-refresh]').disabled = !facts?.method
-      card.querySelector('[data-relink]').disabled = !facts?.method
+      const continuous = !!project.telegram_continuous?.[source.source_id]
+      card.querySelector('[data-refresh]').disabled = !facts?.method || continuous
+      card.querySelector('[data-relink]').disabled = !facts?.method || continuous
       const all = card.elements.all_topics
       const syncTopics = () => { for (const input of card.querySelectorAll('[name="topic"]')) input.disabled = all.checked }
       all.addEventListener('change', syncTopics)
@@ -198,9 +236,10 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       await privacy.sourceFiles(card, source)
       assisted.source(card, source, preview?.title || source.scope.conversation_id)
       telegramRefresh.source(card, source)
+      telegramContinuous.source(card, source)
       if (epoch !== renderEpoch) return
     }
-    await localPackage.render($('#project-local-package'))
+    await localPackage.render($('#project-local-package'), { preserveDraft: preserveSourceDrafts })
     if (epoch !== renderEpoch) return
     await analysis.reset()
     syncSteps()

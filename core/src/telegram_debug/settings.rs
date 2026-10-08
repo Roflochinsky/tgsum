@@ -2,13 +2,19 @@
 //! this plan does not start a client or qualify the source on another OS.
 
 use std::io;
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use super::parser::{PeerKind, TypedPeer};
 use crate::project::ProjectSource;
 use crate::snapshot::{validate_snapshot_id, Snapshot};
+
+/// Validate a first binding before persisting it, so a typo or symlink cannot
+/// trap the user in an immutable journal configuration. No log files are read.
+pub fn validate_log_directory(directory: &Path) -> io::Result<()> {
+    crate::attachments::ArchiveFiles::open(directory).map(|_| ())
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

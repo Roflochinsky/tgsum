@@ -15,6 +15,7 @@ mod local_package;
 mod package_github;
 mod privacy;
 mod source_access;
+mod telegram_continuous;
 pub mod telegram_refresh;
 
 use std::fs::{self, File};
@@ -151,6 +152,7 @@ async fn open_project(
 #[tauri::command]
 async fn update_project(
     analysis: State<'_, analysis::AnalysisState>,
+    continuous: State<'_, telegram_continuous::TelegramContinuousState>,
     store: State<'_, ProjectStore>,
     project_id: String,
     expected_revision: u64,
@@ -158,7 +160,19 @@ async fn update_project(
 ) -> Result<Project, CmdError> {
     analysis.before_edit(&store, &project_id)?;
     let store = store.inner().clone();
-    run_blocking(move || Ok(store.update(&project_id, expected_revision, change)?)).await
+    let continuous = continuous.inner().clone();
+    run_blocking(move || {
+        let removed = match &change {
+            ProjectChange::RemoveSource(source_id) => Some(source_id.clone()),
+            _ => None,
+        };
+        let updated = store.update(&project_id, expected_revision, change)?;
+        if let Some(source_id) = removed {
+            continuous.disconnected(&project_id, &source_id)?;
+        }
+        Ok(updated)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -608,6 +622,7 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(Jobs::default())
         .manage(assisted::ExportInboxState::default())
         .manage(local_package::PackageRuntime::default())
+        .manage(telegram_continuous::TelegramContinuousState::default())
         .setup(|app| {
             if app.try_state::<analysis::AnalysisState>().is_none() {
                 app.manage(analysis::AnalysisState::for_app());
@@ -653,6 +668,9 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             local_package::configure_local_package,
             local_package::refresh_local_package,
             local_package::cancel_local_package,
+            telegram_continuous::telegram_continuous_status,
+            telegram_continuous::set_telegram_continuous,
+            telegram_continuous::pick_telegram_log_directory,
             telegram_refresh::telegram_refresh_status,
             telegram_refresh::start_telegram_refresh,
             telegram_refresh::cancel_telegram_refresh,
@@ -724,6 +742,7 @@ fn run_app<R: Runtime>(app: tauri::App<R>) {
         // Tauri calls setup on Ready, not during Builder::build. State created
         // by setup is available only once this event reaches our callback.
         tauri::RunEvent::Ready => {
+            telegram_continuous::start_worker(app.clone(), Arc::clone(&stop));
             local_package::start_timer(app.clone(), Arc::clone(&stop));
             assisted::start_background_watcher(
                 app.clone(),
@@ -738,7 +757,10 @@ fn run_app<R: Runtime>(app: tauri::App<R>) {
                 Arc::clone(&stop),
             );
         }
-        tauri::RunEvent::Exit => stop.store(true, Ordering::Relaxed),
+        tauri::RunEvent::Exit => {
+            stop.store(true, Ordering::Relaxed);
+            telegram_continuous::finish_worker(app);
+        }
         _ => {}
     });
 }

@@ -35,6 +35,13 @@ controls. Do not point it at an existing application. It waits for the native
 `PageLoadEvent::Finished` before creating a WebDriver session: a listening server
 and an existing window alone were insufficient in the first local run.
 
+On Linux the continuous-source flow writes synthetic MTP diagnostic frames
+inside this run's owned temporary root. Actual Start/Stop/status IPC and the
+application worker apply them to the Project. It checks draft preservation,
+local-only package controls, source-access metadata and the separate collector
+restart gap. It never launches or attaches to Telegram and does not qualify a
+real new-message stream or background installation.
+
 ## Isolation and artifacts
 
 - The optional `desktop-e2e` feature registers the pinned driver **1.4.0** only

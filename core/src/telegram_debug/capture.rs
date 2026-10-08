@@ -133,6 +133,7 @@ pub enum CaptureGap {
     FileRotated,
     FileTruncated,
     LoggingRestarted,
+    CollectorRestarted,
     SourceRewrittenDuringPoll,
     MalformedPacket,
     Parser(CoverageGap),

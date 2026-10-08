@@ -34,6 +34,13 @@ pub(crate) struct SourceAccess {
     /// None means unverified/unimplemented; never infer rights from selection.
     method: Option<ImportMethod>,
     attachment_choices: usize,
+    continuous: Option<ContinuousAccess>,
+}
+
+#[derive(Serialize)]
+struct ContinuousAccess {
+    enabled: bool,
+    available: bool,
 }
 
 #[derive(Serialize)]
@@ -81,6 +88,12 @@ pub(crate) async fn project_source_accesses(
                             .attachments
                             .as_ref()
                             .map_or(0, |s| s.files.len()),
+                        continuous: project.telegram_continuous.get(&source.source_id).map(
+                            |plan| ContinuousAccess {
+                                enabled: plan.settings.enabled,
+                                available: cfg!(target_os = "linux"),
+                            },
+                        ),
                     }
                 })
                 .collect(),

@@ -66,9 +66,10 @@ Registry остаётся `research`, без enabled operations и production qu
   и Project CAS идемпотентна; checkpoint подтверждается после публикации.
   Replay после crash не создаёт дубликатов и не откатывает новый snapshot.
 
-Реализованные storage/Project/package и точная граница проверок описаны в
+Реализованные storage/Project/package/worker/UI и точная граница проверок описаны в
 [developer runbook](../development/telegram-continuous-source.md). Успешный
-commit и это описание не заменяют оставшуюся worker/UI/background интеграцию.
+commit и это описание не заменяют управление клиентом, background, установку
+и реальную проверку нового сообщения.
 
 ## Честная полнота и жизненный цикл
 

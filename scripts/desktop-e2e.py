@@ -560,6 +560,100 @@ def exercise(ui, root, report, report_dir):
         passed("one common export: UI selects multiple chats/topics, one package control, missing-chat rollback and automatic combined update")
 
     # A persisted future connector is metadata only, not an OAuth authorization.
+    if platform.system() == "Linux":
+        continuous_project = ui.invoke("create_project", {"name": "Synthetic continuous source"})
+        continuous_id = continuous_project["project_id"]
+        for chat_id, source_id in [(111, "direct"), (222, "group")]:
+            continuous_project = ui.invoke("update_project", {"projectId": continuous_id,
+                "expectedRevision": continuous_project["revision"], "change": {"kind": "source", "value": {
+                    "source_id": source_id, "connector_id": "telegram_json", "scope": {
+                        "platform": "telegram", "account_local_id": "synthetic", "conversation_id": str(chat_id)},
+                    "archive_path": str(root / "full.json"), "latest_snapshot_id": None}}})
+            continuous_project = ui.invoke("refresh_project_source", {"projectId": continuous_id,
+                "sourceId": source_id, "expectedRevision": continuous_project["revision"]})
+        logs = root / "DebugLogs"
+        logs.mkdir()
+        ui.click("#btn-projects")
+        ui.idle()
+        ui.click('[data-project="' + continuous_id + '"]')
+        ui.stage("source")
+        group = '[data-source="group"]'
+        direct = '[data-source="direct"]'
+        ui.value(group + ' [name=through]', '2026-06-20')
+        ui.click('[data-local-package] summary')
+        ui.click('[data-package-images]')
+        collector = group + ' [data-telegram-continuous]'
+        ui.click(collector + ' summary')
+        ui.wait('document.querySelector(' + json.dumps(collector) + ').dataset.state === "stopped"')
+        ui.value(collector + ' [data-continuous-directory]', str(logs))
+        assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-start]') + ').disabled')
+        ui.click(collector + ' [data-continuous-account]')
+        ui.click(collector + ' [data-continuous-start]')
+        ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "watching"')
+        assert not ui.evaluate('document.querySelector("[data-package-images]").checked'), "start erased an existing package draft"
+        assert ui.evaluate('document.querySelector("[data-package-repo]").disabled')
+        assert 'диагностические наблюдения' in ui.evaluate('document.querySelector(' + json.dumps(group + ' .source-method') + ').textContent')
+        assert ui.evaluate('document.querySelector(' + json.dumps(group + ' [name=through]') + ').value') == '2026-06-20'
+        initial = ui.invoke("open_project", {"projectId": continuous_id})
+        ui.value(direct + ' [name=from]', '2026-06-01')
+        ui.click(direct + ' [data-telegram-continuous] summary')
+        ui.wait('document.querySelector(' + json.dumps(direct + ' [data-telegram-continuous]') + ').dataset.state === "stopped"')
+        ui.value(direct + ' [data-continuous-directory]', str(logs))
+        ui.click(direct + ' [data-continuous-account]')
+
+        def append_observation(message_id, text):
+            packet = f'''[12:00:00.123 00-0000001] (dc:2_main) Recv: {{ core_message
+  msg_id: 7352359257580183524 [LONG],
+  seq_no: 1 [INT],
+  bytes: 400 [INT],
+  body: {{ updateNewChannelMessage
+    message: {{ message
+      flags: 256 [LONG],
+      id: {message_id} [INT],
+      peer_id: {{ peerChannel
+        channel_id: 222 [LONG],
+      }},
+      from_id: {{ peerUser
+        user_id: 1 [LONG],
+      }},
+      date: 1781913600 [INT],
+      message: {json.dumps(text, ensure_ascii=False)} [STRING],
+    }},
+    pts: 1 [INT],
+    pts_count: 1 [INT],
+  }},
+}} (dc:2,key:123456,session:987654)
+'''
+            with (logs / "mtp_12_00.txt").open("a", encoding="utf-8") as log:
+                log.write(packet)
+
+        append_observation(600, "Synthetic continuous body Ж 😀")
+        ui.wait('document.querySelector(' + json.dumps(collector + ' [data-continuous-counts]') + ')?.textContent.includes("Применено к проекту: 1")')
+        current = ui.invoke("open_project", {"projectId": continuous_id})
+        assert current["revision"] > initial["revision"]
+        assert current["sources"][1]["latest_snapshot_id"] != initial["sources"][1]["latest_snapshot_id"]
+        assert ui.evaluate('document.querySelector(' + json.dumps(direct + ' [name=from]') + ').value') == '2026-06-01'
+        assert ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-directory]') + ').value') == str(logs)
+        assert ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-account]') + ').checked')
+        assert not ui.evaluate('document.querySelector("[data-package-images]").checked'), "live update erased package draft"
+        assert ui.evaluate('document.querySelector(' + json.dumps(group + ' [data-refresh]') + ').disabled')
+        assert 'не запрашивалась' in ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-gaps]') + ').textContent')
+        ui.screenshot(report_dir / "continuous-watching.png")
+        ui.click(collector + ' [data-continuous-stop]')
+        ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "stopped"')
+        stopped = ui.invoke("open_project", {"projectId": continuous_id})
+        append_observation(601, "queued while stopped")
+        time.sleep(2)
+        assert ui.invoke("open_project", {"projectId": continuous_id})["revision"] == stopped["revision"]
+        ui.click(collector + ' [data-continuous-start]')
+        ui.wait('document.querySelector(' + json.dumps(collector + ' [data-continuous-counts]') + ')?.textContent.includes("Применено к проекту: 2")')
+        assert 'Перерыв между запусками' in ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-gaps]') + ').textContent')
+        ui.click(collector + ' [data-continuous-stop]')
+        ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "stopped"')
+        ui.screenshot(report_dir / "continuous-stopped.png")
+        passed("continuous controls: native selected journal, Project apply, drafts survive, Stop/resume and explicit gap; synthetic logs only")
+
+    # A persisted future connector is metadata only, not an OAuth authorization.
     # Set up that unavailable source via real IPC, then exercise its rendered UI.
     future = ui.invoke("create_project", {"name": "Unimplemented connector fixture"})
     ui.invoke("update_project", {"projectId": future["project_id"], "expectedRevision": future["revision"],

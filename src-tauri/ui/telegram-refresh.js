@@ -49,10 +49,12 @@ export function mountTelegramRefresh({ invoke, act, project, changed, toast }) {
       $('[data-refresh-availability]').textContent = view.available
         ? (configured ? 'Обновляется только этот подключённый чат.' : 'Сначала назначьте папку экспорта в разделе выше.')
         : 'Автоматическая выгрузка для этого клиента пока недоступна. Используйте экспорт через Telegram Desktop.'
-      $('[data-refresh-cadence]').disabled = active || stale
+      const continuous = !!view.project.telegram_continuous?.[source.source_id]
+      if (continuous) $('[data-refresh-availability]').textContent = 'Этот чат связан с журналом сообщений. Управление сбором — в разделе «Собирать сообщения из Telegram».'
+      $('[data-refresh-cadence]').disabled = active || stale || continuous
       for (const option of $('[data-refresh-cadence]').options) option.disabled = option.value !== 'manual' && (!view.available || !configured)
-      $('[data-refresh-save]').disabled = active || stale || (!view.available && $('[data-refresh-cadence]').value !== 'manual')
-      $('[data-refresh-now]').disabled = !view.available || !configured || active || stale || recovery
+      $('[data-refresh-save]').disabled = active || stale || continuous || (!view.available && $('[data-refresh-cadence]').value !== 'manual')
+      $('[data-refresh-now]').disabled = !view.available || !configured || active || stale || recovery || continuous
       $('[data-refresh-cancel]').hidden = !active
       $('[data-refresh-cancel]').disabled = state === 'cancelling'
       $('[data-refresh-reload]').hidden = !stale
@@ -79,9 +81,10 @@ export function mountTelegramRefresh({ invoke, act, project, changed, toast }) {
       try {
         const result = await invoke('telegram_refresh_status', target)
         if (!panel.isConnected || project().project_id !== target.projectId) return
+        if (result.project.revision < project().revision) return
         view = result
         render()
-        if (view.state.state === 'ready' && view.project.revision !== project().revision) {
+        if (view.state.state === 'ready' && view.project.revision > project().revision) {
           const id = `${target.projectId}:${source.source_id}:${view.state.project.sources.find(s => s.source_id === source.source_id)?.latest_snapshot_id}`
           if (!notified.has(id)) { notified.add(id); toast($('[data-refresh-status]').textContent) }
           await changed(view.project, source.source_id)
