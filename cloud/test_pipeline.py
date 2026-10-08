@@ -1,4 +1,5 @@
 import copy
+import contextlib
 import datetime as dt
 import io
 import json
@@ -215,6 +216,28 @@ class History(unittest.TestCase):
         self.commit([row(text="C", revision="d"), row("b", "Other message")])
         values = p.changes(self.repo, self.path, base, p.git(self.repo, "rev-parse", "HEAD"))
         self.assertEqual([r["text"] for r in values], ["B", "C", "Other message"])
+    def test_check_only_verifies_oauth_independently_of_notion_without_analysis(self):
+        self.commit([row()])
+        calls = []
+        class Auth:
+            def __init__(self, *args): pass
+            def restore(self): calls.append("oauth_restore")
+            def persist(self): calls.append("oauth_writeback")
+        class Refused(FakeNotion):
+            def request(self, *args, **kwargs):
+                calls.append("notion_check")
+                raise p.Stop("Notion HTTP 401 fixture")
+        analysis = unittest.mock.Mock(side_effect=AssertionError("check-only must not analyze"))
+        saver = lambda repo,path,value: p.atomic_json(repo / path,value)
+        with patch.dict(os.environ, {"TGSUM_CHECK_ONLY": "true"}), contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaisesRegex(p.Stop, "Notion HTTP 401"):
+                p.worker(self.repo, CONFIG, Auth, analysis, Refused, saver)
+        self.assertEqual(calls, ["oauth_restore", "oauth_writeback", "notion_check"])
+        self.assertIn("Inference ещё не выполнялся", output.getvalue())
+        analysis.assert_not_called()
+        state = p.read_json(self.repo / "state/project-FIXTURE.json")
+        self.assertNotIn("last_attempt", state)
+        self.assertFalse((self.repo / "results").exists())
     def test_narrow_selection_cancels_old_wide_range(self):
         a, b = row("a", "Allowed"), row("b", "Removed sentinel")
         wide = self.commit([a, b])

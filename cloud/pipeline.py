@@ -585,13 +585,15 @@ def worker(repo, config, oauth_factory=OAuth, analysis=analyze, notion_factory=N
         state.pop("reports", None)
         persist(state)
     notion = notion_factory(os.environ["NOTION_TOKEN"])
-    ensure_notion_schema(notion, config)
     if os.environ.get("TGSUM_CHECK_ONLY") == "true":
         with tempfile.TemporaryDirectory(prefix="tgsum-auth-parent-") as parent:
             oauth = oauth_factory(os.environ["GITHUB_REPOSITORY"], Path(parent) / "session", config["oauth_account_sha256"])
             oauth.restore()
             oauth.persist()
+        print("Формат OAuth, выбранный аккаунт/план и secret writeback проверены. Inference ещё не выполнялся.")
+        ensure_notion_schema(notion, config)
         return "Notion grant, формат OAuth, выбранный аккаунт/план и secret writeback проверены. Inference ещё не выполнялся."
+    ensure_notion_schema(notion, config)
     # Retry old Notion results BEFORE considering another analysis batch.
     sync_tasks(notion, state, config, persist)
     sync_reports(notion, state, config, persist)
