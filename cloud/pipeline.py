@@ -46,9 +46,16 @@ def copy_without_keys(result):
     return value
 
 
-def run(args, cwd=None, env=None, data=None):
+def run(args, cwd=None, env=None, data=None, operation=None):
     p = subprocess.run(args, cwd=cwd, env=env, input=data, capture_output=True, timeout=120)
     if p.returncode:
+        labels = {"oauth_run_metadata": "GitHub: сведения запуска",
+            "oauth_secret_metadata": "GitHub: метаданные OAuth-секрета",
+            "oauth_secret_write": "GitHub: сохранение OAuth-сессии"}
+        if operation in labels:
+            status = re.search(rb"\bHTTP ([1-5][0-9]{2})\b", p.stderr)
+            suffix = " (HTTP " + status[1].decode("ascii") + ")" if status else ""
+            raise Stop(labels[operation] + suffix + ": команда не выполнена; данные и секреты не выведены.")
         raise Stop("Служебная команда не выполнена; данные и секреты не выведены.")
     return p.stdout.decode().strip()
 
@@ -154,8 +161,8 @@ def save(repo, relative, value):
             git(repo, "-c", "user.name=TGSUM Automation", "-c", "user.email=tgsum@localhost", "merge", "--no-edit", "@{u}")
 
 
-def gh_json(args, env):
-    return json.loads(run(["gh", *args], env=env))
+def gh_json(args, env, operation=None):
+    return json.loads(run(["gh", *args], env=env, operation=operation))
 
 
 class OAuth:
@@ -170,8 +177,9 @@ class OAuth:
     def restore(self):
         run_env = {"PATH": os.environ["PATH"], "GH_TOKEN": os.environ["GITHUB_TOKEN"]}
         run_id = os.environ["GITHUB_RUN_ID"]
-        queued = gh_json(["api", f"repos/{self.repository}/actions/runs/{run_id}"], run_env)["created_at"]
-        self.version = gh_json(["api", self.endpoint], self.env)["updated_at"]
+        queued = gh_json(["api", f"repos/{self.repository}/actions/runs/{run_id}"], run_env,
+            operation="oauth_run_metadata")["created_at"]
+        self.version = gh_json(["api", self.endpoint], self.env, operation="oauth_secret_metadata")["updated_at"]
         # Repository secrets are snapshotted WHEN QUEUED, not when acquiring
         # workflow concurrency. Equal-second timestamps fail conservatively.
         if self.version >= queued:
@@ -202,7 +210,7 @@ class OAuth:
         path = self.home / "auth.json"
         if not path.exists():
             return
-        latest = gh_json(["api", self.endpoint], self.env)["updated_at"]
+        latest = gh_json(["api", self.endpoint], self.env, operation="oauth_secret_metadata")["updated_at"]
         if latest != self.version:
             raise Stop("OAuth secret изменён во время обработки. Writeback остановлен, нужен новый запуск.")
         value = read_json(path)
@@ -210,7 +218,7 @@ class OAuth:
             raise Stop("Изменился тип авторизации; сессия не сохранена.")
         # No argv secret, no logs/artifacts; gh performs GitHub public-key encryption.
         run(["gh", "secret", "set", "CODEX_AUTH_JSON", "--repo", self.repository],
-            env=self.env, data=encoded(value))
+            env=self.env, data=encoded(value), operation="oauth_secret_write")
 
 
 def schema():

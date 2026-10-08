@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pipeline as p
 
@@ -61,6 +61,20 @@ CONFIG = {"enabled": True, "automatic": False, "package": "project-FIXTURE", "pr
 
 
 class Contracts(unittest.TestCase):
+    def test_github_auth_error_reports_operation_and_status_without_stderr(self):
+        failure = Mock(returncode=1, stdout=b"fixture-private-output", stderr=b"gh: fixture-secret private-id (HTTP 403)")
+        success = Mock(returncode=0, stdout=b'{"created_at":"2026-10-08T12:00:00Z"}')
+        for commands, label in [([failure], "сведения запуска"), ([success, failure], "метаданные OAuth-секрета")]:
+            with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {"CODEX_AUTH_WRITER_TOKEN": "fixture", "GITHUB_TOKEN": "fixture", "GITHUB_RUN_ID": "1"}):
+                oauth = p.OAuth("fixture/private", Path(root) / "session", "fixture")
+                with patch.object(p.subprocess, "run", side_effect=commands), self.assertRaises(p.Stop) as error:
+                    oauth.restore()
+            message = str(error.exception)
+            self.assertIn(label, message)
+            self.assertIn("HTTP 403", message)
+            for private in ["fixture-secret", "private-id", "fixture-private-output", "repos/fixture/private"]:
+                self.assertNotIn(private, message)
+
     def test_notion_refusal_identifies_status_without_private_response_or_id(self):
         notion = p.Notion("fixture-secret")
         for status in [400, 401, 404]:
@@ -227,7 +241,7 @@ class History(unittest.TestCase):
             def request(self, *args, **kwargs):
                 calls.append("notion_check")
                 raise p.Stop("Notion HTTP 401 fixture")
-        analysis = unittest.mock.Mock(side_effect=AssertionError("check-only must not analyze"))
+        analysis = Mock(side_effect=AssertionError("check-only must not analyze"))
         saver = lambda repo,path,value: p.atomic_json(repo / path,value)
         with patch.dict(os.environ, {"TGSUM_CHECK_ONLY": "true"}), contextlib.redirect_stdout(io.StringIO()) as output:
             with self.assertRaisesRegex(p.Stop, "Notion HTTP 401"):
