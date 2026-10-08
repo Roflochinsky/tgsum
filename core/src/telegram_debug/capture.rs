@@ -782,6 +782,9 @@ fn identity(metadata: &fs::Metadata) -> (u64, u64) {
     }
     #[cfg(not(unix))]
     {
+        // The live capture profile is Arch Linux. Portable synthetic tests
+        // detect replacement through length/time/fingerprints, conservatively
+        // reporting FileTruncated when no inode identity is available.
         let _ = metadata;
         (0, 0)
     }
@@ -1135,6 +1138,17 @@ mod tests {
             .gaps
             .iter()
             .any(|gap| gap.gap == CaptureGap::FileTruncated));
+        let replacement_gap = if cfg!(unix) {
+            CaptureGap::FileRotated
+        } else {
+            CaptureGap::FileTruncated
+        };
+        let replacement_gaps_before = capture
+            .state()
+            .gaps
+            .iter()
+            .find(|gap| gap.gap == replacement_gap)
+            .map_or(0, |gap| gap.count);
         fs::rename(
             fixture.input.join("mtp_12_00.txt"),
             fixture.input.join("old-log.txt"),
@@ -1142,13 +1156,19 @@ mod tests {
         .unwrap();
         fixture.append(packet("3", "new", None, false).as_bytes());
         fixture.append(b"NEW LOGGING INSTANCE STARTED!!!\n");
-        capture.poll().unwrap();
+        let replacement = capture.poll().unwrap();
+        assert_eq!(replacement.added_events, 1);
         assert_eq!(capture.state().events.len(), 3);
-        assert!(capture
-            .state()
-            .gaps
-            .iter()
-            .any(|gap| gap.gap == CaptureGap::FileRotated));
+        assert_eq!(
+            capture
+                .state()
+                .gaps
+                .iter()
+                .find(|gap| gap.gap == replacement_gap)
+                .map_or(0, |gap| gap.count),
+            replacement_gaps_before + 1,
+            "replacement must add a fresh gap even without native file identity"
+        );
         assert!(capture
             .state()
             .gaps
@@ -1162,6 +1182,11 @@ mod tests {
         let result = capture.poll().unwrap();
         assert_eq!(result.added_events, 0);
         assert_eq!(result.duplicates, 1);
+        assert!(capture
+            .state()
+            .gaps
+            .iter()
+            .any(|gap| gap.gap == CaptureGap::FileRotated));
     }
 
     #[test]
