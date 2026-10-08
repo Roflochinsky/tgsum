@@ -14,6 +14,7 @@ use tgsum_core::project::ProjectStore;
 use tgsum_core::recipe::{Recipe, RecipeOutput, RECIPE_VERSION};
 use tgsum_runner::{Cancellation, PreparedContext, RunnerError};
 
+#[derive(Clone)]
 pub struct AnalysisState {
     shared: Arc<Mutex<Session>>,
     fixtures: bool,

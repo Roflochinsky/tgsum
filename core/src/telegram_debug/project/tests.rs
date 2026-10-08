@@ -13,6 +13,55 @@ const CHAT: &str = "9007199254740995";
 const SENDER: &str = "9007199254740993";
 const SENT: i64 = 1_700_000_000;
 
+#[test]
+fn schema_ten_stays_passive_and_cannot_smuggle_client_control() {
+    let f = Fixture::new();
+    let path = f
+        .store
+        .directory(&f.project.project_id)
+        .unwrap()
+        .join("revisions")
+        .join(format!("{:020}.json", f.project.revision));
+    let mut old = serde_json::to_value(&f.project).unwrap();
+    old["schema_version"] = 10.into();
+    old["telegram_continuous"]["selected"]
+        .as_object_mut()
+        .unwrap()
+        .remove("manage_client");
+    let bytes = serde_json::to_vec(&old).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    let upgraded = f.store.open(&f.project.project_id).unwrap();
+    assert_eq!(upgraded.schema_version, 11);
+    assert!(!upgraded.telegram_continuous["selected"].manage_client);
+    assert_eq!(
+        upgraded.telegram_continuous["selected"].settings,
+        f.project.telegram_continuous["selected"].settings
+    );
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    old["telegram_continuous"]["selected"]["manage_client"] = true.into();
+    let forged = serde_json::to_vec(&old).unwrap();
+    fs::write(&path, &forged).unwrap();
+    assert!(f.store.open(&f.project.project_id).is_err());
+    assert_eq!(fs::read(&path).unwrap(), forged);
+    fs::write(&path, bytes).unwrap();
+    let mut stopped_settings = upgraded.telegram_continuous["selected"].settings.clone();
+    stopped_settings.enabled = false;
+    let controlled = f
+        .store
+        .update(
+            &f.project.project_id,
+            f.project.revision,
+            ProjectChange::TelegramContinuous {
+                source_id: "selected".into(),
+                settings: stopped_settings,
+                manage_client: true,
+            },
+        )
+        .unwrap();
+    assert!(controlled.telegram_continuous["selected"].manage_client);
+    assert_eq!(f.store.open(&f.project.project_id).unwrap(), controlled);
+}
+
 struct Fixture {
     _root: tempfile::TempDir,
     root: PathBuf,
@@ -85,6 +134,7 @@ impl Fixture {
                 ProjectChange::TelegramContinuous {
                     source_id: "selected".into(),
                     settings,
+                    manage_client: false,
                 },
             )
             .unwrap();
@@ -139,6 +189,7 @@ impl Fixture {
                 ProjectChange::TelegramContinuous {
                     source_id: "selected".into(),
                     settings,
+                    manage_client: false,
                 },
             )
             .unwrap()
@@ -851,7 +902,8 @@ fn legacy_migration_and_stop_preserve_private_state_and_prevent_archive_overwrit
             revision,
             ProjectChange::TelegramContinuous {
                 source_id: "selected".into(),
-                settings: wrong
+                settings: wrong,
+                manage_client: false,
             }
         )
         .is_err());
@@ -881,7 +933,7 @@ fn legacy_migration_and_stop_preserve_private_state_and_prevent_archive_overwrit
     let bytes = serde_json::to_vec(&forged).unwrap();
     fs::write(&path, &bytes).unwrap();
     let upgraded = f.store.open(&f.project.project_id).unwrap();
-    assert_eq!(upgraded.schema_version, 10);
+    assert_eq!(upgraded.schema_version, 11);
     assert!(upgraded.telegram_continuous.is_empty());
     assert_eq!(fs::read(&path).unwrap(), bytes);
 }

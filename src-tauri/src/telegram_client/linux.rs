@@ -61,6 +61,13 @@ impl StockDesktop {
                 "Папка Telegram недоступна для безопасного перезапуска.",
             ));
         }
+        match fs::symlink_metadata(launch.log_directory()) {
+            Ok(_) => tgsum_core::telegram_debug::settings::validate_log_directory(
+                &launch.log_directory(),
+            )?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
         if self.persistent_debug_exists(launch)? {
             return Err(error(
                 "Настройка отладки Telegram изменилась. TGSUM не читает и не меняет её.",

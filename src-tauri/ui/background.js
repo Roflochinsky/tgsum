@@ -1,3 +1,5 @@
+import { telegramClientText } from './telegram-client.js'
+
 export function mountBackground({ invoke, toast }) {
   const dialog = document.querySelector('#background-dialog')
   const checkbox = dialog.querySelector('[data-background-autostart]')
@@ -5,6 +7,8 @@ export function mountBackground({ invoke, toast }) {
   const error = dialog.querySelector('[data-background-error]')
   const path = dialog.querySelector('[data-background-path]')
   const hide = dialog.querySelector('[data-background-hide]')
+  const client = dialog.querySelector('[data-background-client]')
+  const restore = dialog.querySelector('[data-background-restore]')
   let pending = false
   let generation = 0
 
@@ -26,8 +30,13 @@ export function mountBackground({ invoke, toast }) {
   async function load() {
     const request = ++generation
     try {
-      const view = await invoke('background_status')
-      if (request === generation) render(view)
+      const [view, telegram] = await Promise.all([invoke('background_status'), invoke('telegram_client_status')])
+      if (request === generation) {
+        render(view)
+        client.textContent = telegramClientText(telegram)
+        restore.hidden = !telegram.can_restore
+        restore.disabled = pending
+      }
     } catch (e) { if (request === generation) { checkbox.disabled = true; failed(e) } }
   }
 
@@ -55,6 +64,15 @@ export function mountBackground({ invoke, toast }) {
   hide.addEventListener('click', async () => {
     try { await invoke('hide_application'); dialog.close() }
     catch (e) { failed(e) }
+  })
+  restore.addEventListener('click', async () => {
+    if (pending) return
+    pending = true
+    restore.disabled = true
+    error.hidden = true
+    try { await invoke('restore_telegram_client'); toast('Прежний режим Telegram восстановлен.') }
+    catch (e) { failed(e) }
+    finally { pending = false; await load() }
   })
   dialog.querySelector('[data-background-quit]').addEventListener('click', () => {
     invoke('quit_application').catch(failed)

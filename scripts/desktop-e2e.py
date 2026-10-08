@@ -57,7 +57,8 @@ class WebView:
             if value:
                 return value
             time.sleep(0.1)
-        raise AssertionError("Timed out: " + expression)
+        diagnostic = self.evaluate("({toast:document.querySelector('#toast')?.textContent, busy:document.querySelector('#screen-projects')?.getAttribute('aria-busy')})")
+        raise AssertionError("Timed out: " + expression + "; owned fixture UI: " + json.dumps(diagnostic))
 
     def click(self, selector):
         self.wait("document.querySelector(" + json.dumps(selector) + ") !== null")
@@ -585,11 +586,24 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         collector = group + ' [data-telegram-continuous]'
         ui.click(collector + ' summary')
         ui.wait('document.querySelector(' + json.dumps(collector) + ').dataset.state === "stopped"')
-        ui.value(collector + ' [data-continuous-directory]', str(logs))
+        assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-manage]') + ').checked')
+        assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-directory]') + ').readOnly')
+        ui.click(collector + ' [data-continuous-detect]')
+        ui.idle()
+        assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-directory]') + ').value') == str(logs)
+        calls_path = root / 'synthetic-client-calls.jsonl'
+        def client_calls():
+            return [json.loads(line) for line in calls_path.read_text().splitlines()] if calls_path.exists() else []
+        assert client_calls() == [], 'Read-only detection mutated the synthetic client'
         assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-start]') + ').disabled')
         ui.click(collector + ' [data-continuous-account]')
         ui.click(collector + ' [data-continuous-start]')
         ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "watching"')
+        assert ui.invoke('telegram_client_status')['phase'] == 'managed_debug'
+        assert client_calls() == ['quit', 'start-debug']
+        assert ui.invoke('open_project', {'projectId': continuous_id})['telegram_continuous']['group']['manage_client']
+        assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-manage]') + ').disabled')
+        passed('managed collection: new default, read-only detection, durable opt-in and one synthetic Desktop restart through real Tauri IPC')
         assert not ui.evaluate('document.querySelector("[data-package-images]").checked'), "start erased an existing package draft"
         assert ui.evaluate('document.querySelector("[data-package-repo]").disabled')
         assert 'диагностические наблюдения' in ui.evaluate('document.querySelector(' + json.dumps(group + ' .source-method') + ').textContent')
@@ -598,6 +612,9 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         ui.value(direct + ' [name=from]', '2026-06-01')
         ui.click(direct + ' [data-telegram-continuous] summary')
         ui.wait('document.querySelector(' + json.dumps(direct + ' [data-telegram-continuous]') + ').dataset.state === "stopped"')
+        ui.click(direct + ' [data-continuous-manage]')
+        assert not ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-manage]') + ').checked')
+        assert not ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-directory]') + ').readOnly')
         ui.value(direct + ' [data-continuous-directory]', str(logs))
         ui.click(direct + ' [data-continuous-account]')
 
@@ -675,21 +692,67 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         assert ui.evaluate('document.querySelector(' + json.dumps(direct + ' [name=from]') + ').value') == '2026-06-01'
         assert ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-directory]') + ').value') == str(logs)
         assert ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-account]') + ').checked')
+        assert not ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-manage]') + ').checked'), 'Live apply erased stopped manual-mode draft'
         assert not ui.evaluate('document.querySelector("[data-package-images]").checked'), "live update erased package draft"
         assert ui.evaluate('document.querySelector(' + json.dumps(group + ' [data-refresh]') + ').disabled')
         assert 'не запрашивалась' in ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-gaps]') + ').textContent')
         ui.screenshot(report_dir / "continuous-watching.png")
+        ui.click(direct + ' [data-continuous-manage]')
+        ui.idle()
+        ui.wait('!document.querySelector(' + json.dumps(direct + ' [data-continuous-start]') + ').disabled')
+        ui.click(direct + ' [data-continuous-start]')
+        ui.wait('document.querySelector(' + json.dumps(direct + ' [data-telegram-continuous]') + ')?.dataset.state === "watching"')
+        assert ui.invoke('telegram_client_status')['enabled_sources'] == 2
+        assert client_calls() == ['quit', 'start-debug']
         ui.click(collector + ' [data-continuous-stop]')
         ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "stopped"')
+        assert ui.invoke('telegram_client_status')['enabled_sources'] == 1
+        assert client_calls() == ['quit', 'start-debug'], 'Stopping first chat restored a client needed by second'
         stopped = ui.invoke("open_project", {"projectId": continuous_id})
         append_observation(601, "queued while stopped")
         time.sleep(2)
         assert ui.invoke("open_project", {"projectId": continuous_id})["revision"] == stopped["revision"]
+        ui.click(direct + ' [data-continuous-stop]')
+        ui.wait('document.querySelector(' + json.dumps(direct + ' [data-telegram-continuous]') + ')?.dataset.state === "stopped"')
+        assert ui.invoke('telegram_client_status')['phase'] == 'unmanaged'
+        assert client_calls() == ['quit', 'start-debug', 'quit', 'start-original']
+        passed('shared managed client: second chat reuses debug; first Stop keeps it; last Stop restores original mode')
         ui.click(collector + ' [data-continuous-start]')
         ui.wait('document.querySelector(' + json.dumps(collector + ' [data-continuous-counts]') + ')?.textContent.includes("Применено к проекту: 2")')
         assert 'Перерыв между запусками' in ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-gaps]') + ').textContent')
+        control_path = root / 'synthetic-client-control.json'
+        control_path.write_text(json.dumps({'fail_restore': True}))
         ui.click(collector + ' [data-continuous-stop]')
         ui.wait('document.querySelector(' + json.dumps(collector) + ')?.dataset.state === "stopped"')
+        failed_client = ui.invoke('telegram_client_status')
+        assert failed_client['phase'] == 'failed' and failed_client['can_restore']
+        ui.wait('!document.querySelector(' + json.dumps(collector + ' [data-continuous-restore]') + ').hidden')
+        stopped = ui.invoke('open_project', {'projectId': continuous_id})
+        ui.click('#btn-background')
+        ui.wait('document.querySelector("#background-dialog").open && !document.querySelector("[data-background-restore]").hidden')
+        ui.click('[data-background-restore]')
+        ui.wait('!document.querySelector("[data-background-error]").hidden && !document.querySelector("[data-background-restore]").disabled')
+        assert ui.invoke('telegram_client_status')['phase'] == 'failed'
+        control_path.write_text(json.dumps({'fail_restore': False}))
+        ui.click('[data-background-restore]')
+        ui.wait('document.querySelector("[data-background-restore]").hidden')
+        assert ui.invoke('telegram_client_status')['phase'] == 'unmanaged'
+        assert client_calls() == ['quit', 'start-debug', 'quit', 'start-original', 'quit', 'start-debug', 'quit', 'start-original']
+        assert ui.invoke('open_project', {'projectId': continuous_id}) == stopped
+        ui.screenshot(report_dir / 'client-restored.png')
+        ui.click('#background-dialog form button')
+        passed('restoration failure: writer stops, saved history remains, local/global recovery controls show failure then restore through real IPC')
+        ui.click(direct + ' [data-continuous-manage]')
+        ui.idle()
+        ui.wait('!document.querySelector(' + json.dumps(direct + ' [data-continuous-start]') + ').disabled')
+        ui.click(direct + ' [data-continuous-start]')
+        ui.wait('document.querySelector(' + json.dumps(direct + ' [data-telegram-continuous]') + ')?.dataset.state === "watching"')
+        assert not ui.invoke('open_project', {'projectId': continuous_id})['telegram_continuous']['direct']['manage_client']
+        assert len(client_calls()) == 8
+        ui.click(direct + ' [data-continuous-stop]')
+        ui.wait('document.querySelector(' + json.dumps(direct + ' [data-telegram-continuous]') + ')?.dataset.state === "stopped"')
+        assert not ui.evaluate('document.querySelector(' + json.dumps(direct + ' [data-continuous-manage]') + ').checked')
+        assert len(client_calls()) == 8
         ui.screenshot(report_dir / "continuous-stopped.png")
         passed("continuous controls: native selected journal, Project apply, drafts survive, Stop/resume and explicit gap; synthetic logs only")
         forwarded = root / 'forwarded-result.json'

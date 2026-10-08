@@ -418,6 +418,38 @@ fn profile_is_explicitly_pinned_without_reading_environment() {
 }
 
 #[test]
+fn released_profile_can_resume_with_no_process_but_unknown_first_launch_cannot() {
+    let f = Fixture::new();
+    let mut controller = f.controller();
+    controller
+        .ensure_debug(&original().launch.log_directory())
+        .unwrap();
+    controller.restore().unwrap();
+    f.fake.0.lock().unwrap().running = None;
+    controller
+        .ensure_debug(&original().launch.log_directory())
+        .unwrap();
+    assert_eq!(
+        f.calls(),
+        [
+            "quit",
+            "start-debug",
+            "quit",
+            "start-original",
+            "start-debug"
+        ]
+    );
+    controller.restore().unwrap();
+    let first = Fixture::new();
+    first.fake.0.lock().unwrap().running = None;
+    assert!(first
+        .controller()
+        .ensure_debug(&original().launch.log_directory())
+        .is_err());
+    assert!(first.calls().is_empty());
+}
+
+#[test]
 fn ipc_readiness_requires_owned_listening_stock_endpoint() {
     let owned = std::collections::BTreeSet::from([123]);
     let line = "0000000000000000: 00000002 00000000 00010000 0001 01 123 @0123456789abcdef0123456789abcdef-TelegramDesktop";

@@ -199,8 +199,12 @@ Parser в текущих исходниках также поддерживае�
 
 В offline core добавлены snapshots одного выбранного чата, повторный diff и
 контракт событий Bridge. Project UI позволяет выбрать scope и подготовить
-очищенный context через Review → Export only. Автоматическое управление Telegram
-ещё не подключено. [Контракт архива](docs/development/archive-core.md),
+очищенный context через Review → Export only. На рабочей ветке есть экспериментальный
+постоянный сбор из логов штатного Telegram Desktop 7.2.5-1 на Arch: сохранённое
+разрешение на debug, запуск/остановка, фон и восстановление исходного режима.
+Настоящий непрерывный поток и личная установка ещё не квалифицированы.
+[Описание и границы проверки](docs/development/telegram-client-control.md),
+[контракт архива](docs/development/archive-core.md),
 [context bundle и ограничения](docs/development/bundles.md).
 
 Два потоковых прохода по `result.json`. Первый строит лёгкий индекс (чаты, топики, счётчики, даты)

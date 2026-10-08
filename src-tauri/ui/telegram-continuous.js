@@ -1,4 +1,5 @@
 // The worker keeps running independently of this panel and its polling timer.
+import { telegramClientText } from './telegram-client.js'
 export function mountTelegramContinuous({ invoke, act, project, changed, busy }) {
   function source(card, source) {
     if (source.connector_id !== 'telegram_json' || source.scope.platform !== 'telegram') return
@@ -7,12 +8,17 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
     panel.dataset.telegramContinuous = source.source_id
     panel.innerHTML = `<summary>Собирать сообщения из Telegram</summary>
       <p>Экспериментальный сбор текста из диагностических логов Telegram Desktop 7.2.5 на Linux. Начальная история и вложения остаются из подключённого архива.</p>
-      <p class="hint">Telegram должен работать с отладкой и записывать папку DebugLogs. При включённом сборе окно TGSUM можно закрыть: процесс продолжит работу. Автозапуск настраивается в «Работа в фоне». Полная история и получение каждого нового сообщения не гарантированы.</p>
+      <p class="hint">Для автоматического запуска откройте свой Telegram Desktop. TGSUM сохранит его профиль, перезапустит с отладкой и вернёт прежний режим после остановки. Полная история и получение каждого нового сообщения не гарантированы.</p>
+      <label class="project-check"><input type="checkbox" data-continuous-manage checked> Включать отладку Telegram автоматически.</label>
       <label>Папка DebugLogs<input type="text" data-continuous-directory spellcheck="false" placeholder="Абсолютный путь к DebugLogs"></label>
       <button type="button" class="btn btn-ghost" data-continuous-pick>Выбрать папку…</button>
+      <button type="button" class="btn btn-ghost" data-continuous-detect>Найти Telegram</button>
+      <p class="hint" data-continuous-mode>Автоматический режим определит папку работающего Telegram при запуске. Для уже готовых логов снимите флажок.</p>
       <label class="project-check"><input type="checkbox" data-continuous-account> В этом Telegram Desktop подключён один аккаунт.</label>
       <p class="hint">Telegram может писать логи других чатов в эту папку. TGSUM сохраняет в своём журнале только подключённый чат, связывая сообщения и авторов по их ID. Логи не входят в результат.</p>
       <p role="status" data-continuous-status>Загрузка состояния…</p>
+      <p class="hint" data-continuous-client aria-live="polite"></p>
+      <button type="button" class="btn btn-ghost" data-continuous-restore hidden>Повторить восстановление Telegram</button>
       <p class="hint" data-continuous-counts></p>
       <ul class="hint" data-continuous-gaps hidden></ul>
       <p class="hint" data-continuous-path></p>
@@ -20,7 +26,7 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
         <button type="button" class="btn btn-primary" data-continuous-start disabled>Запустить сбор</button>
         <button type="button" class="btn btn-ghost" data-continuous-stop hidden>Остановить сбор</button>
       </div>
-      <p class="hint">Сообщения сохраняются в истории проекта. Для Markdown и вложений настройте «Локальный пакет» ниже. Остановка сохраняет уже собранную историю. Автоматическая отправка этого пакета отключена.</p>`
+      <p class="hint">Сообщения сохраняются в истории проекта. Для Markdown и вложений настройте «Локальный пакет» ниже. Остановка сохраняет уже собранную историю. При включённом сборе окно TGSUM можно закрыть; автозапуск настраивается в «Работа в фоне». Автоматическая отправка этого пакета отключена.</p>`
     card.append(panel)
     const $ = selector => panel.querySelector(selector)
     const target = { projectId: project().project_id, sourceId: source.source_id }
@@ -31,13 +37,25 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
       if (!view) return
       const plan = view.project.telegram_continuous?.[source.source_id]
       const enabled = !!plan?.settings.enabled
-      if (plan) {
+      if (plan && !draft) {
         $('[data-continuous-directory]').value = plan.settings.input_directory
         $('[data-continuous-account]').checked = plan.settings.confirmed_single_account
+        $('[data-continuous-manage]').checked = plan.manage_client
       }
+      const managed = $('[data-continuous-manage]').checked
       $('[data-continuous-directory]').disabled = !!plan || !view.supported
+      $('[data-continuous-directory]').readOnly = managed
       $('[data-continuous-pick]').disabled = !!plan || !view.supported
+      $('[data-continuous-pick]').hidden = managed
+      $('[data-continuous-detect]').hidden = !managed
+      $('[data-continuous-detect]').disabled = !!plan || !view.supported
       $('[data-continuous-account]').disabled = !!plan || !view.supported
+      $('[data-continuous-manage]').disabled = enabled || !view.supported
+      $('[data-continuous-mode]').textContent = managed
+        ? 'Папка определяется по работающему Telegram. Первый запуск требует открытого клиента; последующие используют сохранённый профиль. Остановка последнего управляемого чата вернёт прежний режим.'
+        : 'Чтение готовых логов: выберите DebugLogs. TGSUM не включает и не выключает отладку Telegram.'
+      $('[data-continuous-client]').textContent = telegramClientText(view.client)
+      $('[data-continuous-restore]').hidden = !view.client?.can_restore
       const state = view.observation
       panel.dataset.state = state.phase
       const labels = {
@@ -74,7 +92,7 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
       const stale = view.project.revision !== project().revision
       $('[data-continuous-start]').textContent = state.phase === 'failed' ? 'Повторить запуск' : 'Запустить сбор'
       $('[data-continuous-start]').disabled = !view.supported || stale || (enabled && state.phase !== 'failed') ||
-        !($('[data-continuous-directory]').value.trim() && $('[data-continuous-account]').checked)
+        !((managed || $('[data-continuous-directory]').value.trim()) && $('[data-continuous-account]').checked)
       $('[data-continuous-stop]').hidden = !enabled
       $('[data-continuous-stop]').disabled = stale
     }
@@ -93,7 +111,19 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
       } catch (error) { $('[data-continuous-status]').textContent = error?.message || String(error) }
       finally { loading = false }
     }
-    panel.addEventListener('input', event => { event.stopPropagation(); draft = !view?.project.telegram_continuous?.[source.source_id]; if (draft) card.dataset.continuousDirty = 'true'; render() })
+    panel.addEventListener('input', event => { event.stopPropagation(); draft = !view?.project.telegram_continuous?.[source.source_id]?.settings.enabled; if (draft) card.dataset.continuousDirty = 'true'; render() })
+    $('[data-continuous-detect]').onclick = () => act(async () => {
+      const path = await invoke('detect_telegram_client')
+      if (!path) throw new Error('Откройте существующий Telegram Desktop и повторите поиск.')
+      $('[data-continuous-directory]').value = path
+      draft = true
+      card.dataset.continuousDirty = 'true'
+      render()
+    })
+    $('[data-continuous-restore]').onclick = () => act(async () => {
+      await invoke('restore_telegram_client')
+      await load()
+    })
     $('[data-continuous-pick]').onclick = () => act(async () => {
       const path = await invoke('pick_telegram_log_directory')
       if (path) { $('[data-continuous-directory]').value = path; draft = true; card.dataset.continuousDirty = 'true'; render() }
@@ -102,7 +132,8 @@ export function mountTelegramContinuous({ invoke, act, project, changed, busy })
       const updated = await invoke('set_telegram_continuous', { request: {
         project_id: target.projectId, source_id: target.sourceId, expected_revision: project().revision, enabled,
         input_directory: $('[data-continuous-directory]').value.trim() || null,
-        confirmed_single_account: $('[data-continuous-account]').checked } })
+        confirmed_single_account: $('[data-continuous-account]').checked,
+        manage_client: $('[data-continuous-manage]').checked } })
       draft = false
       delete card.dataset.continuousDirty
       await changed(updated, source.source_id)

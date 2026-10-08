@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::scope::{MessageFilter, SourceSelection};
 use crate::snapshot::{validate_snapshot_id, SnapshotStore, SourceScope};
 
-const SCHEMA_VERSION: u32 = 10;
+const SCHEMA_VERSION: u32 = 11;
 const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +144,8 @@ pub enum ProjectChange {
     TelegramContinuous {
         source_id: String,
         settings: crate::telegram_debug::settings::ContinuousSettings,
+        #[serde(default)]
+        manage_client: bool,
     },
     Selection {
         source_id: String,
@@ -279,6 +281,38 @@ impl ProjectStore {
         self.read_revision(project_id, latest.0)
     }
 
+    /// Before acting on a saved client-control permission, recover a head that
+    /// may have become visible before a prior publication's directory fsync.
+    /// This preserves immutable manifests and does not advance the revision.
+    #[cfg(target_os = "linux")]
+    pub fn open_durable(&self, project_id: &str) -> io::Result<Project> {
+        self.open_durable_with(project_id, |path| File::open(path)?.sync_all())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn open_durable_with(
+        &self,
+        project_id: &str,
+        mut sync: impl FnMut(&Path) -> io::Result<()>,
+    ) -> io::Result<Project> {
+        let project = self.open(project_id)?;
+        let directory = self.directory(project_id)?;
+        let revisions = directory.join("revisions");
+        sync(&revisions.join(format!("{:020}.json", project.revision)))?;
+        for path in [&revisions, &directory, &self.root] {
+            require_directory(path)?;
+            sync(path)?;
+        }
+        if let Some(parent) = self.root.parent().filter(|p| !p.as_os_str().is_empty()) {
+            require_directory(parent)?;
+            sync(parent)?;
+        }
+        if self.open(project_id)?.revision != project.revision {
+            return Err(conflict());
+        }
+        Ok(project)
+    }
+
     pub(crate) fn read_revision(&self, project_id: &str, revision: u64) -> io::Result<Project> {
         let revisions = self.directory(project_id)?.join("revisions");
         require_directory(&revisions)?;
@@ -299,7 +333,7 @@ impl ProjectStore {
         // Check the version before interpreting fields. A future schema can
         // change their shape; opening it must never rewrite it as today's one.
         let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if !matches!(value["schema_version"].as_u64(), Some(1..=10)) {
+        if !matches!(value["schema_version"].as_u64(), Some(1..=11)) {
             return Err(invalid(
                 "unsupported project schema; use a compatible app or an explicit migration",
             ));
@@ -333,12 +367,23 @@ impl ProjectStore {
                 "legacy project cannot configure continuous Telegram",
             ));
         }
+        if project.schema_version < 11
+            && project
+                .telegram_continuous
+                .values()
+                .any(|plan| plan.manage_client)
+        {
+            return Err(invalid(
+                "legacy project cannot authorize Telegram client control",
+            ));
+        }
         // Version 1 had no scope or analysis ledger. Defaults preserve its
         // full-source behavior. v2 lacked durable result references; v3 lacked
         // private mappings; v4 lacked custom terms. Reading migrates in memory;
         // v5 lacked attachment selection; v6 lacked saved privacy options.
         // v7 lacked assisted export plans; v8 lacked Telegram refresh state.
         // v9 lacked continuous diagnostic observations.
+        // v10 lacked explicit Telegram client control; old plans stay passive.
         // Only a later write publishes the current schema.
         project.schema_version = SCHEMA_VERSION;
         validate_project(&project)?;
@@ -509,6 +554,7 @@ impl ProjectStore {
             ProjectChange::TelegramContinuous {
                 source_id,
                 settings,
+                manage_client,
             } => {
                 let source = project
                     .sources
@@ -529,12 +575,19 @@ impl ProjectStore {
                     ));
                 }
                 if let Some(plan) = project.telegram_continuous.get_mut(&source_id) {
+                    if plan.settings.enabled
+                        && settings.enabled
+                        && plan.manage_client != manage_client
+                    {
+                        return Err(invalid("stop capture before changing client control"));
+                    }
                     if !plan.settings.same_binding(&settings) {
                         return Err(invalid(
                             "disconnect the source before changing its journal binding",
                         ));
                     }
                     plan.settings = settings;
+                    plan.manage_client = manage_client;
                 } else {
                     if source.latest_snapshot_id.as_ref() != Some(&settings.bootstrap_snapshot_id) {
                         return Err(invalid(
@@ -552,6 +605,7 @@ impl ProjectStore {
                         source_id,
                         crate::telegram_debug::settings::ContinuousPlan {
                             settings,
+                            manage_client,
                             checkpoint: None,
                             media_directory: source
                                 .selection
@@ -936,6 +990,13 @@ impl ProjectStore {
         Ok(self.root.join(".telegram-export.lock"))
     }
 
+    /// Private shared client control, separate from per-chat journals.
+    /// This accessor never creates a directory or opens a client/session.
+    #[cfg(target_os = "linux")]
+    pub fn telegram_client_control_path(&self) -> PathBuf {
+        self.root.join(".telegram-client-control")
+    }
+
     /// Called only while the caller holds the global Telegram export lease.
     /// A claim also pins the complete Project revision, including client and
     /// destination settings. Resolution pins only the checkpoint so an
@@ -1241,4 +1302,62 @@ fn conflict() -> io::Error {
 }
 fn invalid(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, error)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod durability_tests {
+    use super::*;
+
+    #[test]
+    fn visible_head_requires_every_recovery_sync_without_rewriting_history() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(root.path().join("projects"));
+        let project = store.create("Synthetic durable permission").unwrap();
+        let manifest = store
+            .directory(&project.project_id)
+            .unwrap()
+            .join("revisions")
+            .join("00000000000000000000.json");
+        let original = fs::read(&manifest).unwrap();
+        for failed_step in 0..5 {
+            let mut step = 0;
+            let result = store.open_durable_with(&project.project_id, |_| {
+                let current = step;
+                step += 1;
+                if current == failed_step {
+                    return Err(io::Error::other("Synthetic recovery sync failure"));
+                }
+                Ok(())
+            });
+            assert!(result.is_err(), "recovery omitted sync step {failed_step}");
+            assert_eq!(step, failed_step + 1);
+            assert_eq!(fs::read(&manifest).unwrap(), original);
+        }
+        assert_eq!(store.open_durable(&project.project_id).unwrap(), project);
+        assert_eq!(fs::read(&manifest).unwrap(), original);
+    }
+
+    #[test]
+    fn head_changed_during_recovery_cannot_authorize_the_old_revision() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(root.path());
+        let project = store.create("Synthetic old permission").unwrap();
+        let mut changed = false;
+        let result = store.open_durable_with(&project.project_id, |_| {
+            if !changed {
+                changed = true;
+                store.update(
+                    &project.project_id,
+                    project.revision,
+                    ProjectChange::Rename("Synthetic winning revision".into()),
+                )?;
+            }
+            Ok(())
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            store.open(&project.project_id).unwrap().revision,
+            project.revision + 1
+        );
+    }
 }

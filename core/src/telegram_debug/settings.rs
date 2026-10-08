@@ -41,6 +41,10 @@ pub struct ProjectionCheckpoint {
 #[serde(deny_unknown_fields)]
 pub struct ContinuousPlan {
     pub settings: ContinuousSettings,
+    /// Explicit permission to switch the existing stock Desktop runtime mode.
+    /// Legacy plans only watch already available logs.
+    #[serde(default)]
+    pub manage_client: bool,
     pub checkpoint: Option<ProjectionCheckpoint>,
     /// Keep the explicitly selected media root even when package-generated
     /// text choices become empty. The bootstrap archive may have moved.

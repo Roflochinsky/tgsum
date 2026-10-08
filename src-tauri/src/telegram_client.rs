@@ -65,6 +65,21 @@ pub trait Desktop {
     fn start(&mut self, launch: &Launch) -> io::Result<Running>;
 }
 
+impl<D: Desktop + ?Sized> Desktop for Box<D> {
+    fn current(&mut self) -> io::Result<Option<Running>> {
+        (**self).current()
+    }
+    fn persistent_debug_exists(&mut self, launch: &Launch) -> io::Result<bool> {
+        (**self).persistent_debug_exists(launch)
+    }
+    fn quit(&mut self, running: &Running) -> io::Result<()> {
+        (**self).quit(running)
+    }
+    fn start(&mut self, launch: &Launch) -> io::Result<Running> {
+        (**self).start(launch)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Phase {
@@ -120,6 +135,11 @@ impl<D: Desktop> Controller<D> {
         Self { desktop, journal }
     }
 
+    /// Release the receipt lock for explicit durable reopen/recovery.
+    pub fn into_desktop(self) -> D {
+        self.desktop
+    }
+
     /// Read-only detection; no lease/config creation and no client launch.
     pub fn detect(&mut self) -> io::Result<Option<Running>> {
         self.desktop.current()
@@ -130,10 +150,20 @@ impl<D: Desktop> Controller<D> {
         let previous = self.journal.latest()?;
         let mut lease = match previous {
             Some(lease) if lease.phase != Phase::Released => lease,
-            _ => {
-                let running = self.desktop.current()?.ok_or_else(|| {
-                    error("Откройте существующий Telegram Desktop перед первым запуском сбора.")
-                })?;
+            released => {
+                let running = match self.desktop.current()? {
+                    Some(running) => running,
+                    None => {
+                        // A saved opt-in may resume after orderly TGSUM Exit
+                        // and later Desktop Exit. Reuse only the previously
+                        // verified profile, never guess a fresh user's launch.
+                        let old = released.ok_or_else(|| error("Откройте существующий Telegram Desktop перед первым запуском сбора."))?;
+                        Running {
+                            identity: old.original.identity,
+                            launch: old.original.launch,
+                        }
+                    }
+                };
                 if running.launch.log_directory() != log_directory {
                     return Err(error("Папка логов не совпадает с работающим Telegram."));
                 }

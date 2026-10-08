@@ -68,6 +68,16 @@ impl From<io::Error> for CmdError {
     }
 }
 
+impl From<CmdError> for io::Error {
+    fn from(error: CmdError) -> Self {
+        match error {
+            CmdError::Cancelled => tgsum_core::cancelled(),
+            CmdError::Conflict(message) => io::Error::new(io::ErrorKind::WouldBlock, message),
+            CmdError::Failed(message) => io::Error::other(message),
+        }
+    }
+}
+
 /// The running pass's cancel flag. Each pass gets a fresh flag, so a late
 /// cancel can never hit the next pass.
 #[derive(Default)]
@@ -161,19 +171,17 @@ async fn update_project(
     expected_revision: u64,
     change: ProjectChange,
 ) -> Result<Project, CmdError> {
-    analysis.before_edit(&store, &project_id)?;
+    let analysis = analysis.inner().clone();
     let store = store.inner().clone();
     let continuous = continuous.inner().clone();
     run_blocking(move || {
-        let removed = match &change {
-            ProjectChange::RemoveSource(source_id) => Some(source_id.clone()),
-            _ => None,
-        };
-        let updated = store.update(&project_id, expected_revision, change)?;
-        if let Some(source_id) = removed {
-            continuous.disconnected(&project_id, &source_id)?;
-        }
-        Ok(updated)
+        Ok(
+            continuous.edit_project(&store, &project_id, expected_revision, change, || {
+                analysis
+                    .before_edit(&store, &project_id)
+                    .map_err(io::Error::from)
+            })?,
+        )
     })
     .await
 }
@@ -662,6 +670,11 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                     app.path().app_local_data_dir()?.join("projects"),
                 ));
             }
+            #[cfg(all(target_os = "linux", debug_assertions, feature = "desktop-e2e"))]
+            if let Some(harness) = app.try_state::<desktop_e2e::Harness>() {
+                app.state::<telegram_continuous::TelegramContinuousState>()
+                    .synthetic_client(&harness.root)?;
+            }
             if app
                 .try_state::<telegram_refresh::TelegramRefreshState>()
                 .is_none()
@@ -704,6 +717,9 @@ pub fn app<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             local_package::refresh_local_package,
             local_package::cancel_local_package,
             telegram_continuous::telegram_continuous_status,
+            telegram_continuous::detect_telegram_client,
+            telegram_continuous::telegram_client_status,
+            telegram_continuous::restore_telegram_client,
             telegram_continuous::set_telegram_continuous,
             telegram_continuous::pick_telegram_log_directory,
             telegram_refresh::telegram_refresh_status,
