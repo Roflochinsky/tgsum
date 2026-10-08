@@ -42,6 +42,66 @@ fn original() -> Running {
     }
 }
 
+#[test]
+fn transient_multiple_processes_are_rescanned_before_returning_a_client() {
+    let mut scans = 0;
+    let running = linux::retry_process_scan(
+        || {
+            scans += 1;
+            if scans == 1 {
+                Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "synthetic secondary launcher",
+                ))
+            } else {
+                Ok(Some(original()))
+            }
+        },
+        || true,
+    )
+    .unwrap();
+    assert_eq!(running, Some(original()));
+    assert_eq!(scans, 2);
+}
+
+#[test]
+fn lasting_ambiguity_and_unknown_launches_never_return_a_candidate() {
+    let mut scans = 0;
+    let mut pauses = 0;
+    let error = linux::retry_process_scan(
+        || {
+            scans += 1;
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "synthetic two clients",
+            ))
+        },
+        || {
+            pauses += 1;
+            pauses < 3
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    assert_eq!(scans, 3);
+    assert_eq!(pauses, 3);
+    let error = linux::retry_process_scan(
+        || {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "synthetic unknown launch",
+            ))
+        },
+        || panic!("an unknown launch must not be retried"),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        linux::retry_process_scan(|| Ok(None), || panic!("no client needs no retry")).unwrap(),
+        None
+    );
+}
+
 impl Desktop for Fake {
     fn current(&mut self) -> io::Result<Option<Running>> {
         Ok(self.0.lock().unwrap().running.clone())

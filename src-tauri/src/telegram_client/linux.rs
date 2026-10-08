@@ -83,49 +83,17 @@ impl Desktop for StockDesktop {
         let boot_id = metadata_text(Path::new("/proc/sys/kernel/random/boot_id"))?
             .trim()
             .to_owned();
-        let mut result = None;
-        for entry in fs::read_dir("/proc")? {
-            let entry = entry?;
-            let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-                continue;
-            };
-            let path = entry.path();
-            let Ok(metadata) = fs::metadata(&path) else {
-                continue;
-            };
-            if metadata.uid() != rustix::process::geteuid().as_raw() {
-                continue;
-            }
-            let executable = match fs::read_link(path.join("exe")) {
-                Ok(path) => path,
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
-                    ) =>
-                {
-                    continue
+        let deadline = Instant::now() + Duration::from_secs(1);
+        retry_process_scan(
+            || scan_running(&boot_id),
+            || {
+                if Instant::now() >= deadline {
+                    return false;
                 }
-                Err(error) => return Err(error),
-            };
-            let name = executable
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default();
-            if !matches!(name, "Telegram" | "telegram-desktop" | "Telegram (deleted)") {
-                continue;
-            }
-            if executable != Path::new(EXECUTABLE) || result.is_some() {
-                return Err(error("Обнаружено несколько или неизвестный запуск Telegram. Управление клиентом остановлено."));
-            }
-            let running = match inspect(&path, pid, &boot_id) {
-                Ok(running) => running,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error),
-            };
-            result = Some(running);
-        }
-        Ok(result)
+                thread::sleep(Duration::from_millis(50));
+                true
+            },
+        )
     }
 
     fn persistent_debug_exists(&mut self, launch: &Launch) -> io::Result<bool> {
@@ -235,6 +203,72 @@ impl Desktop for StockDesktop {
             thread::sleep(Duration::from_millis(100));
         }
     }
+}
+
+pub(super) fn retry_process_scan(
+    mut scan: impl FnMut() -> io::Result<Option<Running>>,
+    mut pause: impl FnMut() -> bool,
+) -> io::Result<Option<Running>> {
+    // A secondary launcher can briefly share the stock executable. Waiting
+    // performs no client action; a lasting ambiguity still returns an error.
+    loop {
+        match scan() {
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock && pause() => {}
+            result => return result,
+        }
+    }
+}
+
+fn scan_running(boot_id: &str) -> io::Result<Option<Running>> {
+    let mut result = None;
+    for entry in fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let path = entry.path();
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+        if metadata.uid() != rustix::process::geteuid().as_raw() {
+            continue;
+        }
+        let executable = match fs::read_link(path.join("exe")) {
+            Ok(path) => path,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                continue
+            }
+            Err(error) => return Err(error),
+        };
+        let name = executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        if !matches!(name, "Telegram" | "telegram-desktop" | "Telegram (deleted)") {
+            continue;
+        }
+        if executable != Path::new(EXECUTABLE) {
+            return Err(error("Обнаружено несколько или неизвестный запуск Telegram. Управление клиентом остановлено."));
+        }
+        let running = match inspect(&path, pid, boot_id) {
+            Ok(running) => running,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if result.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Обнаружено несколько запусков Telegram. Управление клиентом остановлено.",
+            ));
+        }
+        result = Some(running);
+    }
+    Ok(result)
 }
 
 pub(super) fn scope_command(launch: &Launch, unit: &str) -> Command {
