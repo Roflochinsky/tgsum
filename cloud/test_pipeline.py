@@ -1,5 +1,6 @@
 import copy
 import datetime as dt
+import io
 import json
 import os
 from pathlib import Path
@@ -59,6 +60,20 @@ CONFIG = {"enabled": True, "automatic": False, "package": "project-FIXTURE", "pr
 
 
 class Contracts(unittest.TestCase):
+    def test_notion_refusal_identifies_status_without_private_response_or_id(self):
+        notion = p.Notion("fixture-secret")
+        for status in [400, 401, 404]:
+            error = p.urllib.error.HTTPError("https://api.notion.com/v1/data_sources/private-source-id", status,
+                "fixture-private-error", {}, io.BytesIO(b"fixture-private-body"))
+            with patch.object(notion.http, "open", side_effect=error):
+                with self.assertRaises(p.Stop) as failure:
+                    notion.request("GET", "data_sources/private-source-id")
+            message = str(failure.exception)
+            self.assertIn(f"HTTP {status}", message)
+            self.assertIn("data_sources", message)
+            for private in ["private-source-id", "fixture-private-body", "fixture-private-error", "fixture-secret"]:
+                self.assertNotIn(private, message)
+
     def test_cli_notice_is_pinned_preturn_and_tools_remain_forbidden(self):
         before = [{"type": "thread.started", "thread_id": "fixture"},
             {"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": p.CODE_MODE_DISABLED}}]

@@ -384,7 +384,12 @@ class Notion:
                 if e.code == 429 and not create and attempt < 3:
                     time.sleep(min(30, max(1, int(e.headers.get("Retry-After", "1")))))
                     continue
-                raise Stop("Notion отказал в запросе. Проверьте доступ соединения и журнал синхронизации.") from None
+                resource = path.split("/", 1)[0]
+                if resource not in {"data_sources", "pages", "blocks", "views"}:
+                    resource = "request"
+                # Status and fixed resource category diagnose access/schema
+                # failures without exposing IDs, tokens or response bodies.
+                raise Stop(f"Notion отказал в запросе: HTTP {e.code}, {resource}. Проверьте доступ соединения и журнал синхронизации.") from None
             except (OSError, ValueError):
                 raise Stop("Ответ Notion не получен; повторное создание карточки запрещено до сверки.") from None
 
