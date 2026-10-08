@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-08",
+  "source_base": "c8809f3ba0199ff7cc250997592915d8604dc2a9",
+  "scope": "Linux durable selected-peer storage foundation; synthetic fixtures only; Project/UI/background and real continuous acquisition remain incomplete",
+  "implementation_files_sha256": {
+    "core/src/telegram_debug/continuous.rs": "b9526dc76da60267957ae55e80d8ae44f447278d71bff5222ee0e49b20e5ca40",
+    "core/src/telegram_debug/continuous_tests.rs": "0d5dbaa248aef86e0c2773348b14e0c4f781a2f45233882f4c0a6df0df8d37dd",
+    "core/src/telegram_debug/capture.rs": "0646fd134b76e0737c77d143dc74193dacc1d86dfe414cdd68e6f18d90e5289c",
+    "core/src/attachments.rs": "4f5f7f865bbea661e98c68ee692e41f301f7ef2564a701f4ddc9a7af2e13c441",
+    "core/src/telegram_debug/mod.rs": "3b6bce79e7b0730781217adb3de4d478c3ad7b24236cddb155f261cebe5e4a45",
+    "core/Cargo.toml": "ad7cc898ccb11a28cff643935d31b996101a6d4c20a10e246140d21e9170aff0",
+    "Cargo.lock": "37d8c79c56a3fb31c583bf1b3458b357fb5df2fab1d0d5715730885e2ea8d6e5"
+  },
+  "checks": {
+    "quick": "PASS",
+    "full": "bash scripts/check.sh PASS on final foundation tree",
+    "focused": "42 passed, 0 failed; one subprocess helper ignored in direct listing and executed by its SIGKILL wrapper",
+    "independent_review": "PASS on final foundation code; separate standards/spec verifier and public-interface fixtures",
+    "diff_check": "PASS"
+  },
+  "behaviors": {
+    "lifetime_events": 10005,
+    "restart_and_selected_filtering": "PASS",
+    "native_ids_and_utf8": "PASS",
+    "events_dedup_latest_tombstones_cursors_atomic": "PASS",
+    "partial_initialization_seal": "prefixes 0/1/32/63 bytes recovered; foreign contents preserved/rejected",
+    "foreign_output_and_path_replacement": "PASS including retained FD writes in Database Drop",
+    "process_crash": "SIGKILL before and after commit PASS; not a power-loss qualification",
+    "storage_failure": "injected write/sync I/O failure stops session; reopen recovered atomic state PASS",
+    "page_limits": {
+      "events": 512,
+      "serialized_bytes": 33554432,
+      "independent_large_fixture": "17 x 1990000-character messages, 3 polls, pages16+1"
+    },
+    "fairness_source_rewrite_gap_only_checkpoint": "PASS"
+  },
+  "regression_mutations": [
+    {
+      "change": "Restore legacy lifetime cap",
+      "result": "RED behavioral assertion after successful compilation"
+    },
+    {
+      "change": "Remove full consumed-range validation",
+      "result": "RED behavioral assertion after successful compilation"
+    }
+  ],
+  "privacy": {
+    "real_data_used": false,
+    "account_actions": false,
+    "client_control": false,
+    "source_or_journal_pruning": false,
+    "raw_payload_published": false,
+    "temporary_mutation_workspace_cleaned": true
+  },
+  "connector_status": {
+    "support_status": "research",
+    "enabled_operations": [],
+    "implementation": null,
+    "qualifications": []
+  },
+  "remaining_scope": [
+    "Project snapshot/CAS/ack integration preserving bootstrap/media/topics/replies",
+    "Local package from current snapshots",
+    "Tauri Start/Stop/status and installed background/autostart",
+    "Managed Desktop debug lifecycle and backup/rollback",
+    "User-controlled actual new-message/edit/delete qualification",
+    "Exact final goal SHA GitHub Actions including Arch"
+  ]
+}

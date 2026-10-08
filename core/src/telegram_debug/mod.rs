@@ -6,4 +6,6 @@
 //! application acceptance. No production connector is registered by this module.
 
 pub mod capture;
+#[cfg(target_os = "linux")]
+pub mod continuous;
 pub mod parser;

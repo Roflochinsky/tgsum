@@ -108,6 +108,15 @@ pub(crate) struct ArchiveFiles {
 }
 
 impl ArchiveFiles {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn directory_metadata(&self) -> io::Result<std::fs::Metadata> {
+        self.root.try_clone()?.into_std_file().metadata()
+    }
+
+    pub(crate) fn entries(&self) -> io::Result<cap_std::fs::ReadDir> {
+        self.root.entries()
+    }
+
     pub(crate) fn open(root: &Path) -> io::Result<Self> {
         let (anchor, components) = root_anchor(root)?;
         let mut directory =

@@ -23,7 +23,7 @@ use crate::attachments::ArchiveFiles;
 
 const STATE_FILE: &str = "capture-state.json";
 const LOCK_FILE: &str = ".capture-lock";
-const VERSION: &str = "7.2.5";
+pub(super) const VERSION: &str = "7.2.5";
 static RECORD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} [0-9]{2,}-[0-9]{7,}\] \(dc:[A-Za-z0-9_]+\) Recv: ").expect("static record pattern")
 });
@@ -96,6 +96,7 @@ pub enum CaptureError {
     Capacity,
     Io,
     InvalidState,
+    SourceChanged,
 }
 impl fmt::Display for CaptureError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -110,6 +111,7 @@ impl fmt::Display for CaptureError {
             Self::Capacity => "capture capacity reached; no partial checkpoint was saved",
             Self::Io => "capture filesystem operation failed",
             Self::InvalidState => "capture state failed validation",
+            Self::SourceChanged => "capture source changed while a poll was being read",
         })
     }
 }
@@ -131,6 +133,7 @@ pub enum CaptureGap {
     FileRotated,
     FileTruncated,
     LoggingRestarted,
+    SourceRewrittenDuringPoll,
     MalformedPacket,
     Parser(CoverageGap),
 }
@@ -142,7 +145,7 @@ pub struct GapCount {
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileCursor {
+pub(super) struct FileCursor {
     name: String,
     offset: u64,
     device: u64,
@@ -160,7 +163,9 @@ pub struct CaptureState {
     pub binding: CaptureBinding,
     pub events: Vec<ParsedEvent>,
     pub gaps: Vec<GapCount>,
-    cursors: Vec<FileCursor>,
+    pub(super) cursors: Vec<FileCursor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) next_file: Option<String>,
 }
 
 /// A view into the stored event history; duplicate/older packets cannot undo
@@ -326,6 +331,7 @@ impl CaptureSession {
                         count: 1,
                     }],
                     cursors: Vec::new(),
+                    next_file: None,
                 },
                 None,
             )
@@ -381,223 +387,28 @@ impl CaptureSession {
     pub fn poll(&mut self) -> Result<PollReport, CaptureError> {
         self.check_output()?;
         let mut candidate = self.state.clone();
-        let mut report = PollReport::default();
         let mut seen: BTreeSet<String> = candidate
             .events
             .iter()
             .map(event_hash)
             .collect::<Result<_, _>>()?;
-        let mut names = Vec::new();
-        let mut inspected = 0;
-        for entry in fs::read_dir(&self.config.input_directory).map_err(|_| CaptureError::Io)? {
-            inspected += 1;
-            if inspected > 4096 {
+        let mut events = std::mem::take(&mut candidate.events);
+        let report = follow_logs(&self.config, &self.input, &mut candidate, |event| {
+            if !seen.insert(event_hash(&event)?) {
+                return Ok(false);
+            }
+            if events.len() >= self.config.limits.max_events {
                 return Err(CaptureError::Capacity);
             }
-            let entry = entry.map_err(|_| CaptureError::Io)?;
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            if !log_name(&name) {
-                continue;
-            }
-            if !entry.file_type().map_err(|_| CaptureError::Io)?.is_file() {
-                return Err(CaptureError::UnsafePath);
-            }
-            names.push(name);
-            if names.len() > self.config.limits.max_files {
-                return Err(CaptureError::Capacity);
-            }
-        }
-        names.sort();
-        let removed = candidate
-            .cursors
-            .iter()
-            .filter(|cursor| !names.contains(&cursor.name))
-            .count();
-        for _ in 0..removed {
-            gap(&mut candidate, &mut report, CaptureGap::FileRotated);
-        }
-        candidate
-            .cursors
-            .retain(|cursor| names.contains(&cursor.name));
-        for name in names {
-            if report.bytes_read >= self.config.limits.max_poll_bytes {
-                report.pending_tail = true;
-                break;
-            }
-            let mut file = self
-                .input
-                .open_regular(Path::new(&name))
-                .map_err(|_| CaptureError::UnsafePath)?;
-            let metadata = file.metadata().map_err(|_| CaptureError::Io)?;
-            let (device, inode) = identity(&metadata);
-            let previous = candidate
-                .cursors
-                .iter()
-                .position(|cursor| cursor.name == name);
-            let mut cursor = previous
-                .map(|i| candidate.cursors[i].clone())
-                .unwrap_or(FileCursor {
-                    name,
-                    offset: 0,
-                    device,
-                    inode,
-                    observed_len: metadata.len(),
-                    modified: modified(&metadata),
-                    head_len: 0,
-                    head_sha256: digest(&[]),
-                    tail_sha256: digest(&[]),
-                });
-            if previous.is_none() && !self.state.cursors.is_empty() {
-                gap(&mut candidate, &mut report, CaptureGap::FileRotated);
-            }
-            if (cursor.device, cursor.inode) != (device, inode) {
-                gap(&mut candidate, &mut report, CaptureGap::FileRotated);
-                cursor.offset = 0;
-            } else if metadata.len() < cursor.offset
-                || (previous.is_some()
-                    && metadata.len() == cursor.observed_len
-                    && modified(&metadata) != cursor.modified)
-                || (cursor.offset > 0
-                    && (read_hash(&mut file, 0, cursor.head_len)? != cursor.head_sha256
-                        || read_hash(
-                            &mut file,
-                            cursor.offset.saturating_sub(256),
-                            cursor.offset.min(256) as usize,
-                        )? != cursor.tail_sha256))
-            {
-                gap(&mut candidate, &mut report, CaptureGap::FileTruncated);
-                cursor.offset = 0;
-            }
-            cursor.device = device;
-            cursor.inode = inode;
-            cursor.observed_len = metadata.len();
-            cursor.modified = modified(&metadata);
-            file.seek(SeekFrom::Start(cursor.offset))
-                .map_err(|_| CaptureError::Io)?;
-            let allowance = self.config.limits.max_poll_bytes - report.bytes_read;
-            let mut bytes = Vec::new();
-            Read::by_ref(&mut file)
-                .take(allowance as u64)
-                .read_to_end(&mut bytes)
-                .map_err(|_| CaptureError::Io)?;
-            report.bytes_read += bytes.len();
-            let consumed = self.consume(&bytes, &mut candidate, &mut seen, &mut report)?;
-            cursor.offset += consumed as u64;
-            report.pending_tail |= consumed < bytes.len() || cursor.offset < metadata.len();
-            cursor.head_len = (metadata.len().min(64)) as usize;
-            cursor.head_sha256 = read_hash(&mut file, 0, cursor.head_len)?;
-            cursor.tail_sha256 = read_hash(
-                &mut file,
-                cursor.offset.saturating_sub(256),
-                cursor.offset.min(256) as usize,
-            )?;
-            if let Some(index) = previous {
-                candidate.cursors[index] = cursor;
-            } else {
-                candidate.cursors.push(cursor);
-            }
-        }
+            events.push(event);
+            Ok(true)
+        })?;
+        candidate.events = events;
         if candidate != self.state {
             self.persisted_digest = Some(self.save(&candidate)?);
             self.state = candidate;
         }
         Ok(report)
-    }
-
-    fn consume(
-        &self,
-        bytes: &[u8],
-        state: &mut CaptureState,
-        seen: &mut BTreeSet<String>,
-        report: &mut PollReport,
-    ) -> Result<usize, CaptureError> {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let rest = &bytes[offset..];
-            let Some(line_end) = rest.iter().position(|&byte| byte == b'\n') else {
-                if rest.len() > self.config.limits.max_packet_bytes {
-                    return Err(CaptureError::Capacity);
-                }
-                break;
-            };
-            let line = &rest[..line_end];
-            if line.strip_suffix(b"\r").unwrap_or(line) == b"NEW LOGGING INSTANCE STARTED!!!" {
-                gap(state, report, CaptureGap::LoggingRestarted);
-            }
-            let Some(header) = RECORD.find(line) else {
-                offset += line_end + 1;
-                continue;
-            };
-            let dump_start = header.end();
-            let packet = &rest[dump_start..];
-            let end = match complete_dump(packet, self.config.limits.max_packet_bytes)? {
-                Frame::Incomplete => break,
-                Frame::Malformed => {
-                    gap(state, report, CaptureGap::MalformedPacket);
-                    offset += line_end + 1;
-                    continue;
-                }
-                Frame::Complete(end) => end,
-            };
-            let Some(suffix_end) = packet[end..].iter().position(|&byte| byte == b'\n') else {
-                if packet.len() > self.config.limits.max_packet_bytes {
-                    return Err(CaptureError::Capacity);
-                }
-                break;
-            };
-            let advance = dump_start + end + suffix_end + 1;
-            if !SUFFIX.is_match(&packet[end..end + suffix_end]) {
-                gap(state, report, CaptureGap::MalformedPacket);
-                offset += advance;
-                continue;
-            }
-            report.packets += 1;
-            let parsed = parse_packet(
-                &packet[..end],
-                self.config.self_user_id.as_deref(),
-                ParserLimits {
-                    max_bytes: self.config.limits.max_packet_bytes,
-                    ..ParserLimits::default()
-                },
-            );
-            match parsed {
-                Ok(parsed) => {
-                    for reason in parsed.gaps {
-                        gap(state, report, CaptureGap::Parser(reason));
-                    }
-                    for event in parsed.events {
-                        let peer = match &event {
-                            ParsedEvent::Message { peer, .. }
-                            | ParsedEvent::Delete { peer, .. } => peer,
-                        };
-                        if peer != &self.config.peer {
-                            continue;
-                        }
-                        if matches!(&event, ParsedEvent::Delete { peer, .. } if peer.kind != PeerKind::Channel)
-                        {
-                            continue;
-                        }
-                        if !seen.insert(event_hash(&event)?) {
-                            report.duplicates += 1;
-                            continue;
-                        }
-                        if state.events.len() >= self.config.limits.max_events {
-                            return Err(CaptureError::Capacity);
-                        }
-                        state.events.push(event);
-                        report.added_events += 1;
-                    }
-                }
-                Err(super::parser::ParseError::LimitExceeded) => {
-                    return Err(CaptureError::Capacity)
-                }
-                Err(_) => gap(state, report, CaptureGap::MalformedPacket),
-            }
-            offset += advance;
-        }
-        Ok(offset)
     }
 
     fn check_output(&self) -> Result<(), CaptureError> {
@@ -662,15 +473,256 @@ impl CaptureSession {
     }
 }
 
-fn validate_config(config: &CaptureConfig) -> Result<(), CaptureError> {
+/// Shared bounded file/framing follower. The sink owns deduplication and
+/// persistence; advancing these cursors is valid only with the sink commit.
+pub(super) fn follow_logs(
+    config: &CaptureConfig,
+    input: &ArchiveFiles,
+    state: &mut CaptureState,
+    mut accept: impl FnMut(ParsedEvent) -> Result<bool, CaptureError>,
+) -> Result<PollReport, CaptureError> {
+    let mut report = PollReport::default();
+    let had_cursors = !state.cursors.is_empty();
+    let mut names = Vec::new();
+    let mut inspected = 0;
+    for entry in input.entries().map_err(|_| CaptureError::Io)? {
+        inspected += 1;
+        if inspected > 4096 {
+            return Err(CaptureError::Capacity);
+        }
+        let entry = entry.map_err(|_| CaptureError::Io)?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !log_name(&name) {
+            continue;
+        }
+        if !entry.file_type().map_err(|_| CaptureError::Io)?.is_file() {
+            return Err(CaptureError::UnsafePath);
+        }
+        names.push(name);
+        if names.len() > config.limits.max_files {
+            return Err(CaptureError::Capacity);
+        }
+    }
+    names.sort();
+    if let Some(index) = state
+        .next_file
+        .as_ref()
+        .and_then(|next| names.iter().position(|name| name == next))
+    {
+        names.rotate_left(index);
+    }
+    let removed = state
+        .cursors
+        .iter()
+        .filter(|cursor| !names.contains(&cursor.name))
+        .count();
+    for _ in 0..removed {
+        gap(state, &mut report, CaptureGap::FileRotated);
+    }
+    state.cursors.retain(|cursor| names.contains(&cursor.name));
+    for (index, name) in names.iter().enumerate() {
+        if report.bytes_read >= config.limits.max_poll_bytes {
+            report.pending_tail = true;
+            break;
+        }
+        let mut file = input
+            .open_regular(Path::new(name))
+            .map_err(|_| CaptureError::UnsafePath)?;
+        let metadata = file.metadata().map_err(|_| CaptureError::Io)?;
+        let (device, inode) = identity(&metadata);
+        let previous = state.cursors.iter().position(|cursor| cursor.name == *name);
+        let mut cursor = previous
+            .map(|i| state.cursors[i].clone())
+            .unwrap_or(FileCursor {
+                name: name.clone(),
+                offset: 0,
+                device,
+                inode,
+                observed_len: metadata.len(),
+                modified: modified(&metadata),
+                head_len: 0,
+                head_sha256: digest(&[]),
+                tail_sha256: digest(&[]),
+            });
+        if previous.is_none() && had_cursors {
+            gap(state, &mut report, CaptureGap::FileRotated);
+        }
+        if (cursor.device, cursor.inode) != (device, inode) {
+            gap(state, &mut report, CaptureGap::FileRotated);
+            cursor.offset = 0;
+        } else if metadata.len() < cursor.offset
+            || (previous.is_some()
+                && metadata.len() == cursor.observed_len
+                && modified(&metadata) != cursor.modified)
+            || (cursor.offset > 0
+                && (read_hash(&mut file, 0, cursor.head_len)? != cursor.head_sha256
+                    || read_hash(
+                        &mut file,
+                        cursor.offset.saturating_sub(256),
+                        cursor.offset.min(256) as usize,
+                    )? != cursor.tail_sha256))
+        {
+            gap(state, &mut report, CaptureGap::FileTruncated);
+            cursor.offset = 0;
+        }
+        cursor.device = device;
+        cursor.inode = inode;
+        cursor.observed_len = metadata.len();
+        cursor.modified = modified(&metadata);
+        let start_offset = cursor.offset;
+        let mut expected_head = read_range(&mut file, 0, start_offset.min(64) as usize)?;
+        let previous_tail = read_range(
+            &mut file,
+            start_offset.saturating_sub(256),
+            start_offset.min(256) as usize,
+        )?;
+        file.seek(SeekFrom::Start(cursor.offset))
+            .map_err(|_| CaptureError::Io)?;
+        let allowance = config.limits.max_poll_bytes - report.bytes_read;
+        let mut bytes = Vec::new();
+        Read::by_ref(&mut file)
+            .take(allowance as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| CaptureError::Io)?;
+        report.bytes_read += bytes.len();
+        let consumed = consume_logs(config, &bytes, state, &mut accept, &mut report)?;
+        cursor.offset += consumed as u64;
+        // A day reuse/rewrite between data and fingerprint reads must not
+        // commit old events with a fingerprint of the replacement data.
+        if hash_range(&mut file, start_offset, consumed)? != digest(&bytes[..consumed]) {
+            return Err(CaptureError::SourceChanged);
+        }
+        expected_head.extend_from_slice(&bytes[..consumed.min(64 - expected_head.len())]);
+        let mut expected_tail = if consumed < 256 {
+            previous_tail[previous_tail.len().saturating_sub(256 - consumed)..].to_vec()
+        } else {
+            Vec::new()
+        };
+        expected_tail.extend_from_slice(&bytes[consumed.saturating_sub(256)..consumed]);
+        if read_hash(&mut file, 0, expected_head.len())? != digest(&expected_head)
+            || read_hash(
+                &mut file,
+                cursor.offset.saturating_sub(256),
+                expected_tail.len(),
+            )? != digest(&expected_tail)
+            || file.metadata().map_err(|_| CaptureError::Io)?.len() < cursor.offset
+        {
+            return Err(CaptureError::SourceChanged);
+        }
+        report.pending_tail |= consumed < bytes.len() || cursor.offset < metadata.len();
+        cursor.head_len = expected_head.len();
+        cursor.head_sha256 = digest(&expected_head);
+        cursor.tail_sha256 = digest(&expected_tail);
+        if let Some(index) = previous {
+            state.cursors[index] = cursor;
+        } else {
+            state.cursors.push(cursor);
+        }
+        state.next_file = Some(names[(index + 1) % names.len()].clone());
+    }
+    if names.is_empty() {
+        state.next_file = None;
+    }
+    Ok(report)
+}
+
+fn consume_logs(
+    config: &CaptureConfig,
+    bytes: &[u8],
+    state: &mut CaptureState,
+    accept: &mut impl FnMut(ParsedEvent) -> Result<bool, CaptureError>,
+    report: &mut PollReport,
+) -> Result<usize, CaptureError> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let rest = &bytes[offset..];
+        let Some(line_end) = rest.iter().position(|&byte| byte == b'\n') else {
+            if rest.len() > config.limits.max_packet_bytes {
+                return Err(CaptureError::Capacity);
+            }
+            break;
+        };
+        let line = &rest[..line_end];
+        if line.strip_suffix(b"\r").unwrap_or(line) == b"NEW LOGGING INSTANCE STARTED!!!" {
+            gap(state, report, CaptureGap::LoggingRestarted);
+        }
+        let Some(header) = RECORD.find(line) else {
+            offset += line_end + 1;
+            continue;
+        };
+        let dump_start = header.end();
+        let packet = &rest[dump_start..];
+        let end = match complete_dump(packet, config.limits.max_packet_bytes)? {
+            Frame::Incomplete => break,
+            Frame::Malformed => {
+                gap(state, report, CaptureGap::MalformedPacket);
+                offset += line_end + 1;
+                continue;
+            }
+            Frame::Complete(end) => end,
+        };
+        let Some(suffix_end) = packet[end..].iter().position(|&byte| byte == b'\n') else {
+            if packet.len() > config.limits.max_packet_bytes {
+                return Err(CaptureError::Capacity);
+            }
+            break;
+        };
+        let advance = dump_start + end + suffix_end + 1;
+        if !SUFFIX.is_match(&packet[end..end + suffix_end]) {
+            gap(state, report, CaptureGap::MalformedPacket);
+            offset += advance;
+            continue;
+        }
+        report.packets += 1;
+        let parsed = parse_packet(
+            &packet[..end],
+            config.self_user_id.as_deref(),
+            ParserLimits {
+                max_bytes: config.limits.max_packet_bytes,
+                ..ParserLimits::default()
+            },
+        );
+        match parsed {
+            Ok(parsed) => {
+                for reason in parsed.gaps {
+                    gap(state, report, CaptureGap::Parser(reason));
+                }
+                for event in parsed.events {
+                    let peer = match &event {
+                        ParsedEvent::Message { peer, .. } | ParsedEvent::Delete { peer, .. } => {
+                            peer
+                        }
+                    };
+                    if peer != &config.peer {
+                        continue;
+                    }
+                    if matches!(&event, ParsedEvent::Delete { peer, .. } if peer.kind != PeerKind::Channel)
+                    {
+                        continue;
+                    }
+                    if accept(event)? {
+                        report.added_events += 1;
+                    } else {
+                        report.duplicates += 1;
+                    }
+                }
+            }
+            Err(super::parser::ParseError::LimitExceeded) => return Err(CaptureError::Capacity),
+            Err(_) => gap(state, report, CaptureGap::MalformedPacket),
+        }
+        offset += advance;
+    }
+    Ok(offset)
+}
+
+pub(super) fn validate_config(config: &CaptureConfig) -> Result<(), CaptureError> {
     let limits = config.limits;
     if !config.confirmed_single_account
-        || config.account_namespace.is_empty()
-        || config.account_namespace.len() > 80
-        || !config
-            .account_namespace
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+        || config.account_namespace.trim().is_empty()
+        || config.account_namespace.len() > 1024
+        || config.account_namespace.chars().any(char::is_control)
         || !valid_id(&config.peer.id)
         || config
             .self_user_id
@@ -708,11 +760,14 @@ fn validate_config(config: &CaptureConfig) -> Result<(), CaptureError> {
     }
     Ok(())
 }
-fn validate_state(state: &CaptureState, limits: CaptureLimits) -> Result<(), CaptureError> {
+pub(super) fn validate_state(
+    state: &CaptureState,
+    limits: CaptureLimits,
+) -> Result<(), CaptureError> {
     if state.schema_version != 1
         || state.events.len() > limits.max_events
         || state.cursors.len() > limits.max_files
-        || state.gaps.len() > 16
+        || state.gaps.len() > 32
         || state.events.iter().any(|event| match event {
             ParsedEvent::Message {
                 peer, message_id, ..
@@ -727,12 +782,16 @@ fn validate_state(state: &CaptureState, limits: CaptureLimits) -> Result<(), Cap
             .cursors
             .iter()
             .any(|cursor| !log_name(&cursor.name) || cursor.head_len > 64)
+        || state
+            .next_file
+            .as_deref()
+            .is_some_and(|name| !log_name(name))
     {
         return Err(CaptureError::InvalidState);
     }
     Ok(())
 }
-fn valid_id(value: &str) -> bool {
+pub(super) fn valid_id(value: &str) -> bool {
     !value.starts_with('0')
         && value
             .parse::<i64>()
@@ -759,22 +818,40 @@ fn gap(state: &mut CaptureState, report: &mut PollReport, reason: CaptureGap) {
         });
     }
 }
-fn digest(bytes: &[u8]) -> String {
+pub(super) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-fn event_hash(event: &ParsedEvent) -> Result<String, CaptureError> {
+pub(super) fn event_hash(event: &ParsedEvent) -> Result<String, CaptureError> {
     serde_json::to_vec(event)
         .map(|bytes| digest(&bytes))
         .map_err(|_| CaptureError::InvalidState)
 }
 fn read_hash(file: &mut File, offset: u64, count: usize) -> Result<String, CaptureError> {
+    Ok(digest(&read_range(file, offset, count)?))
+}
+fn read_range(file: &mut File, offset: u64, count: usize) -> Result<Vec<u8>, CaptureError> {
     file.seek(SeekFrom::Start(offset))
         .map_err(|_| CaptureError::Io)?;
     let mut bytes = vec![0; count];
     file.read_exact(&mut bytes).map_err(|_| CaptureError::Io)?;
-    Ok(digest(&bytes))
+    Ok(bytes)
 }
-fn identity(metadata: &fs::Metadata) -> (u64, u64) {
+fn hash_range(file: &mut File, offset: u64, count: usize) -> Result<String, CaptureError> {
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|_| CaptureError::Io)?;
+    let mut hash = Sha256::new();
+    let mut remaining = count;
+    let mut buffer = [0u8; 8192];
+    while remaining > 0 {
+        let size = remaining.min(buffer.len());
+        file.read_exact(&mut buffer[..size])
+            .map_err(|_| CaptureError::SourceChanged)?;
+        hash.update(&buffer[..size]);
+        remaining -= size;
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+pub(super) fn identity(metadata: &fs::Metadata) -> (u64, u64) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -797,7 +874,10 @@ fn modified(metadata: &fs::Metadata) -> Option<(u64, u32)> {
         .ok()?;
     Some((time.as_secs(), time.subsec_nanos()))
 }
-fn private_permissions(metadata: &fs::Metadata, directory: bool) -> Result<(), CaptureError> {
+pub(super) fn private_permissions(
+    metadata: &fs::Metadata,
+    directory: bool,
+) -> Result<(), CaptureError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

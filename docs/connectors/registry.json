@@ -264,7 +264,8 @@
         "Diagnostic transport packets precede duplicate registration/application acceptance. Parser must handle exact source-pinned grammar with bounded memory, type annotations, string escapes, containers, short/new/edit/delete and unknown outcomes; never infer account identity from DC/key/session.",
         "One confirmed account only; account switching/multiple accounts, initial history/backfill, message acceptance ordering, anonymous sender attribution and original media are unqualified. Non-channel delete requires known peer mapping; missing mapping remains unresolved.",
         "Runtime -debug itself is not persistent; existing tdata/withdebug can keep debug enabled. Graceful -quit/relaunch activation and disable were verified for this controlled installed-client run; second-instance -debug forwards show only. Quarter-hour rotation/day reuse, restart, truncation and offline gaps have synthetic checks, not real live-feed qualification.",
-        "Prototype output assumes one private experiment-owned directory without concurrent same-user path replacement or file mutation. Path-based publication requires hardening before permanent unattended collection."
+        "Prototype output assumes one private experiment-owned directory without concurrent same-user path replacement or file mutation. Path-based publication requires hardening before permanent unattended collection.",
+        "Continuous acquisition is being implemented under tgsum-i1w.13; the source and storage contract is ../specs/telegram-continuous-source.md. Durable journal, Project apply, background lifecycle and installed live/UI qualification remain required. This design does not enable acquisition or promote support."
       ],
       "implementation": null,
       "qualifications": []
