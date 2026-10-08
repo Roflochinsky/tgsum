@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "automatic": false,
+  "oauth_account_sha256": "SHA256-OF-JSON-ENCODED-AUTOMATION-ACCOUNT-ID",
+  "package": "project-EXAMPLE",
+  "project_title": "Рабочий план",
+  "source_url": "https://github.com/OWNER/PRIVATE-REPO",
+  "min_interval_seconds": 3600,
+  "notion_data_source": "DATA-SOURCE-UUID",
+  "notion_views": {
+    "today": "TODAY-VIEW-UUID",
+    "week": "WEEK-VIEW-UUID",
+    "month": "MONTH-VIEW-UUID"
+  },
+  "notion_reports": {
+    "summary": "SUMMARY-PAGE-UUID",
+    "call": "CALL-PAGE-UUID",
+    "feedback": "FEEDBACK-PAGE-UUID",
+    "retro": "RETRO-PAGE-UUID"
+  }
+}

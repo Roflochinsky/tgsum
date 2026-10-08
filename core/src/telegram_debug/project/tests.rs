@@ -211,6 +211,7 @@ impl Fixture {
                     include_images: true,
                     include_office: false,
                     github_repository: None,
+                    cloud_processing: false,
                 },
             )
             .unwrap();

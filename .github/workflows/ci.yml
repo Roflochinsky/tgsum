@@ -27,6 +27,13 @@ jobs:
         run: |
           python -m pip install -r scripts/requirements-registry.txt
           python scripts/check-registry-schema.py
+      - name: Private cloud pipeline contracts (synthetic, no credentials)
+        run: python -B -m unittest discover -s cloud -p 'test_*.py' -v
+      - name: Qualify pinned cloud CLI with an owned loopback provider
+        run: |
+          npm install --prefix "$RUNNER_TEMP/tgsum-codex" @openai/codex@0.155.1
+          export PATH="$RUNNER_TEMP/tgsum-codex/node_modules/.bin:$PATH"
+          python -B cloud/qualify_cli.py
       - name: Telegram AT-SPI probe fake-tree checks
         run: python -B scripts/test-telegram-atspi-probe.py
       - name: Install synthetic Linux AT-SPI runtime

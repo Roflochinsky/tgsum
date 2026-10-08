@@ -71,6 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             include_images: true,
             include_office: true,
             github_repository: None,
+            cloud_processing: false,
         },
     )?;
     let start = Instant::now();

@@ -1,5 +1,5 @@
 // Saved local-file pipeline. It never controls or signs in to Telegram.
-export function mountLocalPackage({ invoke, act, project, toast, reload }) {
+export function mountLocalPackage({ invoke, act, project, toast, reload, busy }) {
   let renderEpoch = 0
   async function render(container, { preserveDraft = false } = {}) {
     const previous = preserveDraft ? container.querySelector('[data-local-package][data-dirty="true"]') : null
@@ -11,6 +11,7 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
       automatic: previous.querySelector('[data-package-auto]').checked,
       images: previous.querySelector('[data-package-images]').checked,
       office: previous.querySelector('[data-package-office]').checked,
+      cloud: previous.querySelector('[data-package-cloud]').checked,
     } : null
     const epoch = ++renderEpoch
     container.replaceChildren()
@@ -42,6 +43,8 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
       <p class="hint">${fromLogs ? 'Пакет обновляется по сохранённым наблюдениям сборщика. Для остальных чатов новый экспорт сохраняется вручную. Логи не являются полной историей.' : 'Новый экспорт нужно сохранить из Telegram самостоятельно. TGSUM проверяет локальную папку, пока приложение запущено. Сбор сообщений можно отдельно настроить в карточке чата.'}</p>
       <label>Приватный репозиторий GitHub, необязательно<input data-package-repo placeholder="owner/TGSUM-IMPORT"></label>
       <p class="hint">Оставьте поле пустым, чтобы сохранять только на компьютере. Указанный репозиторий включает публикацию через установленную программу gh и выполненный в ней вход. Удалённые файлы сохраняются в истории Git.</p>
+      <label class="project-check"><input type="checkbox" data-package-cloud> Передавать выбранные сообщения в GitHub для обработки Codex и записи в Notion</label>
+      <p class="hint">Появятся messages.jsonl и coverage.json: текст с сохранёнными правилами приватности, устойчивые ключи сообщений и известных тем, сведения о пропусках. Исходные ID и логи остаются в проекте. GitHub Actions нужно отдельно настроить в выбранном репозитории. Этот переключатель разрешает передачу новых наблюдений сборщика; старые настройки GitHub её не включают.</p>
       <div class="project-actions"><button type="button" class="btn btn-ghost" data-package-save>Сохранить настройки</button>
         <button type="button" class="btn btn-primary" data-package-refresh>Собрать пакет</button>
         <button type="button" class="btn btn-ghost" data-package-stop>Остановить обновление</button>
@@ -50,6 +53,7 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
     container.append(section)
     const $ = s => section.querySelector(s)
     let running = false
+    const renderedGeneration = state?.ready?.generation
     let dirty = !!draft
     if (draft) section.dataset.dirty = 'true'
     let polling = false
@@ -60,7 +64,7 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
     $('[data-package-images]').checked = draft?.images ?? (settings?.include_images ?? true)
     $('[data-package-office]').checked = draft?.office ?? (settings?.include_office ?? true)
     $('[data-package-repo]').value = draft?.repository ?? (settings?.github_repository || '')
-    $('[data-package-repo]').disabled = fromLogs
+    $('[data-package-cloud]').checked = draft?.cloud ?? (settings?.cloud_processing || false)
     $('[data-package-selection]').textContent = `Выбрано чатов: ${selected.length}. ` + selected.map(s => {
       const title = document.querySelector(`[data-source="${CSS.escape(s.source_id)}"] h3`)?.textContent || s.scope.conversation_id
       return `${title}: ${s.selection.filter.topic_ids === null ? 'все темы' : 'тем — ' + s.selection.filter.topic_ids.length}`
@@ -72,7 +76,7 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
       $('[data-package-ready-directory]').hidden = !ready
       $('[data-package-ready-directory]').textContent = ready ? `Готовые файлы: ${ready.directory}` : ''
       $('[data-package-counts]').textContent = ready ? `Готово ${new Date(ready.prepared_at * 1000).toLocaleString()}: ${ready.conversations ?? 1} чатов · ${ready.messages} сообщений · ${ready.files} файлов · ${(ready.bytes / 1024 / 1024).toFixed(1)} МиБ · ${ready.skipped_attachments} вложений не включено · ${ready.initials_replacements} ФИО сокращено. Полнота истории неизвестна.` : ''
-      $('[data-package-github]').textContent = fromLogs || ready?.local_only ? 'Пакет с диагностическими наблюдениями сохраняется только локально. Автоматическая публикация отключена; прежняя настройка репозитория сохранена.' :
+      $('[data-package-github]').textContent = (fromLogs && !state?.settings.cloud_processing) || ready?.local_only ? 'Пакет с наблюдениями сохраняется только локально. Для передачи выберите репозиторий и включите обработку Codex и Notion.' :
         state?.github_error || (state?.github_commit && ready?.content_sha256 === state.github_content_sha256 ? `GitHub: опубликовано, коммит ${state.github_commit.slice(0, 8)}` : state?.settings.github_repository ? 'GitHub: ожидается публикация готового пакета.' : 'Локальный пакет; публикация GitHub отключена.')
       if (!dirty) $('[data-package-auto]').checked = state?.settings.automatic || false
       $('[data-package-refresh]').disabled = !state || running || dirty
@@ -97,6 +101,7 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
         output_directory: $('[data-package-output]').value, automatic: $('[data-package-auto]').checked,
         include_images: $('[data-package-images]').checked, include_office: $('[data-package-office]').checked,
         github_repository: $('[data-package-repo]').value.trim() || null,
+        cloud_processing: $('[data-package-cloud]').checked,
       } })
       dirty = false; delete section.dataset.dirty; renderStatus(); toast('Настройки пакета сохранены'); await reload()
     })
@@ -111,16 +116,28 @@ export function mountLocalPackage({ invoke, act, project, toast, reload }) {
       } catch (e) { toast(e?.message || String(e), 'error') }
       finally { running = false; if (section.isConnected) renderStatus() }
     }
-    $('[data-package-stop]').onclick = async () => {
-      try { await invoke('cancel_local_package', { projectId: id }); state = await invoke('local_package_status', { projectId: id }); renderStatus() }
-      catch (e) { toast(e?.message || String(e), 'error') }
-    }
+    $('[data-package-stop]').onclick = () => act(async () => {
+      await invoke('cancel_local_package', { projectId: id })
+      state = await invoke('local_package_status', { projectId: id })
+      renderStatus()
+      // Automatic import can advance the Project revision independently of
+      // this panel. Keep unsaved chat/package drafts while updating it.
+      await reload({ preserveDrafts: true })
+    })
     $('[data-package-open]').onclick = () => act(() => invoke('open_folder', { path: state.ready.directory }))
     const timer = setInterval(async () => {
       if (!section.isConnected) { clearInterval(timer); return }
-      if (polling || document.hidden || !section.open) return
+      if (polling || running || document.hidden || !section.open || busy()) return
       polling = true
-      try { state = await invoke('local_package_status', { projectId: id }); renderStatus() }
+      try {
+        state = await invoke('local_package_status', { projectId: id })
+        renderStatus()
+        if (state?.ready?.generation !== renderedGeneration) {
+          // Hold the existing edit guard through the async project render so
+          // users cannot start a new draft after its preservation snapshot.
+          await act(() => reload({ preserveDrafts: true }))
+        }
+      }
       catch (e) { $('[data-package-status]').textContent = e?.message || String(e) }
       finally { polling = false }
     }, 1500)

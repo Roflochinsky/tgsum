@@ -31,6 +31,8 @@ pub struct PackageSettings {
     pub include_images: bool,
     pub include_office: bool,
     pub github_repository: Option<String>,
+    /// Explicit opt-in, never inferred from an older Markdown GitHub preference.
+    pub cloud_processing: bool,
 }
 
 /// Accept the shipped single-source settings without widening their scope.
@@ -45,6 +47,8 @@ struct PackageSettingsInput {
     include_images: bool,
     include_office: bool,
     github_repository: Option<String>,
+    #[serde(default)]
+    cloud_processing: bool,
 }
 impl TryFrom<PackageSettingsInput> for PackageSettings {
     type Error = &'static str;
@@ -62,6 +66,7 @@ impl TryFrom<PackageSettingsInput> for PackageSettings {
             include_images: value.include_images,
             include_office: value.include_office,
             github_repository: value.github_repository,
+            cloud_processing: value.cloud_processing,
         })
     }
 }
@@ -71,6 +76,10 @@ pub struct PackageReceipt {
     /// Diagnostic observations are authorized for local results in this scope.
     #[serde(default)]
     pub local_only: bool,
+    #[serde(default)]
+    pub cloud_processing: bool,
+    #[serde(default)]
+    pub authorization_sha256: String,
     #[serde(default = "single_conversation")]
     pub conversations: usize,
     pub directory: PathBuf,
@@ -118,6 +127,8 @@ pub struct PackageManifest {
     pub schema_version: u32,
     #[serde(default)]
     pub local_only: bool,
+    #[serde(default)]
+    pub cloud_processing: bool,
     pub messages: usize,
     pub attachment_references: usize,
     pub skipped_attachments: usize,
@@ -168,6 +179,12 @@ fn scope_hash(project: &Project) -> io::Result<String> {
     ))
 }
 
+fn authorization_hash(state: &PackageState) -> io::Result<String> {
+    Ok(hash(
+        &serde_json::to_vec(&(&state.scope_sha256, &state.settings)).map_err(invalid)?,
+    ))
+}
+
 impl ProjectStore {
     /// Persist a pause so application restart cannot resume a stopped watcher.
     pub fn pause_local_package(&self, project_id: &str) -> io::Result<PackageState> {
@@ -207,12 +224,32 @@ impl ProjectStore {
         let Some(state) = self.local_package(project_id)? else {
             return Ok(false);
         };
-        Ok(state.ready.as_ref().is_some_and(|r| !r.local_only)
+        let authorization = authorization_hash(&state)?;
+        Ok(state.scope_sha256 == scope_hash(&project)?
             && state
-                .settings
-                .source_ids
-                .iter()
-                .all(|id| !project.telegram_continuous.contains_key(id)))
+                .ready
+                .as_ref()
+                .is_some_and(|r| !r.local_only && r.authorization_sha256 == authorization)
+            && state.settings.source_ids.iter().all(|id| {
+                state.settings.cloud_processing || !project.telegram_continuous.contains_key(id)
+            }))
+    }
+
+    /// Final permission check and push share a lease with package settings and
+    /// immutable Project revision publication. Scope cannot change mid-push.
+    pub fn with_local_package_publication<T>(
+        &self,
+        project_id: &str,
+        action: impl FnOnce() -> io::Result<T>,
+    ) -> io::Result<T> {
+        let _package = storage::Lease::acquire(self, project_id)?;
+        let _project = crate::project::RevisionLease::acquire(&self.directory(project_id)?)?;
+        if !self.local_package_allows_publication(project_id)? {
+            return Err(invalid(
+                "Разрешение на отправку изменилось. Соберите пакет заново.",
+            ));
+        }
+        action()
     }
 
     pub fn configure_local_package(
@@ -291,6 +328,11 @@ impl ProjectStore {
             }
         }
         let old = storage::read(self, project_id)?;
+        if settings.cloud_processing && settings.github_repository.is_none() {
+            return Err(invalid(
+                "Для облачной обработки укажите приватный репозиторий GitHub.",
+            ));
+        }
         if old.as_ref().is_some_and(|v| {
             v.settings.output_directory != settings.output_directory && v.ready.is_some()
         }) {
@@ -373,6 +415,8 @@ impl ProjectStore {
                 state.phase = "ready".into();
                 state.message = if local_only {
                     "Локальный пакет готов. История дополнена наблюдениями Telegram; возможны пропуски. Отправка на GitHub для этого источника отключена."
+                } else if state.settings.cloud_processing {
+                    "Пакет и JSONL готовы к передаче в выбранный GitHub. Результат Codex и синхронизация Notion проверяются в Actions. Возможны пропуски истории."
                 } else {
                     "Пакет готов. Полнота истории определяется предоставленной выгрузкой."
                 }.into();
@@ -689,7 +733,10 @@ impl ProjectStore {
         }
         let input_hash = format!("{:x}", fingerprint.finalize());
         if let Some(ready) = &state.ready {
-            if ready.input_sha256 == input_hash && publication::verify(ready).is_ok() {
+            if ready.input_sha256 == input_hash
+                && ready.authorization_sha256 == authorization_hash(state)?
+                && publication::verify(ready).is_ok()
+            {
                 publication::cleanup(state, &ready.generation)?;
                 return Ok(ready.clone());
             }
@@ -712,7 +759,8 @@ impl ProjectStore {
         let staged = publication::Staging::new(exported.directory);
         let mut manifest = PackageManifest {
             schema_version: 1,
-            local_only: state.settings.source_ids.iter().any(|id| project.telegram_continuous.contains_key(id)),
+            cloud_processing: state.settings.cloud_processing,
+            local_only: !state.settings.cloud_processing && state.settings.source_ids.iter().any(|id| project.telegram_continuous.contains_key(id)),
             messages: review.manifest.messages,
             attachment_references: review.manifest.attachment_references,
             skipped_attachments: skipped,
@@ -734,6 +782,19 @@ impl ProjectStore {
                 })
                 .collect(),
         };
+        if state.settings.cloud_processing {
+            for file in
+                self.structured_package_files(id, &review.bundle_id, staged.path(), cancelled)?
+            {
+                manifest.files.push(PackageFile {
+                    name: file.name,
+                    bytes: file.bytes,
+                    sha256: file.sha256,
+                    handling: "structured_sanitized_context".into(),
+                    attachment_id: None,
+                });
+            }
+        }
         for file in extra_files {
             check(cancelled)?;
             fs::rename(

@@ -1242,6 +1242,11 @@ fn validate_project(project: &Project) -> io::Result<()> {
 }
 
 fn write_revision(directory: &Path, project: &Project) -> io::Result<()> {
+    let _lease = RevisionLease::acquire(
+        directory
+            .parent()
+            .ok_or_else(|| invalid("missing Project root"))?,
+    )?;
     let mut staged = tempfile::NamedTempFile::new_in(directory)?;
     {
         let mut writer = BufWriter::new(staged.as_file_mut());
@@ -1258,6 +1263,34 @@ fn write_revision(directory: &Path, project: &Project) -> io::Result<()> {
     #[cfg(unix)]
     File::open(directory)?.sync_all()?;
     Ok(())
+}
+
+pub(crate) struct RevisionLease(File);
+impl RevisionLease {
+    pub(crate) fn acquire(root: &Path) -> io::Result<Self> {
+        use fs4::{FileExt, TryLockError};
+        let path = root.join(".publication-lease");
+        match File::create_new(&path) {
+            Ok(_) => (),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(e) => return Err(e),
+        }
+        let file = crate::attachments::ArchiveFiles::open(root)?
+            .open_regular(Path::new(".publication-lease"))?;
+        match FileExt::try_lock(&file) {
+            Ok(()) => Ok(Self(file)),
+            Err(TryLockError::WouldBlock) => Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Проект отправляется в GitHub. Повторите изменение после завершения.",
+            )),
+            Err(TryLockError::Error(e)) => Err(e),
+        }
+    }
+}
+impl Drop for RevisionLease {
+    fn drop(&mut self) {
+        let _ = fs4::FileExt::unlock(&self.0);
+    }
 }
 
 fn validate_baseline(baseline: &AnalysisBaseline) -> io::Result<()> {

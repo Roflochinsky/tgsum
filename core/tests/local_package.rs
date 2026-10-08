@@ -105,6 +105,7 @@ impl Fixture {
                     include_images: true,
                     include_office: true,
                     github_repository: None,
+                    cloud_processing: false,
                 },
             )
             .unwrap();
@@ -286,6 +287,7 @@ fn unsafe_paths_and_changed_scope_do_not_extend_the_package() {
                 include_images: true,
                 include_office: true,
                 github_repository: None,
+                cloud_processing: false,
             }
         )
         .is_err());

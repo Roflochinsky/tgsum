@@ -1,0 +1,48 @@
+# Copy ONLY into the trusted private data repository, never run OAuth in TGSUM.
+name: Telegram workspace
+on:
+  workflow_dispatch:
+    inputs:
+      check_only:
+        description: 'Проверить доступы без анализа и без создания задач'
+        type: boolean
+        default: true
+  push:
+    paths:
+      - 'packages/**/messages.jsonl'
+      - 'packages/**/coverage.json'
+      - 'packages/**/package.json'
+  schedule:
+    - cron: '17 * * * *'
+
+# One session, one stream; pending events remain recoverable from Git history.
+concurrency:
+  group: tgsum-private-oauth
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  process:
+    if: github.event.repository.private == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Install pinned official Codex CLI
+        run: npm install --prefix "$RUNNER_TEMP/tgsum-codex" @openai/codex@0.155.1
+      - name: Process selected messages and synchronize Notion
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_AUTH_WRITER_TOKEN: ${{ secrets.CODEX_AUTH_WRITER_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TGSUM_CHECK_ONLY: ${{ github.event.inputs.check_only || 'false' }}
+        run: |
+          export PATH="$RUNNER_TEMP/tgsum-codex/node_modules/.bin:$PATH"
+          python3 .tgsum/pipeline.py --repo "$GITHUB_WORKSPACE" --config .tgsum/config.json

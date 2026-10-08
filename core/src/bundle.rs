@@ -4,6 +4,7 @@
 mod attachments;
 mod files;
 mod preview;
+mod structured;
 use attachments::{AttachmentEvidence, AttachmentWriter, SourceFiles};
 pub use attachments::{AttachmentStatus, BundleAttachment};
 pub use preview::{BeforeState, EvidencePreview, ReviewItem, ReviewItems};

@@ -158,25 +158,27 @@ pub(super) fn publish(
     )?;
     let repo_path = staging.path().join("repo");
     let commit = publish_worktree(store, &state.project_id, &repo_path, &cancelled)?;
-    let latest = store
-        .local_package(&state.project_id)?
-        .ok_or_else(|| failure("package settings removed"))?;
-    if latest.settings.github_repository != state.settings.github_repository
-        || latest.ready.as_ref().map(|r| &r.content_sha256)
-            != state.ready.as_ref().map(|r| &r.content_sha256)
-    {
-        return Err(failure(
-            "Пакет изменился перед публикацией. Повторите обновление.",
-        ));
-    }
-    if !store.local_package_allows_publication(&state.project_id)? {
-        return Err(failure("Этот пакет доступен только локально."));
-    }
-    private(repo, &cancelled)?;
-    // A normal fast-forward push only. A race with another writer is retried
-    // from a fresh clone; unrelated changes are never force-overwritten.
-    run(git(&repo_path, &["push", "origin", "HEAD"]), &cancelled)?;
-    Ok(commit)
+    store.with_local_package_publication(&state.project_id, || {
+        let latest = store
+            .local_package(&state.project_id)?
+            .ok_or_else(|| failure("package settings removed"))?;
+        if latest.settings.github_repository != state.settings.github_repository
+            || latest.ready.as_ref().map(|r| &r.content_sha256)
+                != state.ready.as_ref().map(|r| &r.content_sha256)
+        {
+            return Err(failure(
+                "Пакет изменился перед публикацией. Повторите обновление.",
+            ));
+        }
+        if !store.local_package_allows_publication(&state.project_id)? {
+            return Err(failure("Этот пакет доступен только локально."));
+        }
+        private(repo, &cancelled)?;
+        // A normal fast-forward push only. A race with another writer is retried
+        // from a fresh clone; unrelated changes are never force-overwritten.
+        run(git(&repo_path, &["push", "origin", "HEAD"]), &cancelled)?;
+        Ok(commit)
+    })
 }
 
 fn publish_worktree(
@@ -341,6 +343,7 @@ mod tests {
                     include_images: true,
                     include_office: true,
                     github_repository: None,
+                    cloud_processing: false,
                 },
             )
             .unwrap();

@@ -38,8 +38,14 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       const panel = document.querySelector(`[data-telegram-refresh="${CSS.escape(sourceId)}"]`)
       if (panel) panel.open = true
     } })
-  const localPackage = mountLocalPackage({ invoke, act, project: () => current, toast,
-    reload: async () => { current = await invoke('open_project', { projectId: current.project_id }); await render() } })
+  const localPackage = mountLocalPackage({ invoke, act, project: () => current, toast, busy: () => working || busy(),
+    reload: async ({ preserveDrafts = false } = {}) => {
+      const id = current.project_id
+      const updated = await invoke('open_project', { projectId: id })
+      if (current?.project_id !== id || updated.revision < current.revision) return
+      current = updated
+      await render({ preserveSourceDrafts: preserveDrafts })
+    } })
   const telegramContinuous = mountTelegramContinuous({ invoke, act, project: () => current, busy: () => working || busy(),
     changed: async (updated, sourceId) => {
       if (current?.project_id !== updated.project_id || updated.revision < current.revision) return

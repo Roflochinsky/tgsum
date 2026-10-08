@@ -490,11 +490,29 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         assert updated["settings"]["automatic"] is True
         ui.click(package + ' [data-package-stop]')
         ui.wait('document.querySelector(' + json.dumps(package) + ')?.dataset.phase === "paused"')
+        ui.idle()
         stopped = ui.invoke("local_package_status", {"projectId": package_id})
         assert stopped["settings"]["automatic"] is False
         assert stopped["ready"] == updated["ready"]
         ui.screenshot(report_dir / "local-package-ready-paused.png")
         passed("local package controls: privacy, invalid input recovery, automatic local refresh, cleanup and durable pause")
+        assert not ui.evaluate('document.querySelector("[data-package-cloud]").checked')
+        ui.value(package + ' [data-package-repo]', 'fixture/private')
+        ui.click(package + ' [data-package-cloud]')
+        ui.click(package + ' [data-package-save]')
+        ui.idle()
+        cloud_settings = ui.invoke('local_package_status', {'projectId': package_id})
+        assert cloud_settings['settings']['cloud_processing'] is True
+        assert cloud_settings['settings']['automatic'] is False
+        assert ui.evaluate('document.querySelector("[data-package-cloud]").checked')
+        ui.screenshot(report_dir / 'cloud-handoff-opt-in.png')
+        # Save only: no refresh, publisher/auth/network use. Disable again.
+        ui.click(package + ' [data-package-cloud]')
+        ui.value(package + ' [data-package-repo]', '')
+        ui.click(package + ' [data-package-save]')
+        ui.idle()
+        assert ui.invoke('local_package_status', {'projectId': package_id})['settings']['cloud_processing'] is False
+        passed('explicit cloud handoff: default-off, real checkbox save/reload/off without external effects')
 
     if platform.system() == "Linux":
         shared_project = ui.invoke("create_project", {"name": "Multiple selected chats"})
@@ -605,7 +623,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         assert ui.evaluate('document.querySelector(' + json.dumps(collector + ' [data-continuous-manage]') + ').disabled')
         passed('managed collection: new default, read-only detection, durable opt-in and one synthetic Desktop restart through real Tauri IPC')
         assert not ui.evaluate('document.querySelector("[data-package-images]").checked'), "start erased an existing package draft"
-        assert ui.evaluate('document.querySelector("[data-package-repo]").disabled')
+        assert not ui.evaluate('document.querySelector("[data-package-repo]").disabled')
+        assert not ui.evaluate('document.querySelector("[data-package-cloud]").checked')
         assert 'диагностические наблюдения' in ui.evaluate('document.querySelector(' + json.dumps(group + ' .source-method') + ').textContent')
         assert ui.evaluate('document.querySelector(' + json.dumps(group + ' [name=through]') + ').value') == '2026-06-20'
         initial = ui.invoke("open_project", {"projectId": continuous_id})

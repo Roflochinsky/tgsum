@@ -199,6 +199,8 @@ pub(super) fn publish(
     let _ = cleanup(state, &generation);
     Ok(PackageReceipt {
         local_only: manifest.local_only,
+        cloud_processing: manifest.cloud_processing,
+        authorization_sha256: super::authorization_hash(state)?,
         conversations: state.settings.source_ids.len(),
         directory: current,
         generation,

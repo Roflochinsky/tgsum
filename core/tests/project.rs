@@ -153,12 +153,12 @@ fn project_survives_restart_and_never_copies_the_original_archive() {
         reopened.sources[0].availability(),
         SourceAvailability::FileMissing
     );
-    assert_eq!(
-        fs::read_dir(root.path().join(&created.project_id))
-            .unwrap()
-            .count(),
-        1
-    );
+    let mut entries = fs::read_dir(root.path().join(&created.project_id))
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, [".publication-lease", "revisions"]);
     for entry in fs::read_dir(root.path().join(&created.project_id).join("revisions")).unwrap() {
         assert!(!fs::read_to_string(entry.unwrap().path())
             .unwrap()
