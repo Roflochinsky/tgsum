@@ -108,6 +108,9 @@ jobs:
       - name: Install repository Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
+      - name: Report macOS host temporary aliases
+        if: runner.os == 'macOS'
+        run: python3 -c 'import json,os,tempfile; print(json.dumps({"var_target":os.readlink("/var"),"tmp_target":os.readlink("/tmp"),"temp_root":tempfile.gettempdir()}))'
       - run: bash scripts/check.sh test
       - name: Telegram AX probe synthetic checks
         if: runner.os == 'macOS'

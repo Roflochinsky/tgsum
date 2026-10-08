@@ -1278,7 +1278,11 @@ impl RevisionLease {
             let mut normalized = root.to_path_buf();
             for (alias, target) in [("/var", "/private/var"), ("/tmp", "/private/tmp")] {
                 if let Ok(relative) = root.strip_prefix(alias) {
-                    if fs::read_link(alias).is_ok_and(|link| link == Path::new(target)) {
+                    // A system symlink may store `private/var` relative to `/`,
+                    // or `/private/var`. Both resolve to the same fixed target.
+                    if fs::read_link(alias)
+                        .is_ok_and(|link| Path::new("/").join(link) == Path::new(target))
+                    {
                         normalized = Path::new(target).join(relative);
                         break;
                     }
