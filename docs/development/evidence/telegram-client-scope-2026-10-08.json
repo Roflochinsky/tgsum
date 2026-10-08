@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-08",
+  "scope": "Own synthetic Python processes and transient user scopes on Arch; no Telegram/account/user configuration changes",
+  "status": "passed",
+  "without_expand_environment_no": {
+    "command_pid_equals_spawn_pid": true,
+    "command_in_separate_scope": true,
+    "caller_outside_scope": true,
+    "working_directory_preserved": true,
+    "literal_argument_preserved": false
+  },
+  "with_expand_environment_no": {
+    "command_pid_equals_spawn_pid": true,
+    "command_in_separate_scope": true,
+    "caller_outside_scope": true,
+    "working_directory_preserved": true,
+    "literal_argument_preserved": true
+  },
+  "mutation": "Literal argument assertion RED without --expand-environment=no; GREEN with the fix",
+  "systemd_version": "systemd 261 (261.2-1-arch)",
+  "limitations": [
+    "This proves local systemd scope execution, PID preservation, separate cgroup and literal arguments; it does not qualify real Telegram lifecycle or TGSUM runtime integration."
+  ],
+  "cleanup": "Both uniquely named own scopes stopped and helpers reaped; temporary profiles removed"
+}

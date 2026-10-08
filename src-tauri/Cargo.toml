@@ -49,4 +49,4 @@ tauri-plugin-single-instance = "=2.4.4"
 signal-hook = "=0.3.18"
 cap-std = "=4.0.3"
 cap-fs-ext = "=4.0.3"
-rustix = { version = "=1.1.5", features = ["fs", "process"] }
+rustix = { version = "=1.1.5", features = ["fs", "process", "net"] }

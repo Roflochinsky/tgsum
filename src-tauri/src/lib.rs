@@ -16,6 +16,8 @@ mod local_package;
 mod package_github;
 mod privacy;
 mod source_access;
+#[cfg(target_os = "linux")]
+pub mod telegram_client;
 mod telegram_continuous;
 pub mod telegram_refresh;
 

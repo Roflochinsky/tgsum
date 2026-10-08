@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-08",
+  "task": "tgsum-i1w.13",
+  "scope": "Linux stock-client controller library, simulated Desktop, owned Unix socket fixtures and owned systemd scope proof; no runtime/UI or real Telegram lifecycle qualification",
+  "source_base_commit": "2c4f0c3245f96bbbd30e80f18bc04c04eb3e89ed",
+  "source_working_tree_dirty_at_verification": true,
+  "source_sha256": {
+    "Cargo.lock": "0023ca5b0174797885275bcefd9cc0ad9d2979dfe5155f1699e443d9da48a096",
+    "src-tauri/Cargo.toml": "4402c2e20b335a3fc66988ebc7784078f53ebb81dfbf9c43b14cdb2faad6255e",
+    "src-tauri/src/lib.rs": "abaec74e0d7c16c3ccfcb00b0aad177520d53071da74322156944e50654bf53b",
+    "src-tauri/src/telegram_client.rs": "25f69df32c656ba520cc65a49396b789549abf62a3cbeb63a936f9e0cfcbd0f6",
+    "src-tauri/src/telegram_client/linux.rs": "74a0e9c1e5120892d1acf08cf5adf9d022a8db045e40148c3573361039f3e67f",
+    "src-tauri/src/telegram_client/journal.rs": "6e04c1ebd5f5d49b76ab9b8d517c1b0994d85ce6cf662c9ebfdd4c3c2260973a",
+    "src-tauri/src/telegram_client/tests.rs": "c8788990a971f6fdd26a39bcb9a7364ce4df601492fc7a4540643730692ec220",
+    "docs/connectors/registry.json": "d18a61e9f1654ef3450ebef1d2aea0b0b1de28155884db24798f38009f371f13",
+    "docs/development/telegram-client-control.md": "2d8e39afcbb7a0da9a4d9ff495a1ce816744a8e636bd2e85566369dade40d3f6",
+    "docs/development/evidence/telegram-client-scope-2026-10-08.json": "0527c149a30aedb9f13a4edce919b13f9cb4bdc564aab9b53b5dd6d6e4417189",
+    "docs/development/evidence/telegram-client-scope-probe-2026-10-08.py": "ee4e7c3049bb1af8b2bfd7ce601d27d9764edf97421cf6f7438c64caba732210"
+  },
+  "checks": [
+    {
+      "command": "bash scripts/check.sh quick",
+      "result": "PASS"
+    },
+    {
+      "command": "cargo test -p tgsum --lib telegram_client --all-features --locked",
+      "result": "PASS",
+      "test_count": 22
+    },
+    {
+      "command": "bash scripts/check.sh",
+      "result": "PASS",
+      "scope": "Full workspace format/check/clippy/tests/doctests; existing opt-in ignored sandbox tests remain ignored"
+    },
+    {
+      "command": "cargo test --locked -p tgsum-core --test registry",
+      "result": "PASS",
+      "test_count": 10
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    },
+    {
+      "method": "JSON parsing, local runbook links and probe syntax",
+      "result": "PASS"
+    },
+    {
+      "method": "Actual final user-bus list of own tgsum-telegram-scope-check-* units after cleanup",
+      "result": "PASS",
+      "remaining_units": 0
+    }
+  ],
+  "independent_review": {
+    "reviewer": "debug_source_review with separate lifecycle/source and durability reviewers",
+    "result": "Scoped PASS on the final controller/linux/journal/tests hashes",
+    "synthetic_suite": "22 production tests plus independent five-field Identity and recovery fsync-seam tests: 24/24 GREEN",
+    "behavioral_mutations": [
+      "Remove claimed Identity guard: RED; restore: GREEN",
+      "Remove explicit -workdir pin: RED; restore: GREEN",
+      "Remove owned socket-inode guard: RED; restore: GREEN",
+      "Send CMD before peer/Identity validation: RED on zero-byte assertion; restore: GREEN",
+      "Ignore poisoned ambiguous publication: RED; restore: GREEN",
+      "Remove recovery root/parent directory sync: RED on injected recovery failure; restore: GREEN"
+    ],
+    "closed_findings": [
+      "A receipt visible after uncertain link/fsync cannot authorize another client action until durable reopen",
+      "A late foreign fixed directory never receives the initialization marker",
+      "Retained authenticated quit connection cannot redirect the command to a replacement endpoint",
+      "Own transient scope preserves literal dollar arguments with --expand-environment=no",
+      "Proposed pathname stage deletion had a compiled late-marker replacement RED; automatic deletion was removed entirely"
+    ],
+    "own_disposable_crate_cleaned": true
+  },
+  "actual_scope_proof": "telegram-client-scope-2026-10-08.json",
+  "verified_behavior": [
+    "Simulated stock normal launch switches to debug and restores effective original executable/profile/options",
+    "Already user-debug launch is borrowed and preserved; existing persistent flag blocks managed mutation",
+    "Durable receipt phases resume claimed process and refuse unclaimed/reused/replaced identity",
+    "Owned IPC fixture rejects wrong PID/UID/Identity before any bytes and never reconnects after replacement/error",
+    "Private single-writer receipts reject symlink/FIFO, marker/root replacement and unbranded foreign target",
+    "Failed initialization records and any unexpected stage contents are retained, not automatically deleted",
+    "Actual own Python user scope preserves spawn PID, cwd and literal UTF-8/dollar arguments in a separate cgroup"
+  ],
+  "not_qualified": [
+    "StockDesktop real Telegram quit/debug launch/restore",
+    "Shared controller integration with worker, saved opt-in, Start/Stop/Disconnect/Exit or actual UI",
+    "Personal binary/config installation, manifest migration, login autostart",
+    "A real new selected VibeCoders message or real edit/delete",
+    "Full history, lossless delivery, multiple accounts, other client versions/OS, production support or AI handoff"
+  ],
+  "data_handling": "Controller never initialized on a real user path or changed the real Telegram this pass. Tests/probe used own directories/processes/sockets only; no account API/export/message/session/cookies/process-memory payload. No user data deleted or uploaded.",
+  "connector_status": {
+    "support_status": "research",
+    "enabled_operations": [],
+    "implementation": null,
+    "qualifications": []
+  },
+  "rollback": "Source-only change: ordinary git revert of the controller commit. Own probe stopped its uniquely named scopes/reaped helpers/removed temporary profiles. Personal installation and user configuration unchanged."
+}
