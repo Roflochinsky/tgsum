@@ -61,6 +61,55 @@ CONFIG = {"enabled": True, "automatic": False, "package": "project-FIXTURE", "pr
 
 
 class Contracts(unittest.TestCase):
+    def analyze_fixture(self, response, records):
+        def completed(args, **kwargs):
+            output = Path(args[args.index("-o") + 1])
+            output.write_bytes(p.encoded(response))
+            text = json.dumps(response)
+            events = [{"type": "thread.started"}, {"type": "turn.started"},
+                {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
+                {"type": "turn.completed"}]
+            kwargs["stdout"].write(b"\n".join(map(p.encoded, events)))
+            return Mock(returncode=0)
+        with tempfile.TemporaryDirectory() as folder, patch.object(p.subprocess, "run", completed):
+            return p.analyze(records, [], Path(folder) / "session")
+
+    def test_completed_analysis_discards_only_unsupported_optional_suggestions(self):
+        record = row(text="Я проверю прототип завтра.")
+        response = result(record)
+        response["tasks"][0].update(owner_suggestion="Автор сообщения", deadline_suggestion="2026-10-10")
+        accepted = self.analyze_fixture(response, [record])
+        self.assertEqual(len(accepted["tasks"]), 1)
+        self.assertEqual(accepted["reports"], response["reports"])
+        for name in ["owner_suggestion", "deadline_suggestion"]:
+            self.assertEqual(accepted["tasks"][0][name], "")
+        self.assertEqual(accepted["tasks"][0]["evidence"], response["tasks"][0]["evidence"])
+        # Stored input remains strict: this recovery is for fresh native output.
+        with self.assertRaises(p.Stop):
+            p.validate_result(copy.deepcopy(response), [record], [])
+
+    def test_completed_analysis_preserves_literal_supported_suggestions(self):
+        record = row(text="Person 1 проверит прототип завтра.")
+        response = result(record)
+        response["tasks"][0].update(owner_suggestion=record["sender"], deadline_suggestion="завтра")
+        accepted = self.analyze_fixture(response, [record])
+        self.assertEqual(accepted["tasks"][0]["owner_suggestion"], record["sender"])
+        self.assertEqual(accepted["tasks"][0]["deadline_suggestion"], "завтра")
+
+    def test_optional_recovery_does_not_accept_invalid_evidence_or_shape(self):
+        record = row()
+        for field in ["quote", "revision", "anchor", "slot", "extra"]:
+            response = result(record)
+            value = response["tasks"][0]
+            value.update(owner_suggestion="Invented owner", deadline_suggestion="2030-01-01")
+            if field == "quote": value["evidence"][0]["quote"] = "Invented quotation"
+            elif field == "revision": value["evidence"][0]["revision"] = "r_" + "f" * 64
+            elif field == "anchor": value["anchor"] = "e_" + "f" * 64
+            elif field == "slot": value["slot"] = 10
+            else: value["extra"] = "unexpected"
+            with self.subTest(field=field), self.assertRaises(p.Stop):
+                self.analyze_fixture(response, [record])
+
     def test_github_auth_error_reports_operation_and_status_without_stderr(self):
         failure = Mock(returncode=1, stdout=b"fixture-private-output", stderr=b"gh: fixture-secret private-id (HTTP 403)")
         success = Mock(returncode=0, stdout=b'{"created_at":"2026-10-08T12:00:00Z"}')
