@@ -12,22 +12,39 @@
 <body>
   <header class="titlebar" data-tauri-drag-region>
     <div class="brand" data-tauri-drag-region><span class="wordmark">tgsum</span></div>
+    <details id="workspace-menu" class="header-menu workspace-menu">
+      <summary aria-label="Выбрать проект или разовый экспорт"><span id="workspace-project-name">Мои проекты</span><svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="icons/bootstrap.svg#chevron-down"/></svg></summary>
+      <nav class="menu-panel" aria-label="Рабочее пространство">
+        <button id="btn-projects" class="btn menu-item" type="button">Мои проекты</button>
+        <button id="btn-projects-back" class="btn menu-item" type="button" hidden>Все проекты</button>
+        <button id="btn-start" class="btn menu-item" type="button">Разовый экспорт</button>
+      </nav>
+    </details>
+    <nav id="project-steps" class="project-tabs" aria-label="Разделы проекта" hidden>
+      <button class="btn" type="button" data-go="result">Сводка</button>
+      <button class="btn" type="button" data-go="source">Источники</button>
+    </nav>
     <ol class="steps" data-tauri-drag-region>
       <li data-step="1"><span class="dot">1</span>Архив</li>
       <li data-step="2"><span class="dot">2</span>Чаты</li>
       <li data-step="3"><span class="dot">3</span>Сохранение</li>
     </ol>
-    <div class="titlebar-end" data-tauri-drag-region>
-      <button id="btn-start" class="btn btn-ghost btn-sm" type="button">Открыть архив</button>
-      <button id="btn-help" class="btn btn-ghost btn-sm" type="button">Помощь</button>
-      <button id="btn-projects" class="btn btn-ghost btn-sm" type="button">Проекты</button>
-      <button id="btn-background" class="btn btn-ghost btn-sm" type="button">Работа в фоне</button>
-      <span class="local-badge" title="Чтение архива и сохранение файлов выполняются на компьютере">
-        <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-        подготовка локально
-      </span>
+    <div class="titlebar-end">
+      <button id="btn-result-update" class="btn btn-primary" type="button" hidden><svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="icons/bootstrap.svg#file-earmark-text"/></svg>Новая сводка</button>
+      <details id="app-menu" class="header-menu">
+        <summary class="more-button" aria-label="Дополнительные действия"><svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="icons/bootstrap.svg#three-dots"/></svg></summary>
+        <nav class="menu-panel" aria-label="Дополнительные действия">
+          <button id="btn-show-history" class="btn menu-item" type="button" hidden>История анализов</button>
+          <button id="btn-help" class="btn menu-item" type="button">Помощь</button>
+          <button id="btn-background" class="btn menu-item" type="button">Работа в фоне</button>
+        </nav>
+      </details>
     </div>
   </header>
+  <footer class="workspace-footer">
+    <span><svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="icons/bootstrap.svg#file-earmark"/></svg>Подготовка файлов — на компьютере</span>
+    <span><svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="icons/bootstrap.svg#info-circle"/></svg>Новые сообщения не добавляются автоматически</span>
+  </footer>
 
   <dialog id="background-dialog" class="glass" aria-labelledby="background-title">
     <form method="dialog"><button class="btn btn-ghost" aria-label="Закрыть настройки фоновой работы">Закрыть</button></form>
@@ -75,34 +92,35 @@
   <main>
     <section id="screen-projects" class="screen project-screen" hidden>
       <div class="project-shell glass">
-        <div class="project-actions"><h2 id="projects-title">Проекты</h2><button id="btn-projects-back" type="button" class="btn btn-ghost">К выбору архива</button></div>
+        <div id="project-heading" class="project-heading"><div><p class="eyebrow">Рабочее пространство</p><h2 id="projects-title">Мои проекты</h2><p id="project-subtitle" class="hint">Итоги переписки и следующие шаги в одном месте.</p></div></div>
         <div id="project-home">
-        <p class="lead">Сохраните выбор чатов для повторной обработки.</p>
-        <p class="hint">Подключите архив, выберите сообщения и папку результата. Здесь же можно настроить очистку текста, вложения и обновление пакета файлов.</p>
-        <form id="new-project-form" class="project-actions">
-          <label>Новый проект<input id="new-project-name" required maxlength="160" placeholder="Например, рабочие чаты"></label>
-          <button type="submit" class="btn btn-primary">Создать</button>
-        </form>
-        <h3>Недавние проекты</h3>
+        <h3 class="section-heading">Ваши проекты</h3>
         <div id="project-list" class="project-actions"></div>
-        <p id="project-list-empty" class="muted">Проектов пока нет. Введите название и нажмите «Создать». Для разового сохранения вернитесь к выбору архива.</p>
+        <p id="project-list-empty" class="empty-state">Здесь появятся ваши проекты. Введите название нового проекта — чаты можно добавить следующим шагом.</p>
+        <div class="project-create">
+        <h3>Новый проект</h3>
+        <p class="hint">Объедините нужные чаты. Получайте сводки или сохраняйте переписку в файлы.</p>
+        <form id="new-project-form" class="project-actions">
+          <label>Название<input id="new-project-name" required maxlength="160" placeholder="Например, запуск продукта"></label>
+          <button type="submit" class="btn btn-primary">Создать проект</button>
+        </form>
+        </div>
         </div>
         <div id="project-detail" hidden>
-          <nav id="project-steps" class="project-actions" aria-label="Шаги проекта">
-            <button class="btn btn-ghost" type="button" data-go="source">1 · Источники</button>
-            <button class="btn btn-ghost" type="button" data-go="privacy" disabled>2 · Проверка</button>
-            <button class="btn btn-ghost" type="button" data-go="analyze" disabled>3 · Получатель</button>
-            <button class="btn btn-ghost" type="button" data-go="review" disabled>4 · Запуск</button>
-            <button class="btn btn-ghost" type="button" data-go="result">5 · Результаты</button>
+          <nav id="project-flow-steps" class="project-actions" aria-label="Подготовка сводки" hidden>
+            <button class="btn btn-ghost" type="button" data-go="privacy" disabled>Проверка сообщений</button>
+            <button class="btn btn-ghost" type="button" data-go="analyze" disabled>Получатель и задача</button>
+            <button class="btn btn-ghost" type="button" data-go="review" disabled>Подтверждение</button>
           </nav>
           <p id="project-conflict" class="alert" hidden>Проект изменён в другом окне. Введённые значения оставлены для сверки. <button id="btn-project-reload" type="button" class="btn btn-ghost">Загрузить изменения и сбросить форму</button></p>
           <section data-project-panel="source" aria-label="Источники и выбор">
-          <form id="rename-project-form" class="project-actions"><label>Название проекта<input id="project-name" required maxlength="160"></label><button type="submit" class="btn btn-ghost">Переименовать</button></form>
-          <button id="btn-project-add-source" type="button" class="btn btn-primary">Подключить чаты из архива…</button>
+          <div class="section-intro"><div><h3>Чаты проекта</h3><p class="hint">Добавьте переписку, которую нужно разобрать.</p></div><button id="btn-project-add-source" type="button" class="btn btn-ghost">Добавить чаты…</button></div>
           <p id="source-import-boundary" class="hint">TGSUM прочитает выбранный JSON на этом компьютере и сохранит в проект подключённые чаты. Вход в Telegram для импорта не нужен.</p>
           <p id="project-empty" class="hint">Выберите локальный JSON, затем отметьте чаты или темы проекта.</p>
           <div id="project-sources"></div>
-          <div id="project-local-package"></div>
+          <div class="prepare-action"><button id="btn-project-review" type="button" class="btn btn-primary">Проверить сообщения</button><span class="hint">Сначала проверка. Отправка ИИ — только после вашего подтверждения.</span></div>
+          <p id="project-unsaved" class="hint" hidden>Сохраните изменения выбора перед подготовкой контекста.</p>
+          <details id="project-privacy-settings" class="settings-disclosure"><summary>Защита данных</summary>
           <form id="privacy-settings" class="card privacy-settings" aria-labelledby="privacy-settings-title">
             <h3 id="privacy-settings-title">Очистка контекста</h3>
             <p class="hint">Секреты проверяются всегда. Выберите дополнительные категории; настройки сохраняются в этом проекте.</p>
@@ -122,12 +140,13 @@
             <p id="privacy-saved-state" class="hint" role="status"></p>
             <button type="submit" class="btn btn-ghost">Сохранить настройки очистки</button>
           </form>
-          <p id="project-unsaved" class="hint" hidden>Сохраните изменения выбора перед подготовкой контекста.</p>
-          <button id="btn-project-review" type="button" class="btn btn-primary">Проверить и подготовить контекст</button>
+          </details>
+          <div id="project-local-package"></div>
+          <details class="settings-disclosure"><summary>Название проекта</summary><form id="rename-project-form" class="project-actions"><label>Название проекта<input id="project-name" required maxlength="160"></label><button type="submit" class="btn btn-ghost">Сохранить название</button></form></details>
           </section>
           <section data-project-panel="privacy" id="project-review" class="card project-review" hidden aria-labelledby="project-review-title">
-            <h3 id="project-review-title">Проверка контекста</h3>
-            <p>Проверьте выбранные чаты, полноту истории и очистку перед выбором получателя.</p>
+            <h3 id="project-review-title">Проверьте сообщения перед анализом</h3>
+            <p>Сейчас всё на компьютере. Посмотрите, какие чаты и данные попадут в результат.</p>
             <p id="project-review-summary" role="status"></p>
             <ul id="project-review-sources"></ul>
             <p id="project-review-privacy"></p>
@@ -136,8 +155,9 @@
             <button id="btn-privacy-settings" type="button" class="btn btn-ghost">Изменить настройки очистки</button>
             <p class="hint">Проверяются известные форматы секретов. Имена и другие чувствительные сведения могут остаться в тексте.</p>
             <button id="btn-project-review-again" type="button" class="btn btn-ghost">Обновить проверку</button>
-            <p id="project-review-truncated" class="hint" hidden>Показано начало контекста. Проверка секретов выполнена для всех выбранных сообщений.</p>
+            <details class="settings-disclosure"><summary>Посмотреть подготовленный текст</summary><p id="project-review-truncated" class="hint" hidden>Показано начало контекста. Проверка секретов выполнена для всех выбранных сообщений.</p>
             <pre id="project-review-preview" tabindex="0" aria-label="Подготовленный контекст"></pre>
+            </details>
             <details id="privacy-file-list"><summary>Файлы подготовленного контекста</summary><ul id="privacy-reviewed-files"></ul><p id="privacy-file-gaps" class="hint"></p></details>
             <section id="privacy-comparison" aria-labelledby="privacy-comparison-title">
               <h4 id="privacy-comparison-title">Сравнить до и после</h4>
@@ -150,24 +170,24 @@
             <button id="btn-project-destination" type="button" class="btn btn-primary" disabled>Далее · выбрать получателя</button>
           </section>
           <section data-project-panel="analyze" id="project-analysis" class="card project-review" aria-labelledby="analysis-title">
-            <h3 id="analysis-title">Что сделать с контекстом</h3>
+            <h3 id="analysis-title">Что сделать с сообщениями?</h3>
             <p id="analysis-status" class="hint"></p>
             <div id="analysis-options">
-              <label>Получатель<select id="analysis-agent" class="select"></select></label>
+              <label>Способ обработки<select id="analysis-agent" class="select"></select></label>
               <div id="analysis-task-fields" class="project-fields">
-                <label>Задание<select id="analysis-recipe" class="select"></select></label>
-                <label>Модель<input id="analysis-model" placeholder="ID модели из выбранного агента" autocomplete="off" spellcheck="false"></label>
+                <label>Что подготовить<select id="analysis-recipe" class="select"></select></label>
+                <label>Модель<input id="analysis-model" placeholder="ID модели из выбранного агента" autocomplete="off" spellcheck="false"><span class="hint">Укажите модель, доступную в выбранной программе.</span></label>
               </div>
-              <div id="analysis-runtime-fields">
+              <details id="analysis-runtime-fields" class="settings-disclosure" open><summary>Подключение программы для анализа</summary>
                 <label>Получатель<select id="analysis-destination" class="select"></select></label>
                 <div class="project-actions"><label><span id="analysis-executable-label">Исполняемый файл агента</span><input id="analysis-executable" readonly></label><button id="btn-analysis-executable" type="button" class="btn btn-ghost">Выбрать агент…</button></div>
                 <p id="analysis-runtime-hint" class="hint"></p>
                 <div class="project-actions"><label><span id="analysis-auth-label">Файл авторизации агента</span><input id="analysis-auth" readonly placeholder="Выберите явно"></label><button id="btn-analysis-auth" type="button" class="btn btn-ghost">Выбрать файл…</button></div>
                 <p id="analysis-auth-hint" class="hint"></p>
-              </div>
+              </details>
             </div>
             <div id="analysis-export-only" hidden><p>Контекст останется в выбранной папке на этом компьютере. Его можно использовать отдельно; TGSUM не запускает агент и не отправляет файлы.</p><button id="btn-project-export" type="button" class="btn btn-primary" disabled>Сохранить контекст…</button></div>
-            <button id="btn-analysis-prepare" type="button" class="btn btn-primary" disabled>Подготовить запуск</button>
+            <button id="btn-analysis-prepare" type="button" class="btn btn-primary" disabled>Проверить настройки</button>
             <p id="analysis-run-hint" class="hint">Перед отправкой будут показаны получатель и параметры анализа.</p>
           </section>
           <section data-project-panel="review" id="analysis-review" class="card project-review" hidden>
@@ -177,21 +197,25 @@
               <p id="analysis-review-access" class="hint analysis-evidence"></p>
               <button id="btn-analysis-run" type="button" class="btn btn-primary" disabled>Начать анализ</button>
           </section>
-          <section data-project-panel="result" class="card project-review" aria-labelledby="analysis-history-title">
+          <section data-project-panel="result" class="card project-review" aria-labelledby="result-title">
+            <header class="brief-heading">
+              <p id="analysis-result-context" class="brief-kicker"></p>
+              <h1 id="result-title">Сводка проекта</h1>
+              <div id="analysis-result-summary" class="result-summary" aria-label="Содержание сводки"></div>
+              <p id="analysis-result-coverage" class="hint"></p>
+            </header>
             <p id="project-export-result" role="status" hidden></p>
             <button id="btn-project-open-export" type="button" class="btn btn-ghost" hidden>Открыть папку контекста</button>
-            <h3 id="analysis-history-title">Последние запуски</h3>
-            <p id="analysis-history-empty" class="hint">Сохранённых запусков пока нет.</p>
-            <div id="analysis-history" class="analysis-history"></div>
+            <p id="analysis-history-empty" class="empty-state">Сводки пока нет. Добавьте чаты и проверьте сообщения, затем выберите анализ с ИИ. Можно также сохранить их в папку без анализа.</p>
             <div id="analysis-result" hidden>
               <h4 id="analysis-result-status" role="status"></h4>
-              <p id="analysis-result-origin" class="hint analysis-evidence"></p>
-              <p id="analysis-result-coverage" class="hint"></p>
               <p id="analysis-result-note"></p>
               <div id="analysis-result-body"></div>
+              <details class="settings-disclosure"><summary>Данные и основания сводки</summary><p id="analysis-result-origin" class="hint analysis-evidence"></p><div id="analysis-heading-evidence"></div></details>
               <button id="btn-analysis-commit" type="button" class="btn btn-primary" hidden>Принять результат и обновить точку анализа</button>
               <button id="btn-analysis-close" type="button" class="btn btn-ghost" hidden>Закрыть прерванный запуск</button>
             </div>
+            <details id="analysis-history-disclosure" class="settings-disclosure"><summary id="analysis-history-title">История анализов</summary><div id="analysis-history" class="analysis-history"></div></details>
           </section>
         </div>
       </div>
@@ -199,18 +223,18 @@
     <!-- Step 1: pick the export -->
     <section id="screen-start" class="screen">
       <div class="hero">
-        <h1>Переписка Telegram в файлы</h1>
-        <p class="lead">Откройте архив Telegram, выберите чаты и сохраните переписку в текстовые файлы Markdown (<code>.md</code>) на этом компьютере.</p>
+        <p class="eyebrow">Разовый экспорт</p><h1>Сохраните переписку в файлы</h1>
+        <p class="lead">Выберите архив Telegram и нужные чаты. Готовые файлы останутся на вашем компьютере.</p>
         <ol class="start-guide">
           <li><b>Откройте архив.</b> Нужен файл <code>result.json</code> из экспорта Telegram Desktop. Он может лежать в любой папке.</li>
           <li><b>Выберите чаты и темы.</b> Можно сохранить несколько сразу или найти нужный чат по названию.</li>
           <li><b>Укажите папку результата.</b> Для каждого выбранного чата появится отдельный файл. После сохранения папку можно открыть из приложения.</li>
         </ol>
         <div class="cta">
-          <button id="dropzone" class="btn btn-primary btn-lg" type="button">Выбрать result.json</button>
+          <button id="dropzone" class="btn btn-primary btn-lg" type="button">Открыть архив Telegram</button>
           <span class="cta-hint">или перетащите файл / папку экспорта в окно <kbd class="mod-key">⌘O</kbd></span>
         </div>
-        <p class="hint start-project-hint">Нужно повторять обработку, скрывать чувствительные данные или сохранять вложения? Откройте «Проекты» вверху окна.</p>
+        <p class="hint start-project-hint">Нужно повторять обработку, скрывать чувствительные данные или сохранять вложения? Откройте меню проектов вверху окна.</p>
         <div id="start-error" class="alert" role="alert" hidden></div>
 
         <details class="howto">
@@ -306,12 +330,12 @@
               <button id="btn-pick-dir" class="btn btn-ghost btn-sm" type="button">Изменить…</button>
             </div>
           </div>
-          <div class="field">
-            <div class="field-label">Размер одного файла</div>
+          <details class="field settings-disclosure">
+            <summary>Размер файлов · дополнительные настройки</summary>
             <div id="budgets" class="segmented" role="radiogroup" aria-label="Размер части в токенах"></div>
             <p class="hint">Размер указан в токенах — единицах объёма текста для ИИ. Большие чаты делятся на части <code>имя.part-1.md</code>, <code>part-2.md</code>… без потерь:
               у каждой части своя шапка, ни одно сообщение не выпадает.</p>
-          </div>
+          </details>
         </div>
         <div class="save-actions">
           <button id="btn-back" class="btn btn-ghost" type="button">Назад</button>

@@ -62,6 +62,14 @@ class WebView:
 
     def click(self, selector):
         self.wait("document.querySelector(" + json.dumps(selector) + ") !== null")
+        # Header actions now live in native disclosures. Open the menu with a
+        # real WebDriver click, and use the visible project-list action.
+        if selector == "#btn-projects" and self.evaluate("document.querySelector('#btn-projects').hidden"):
+            selector = "#btn-projects-back"
+        menu = self.evaluate("(() => { const target = document.querySelector(" + json.dumps(selector) + "); const menu = target?.closest('.header-menu'); return menu && !menu.open && !target.closest('summary') ? menu.id : null })()")
+        if menu:
+            self.click("#" + menu + " > summary")
+            self.wait("document.getElementById(" + json.dumps(menu) + ").open")
         element = self.command("element", {"using": "css selector", "value": selector})
         self.command(f"element/{element[ELEMENT]}/click", {})
 
@@ -87,7 +95,7 @@ class WebView:
 
     def stage(self, name):
         self.idle()
-        assert self.evaluate("document.querySelector('#project-steps [aria-current]').dataset.go") == name
+        assert self.evaluate("document.querySelector('[data-go][aria-current]').dataset.go") == name
         assert self.evaluate("[...document.querySelectorAll('[data-project-panel]')].filter(p=>!p.hidden).length") == 1
 
     def screenshot(self, path):
@@ -128,8 +136,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
       addEventListener('error',e=>__e2eErrors.push(e.message));
       addEventListener('unhandledrejection',e=>__e2eErrors.push(String(e.reason)));
     """, "args": []})
-    ui.wait("document.body.dataset.screen==='start'")
-    ui.screenshot(report_dir / "start.png")
+    ui.wait("document.body.dataset.screen==='projects'")
+    ui.screenshot(report_dir / "projects-home.png")
     ui.click("#btn-help")
     ui.wait("document.querySelector('#onboarding').open")
     ui.click("#onboarding-next")
@@ -167,6 +175,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     ui.idle()
     initial = ui.invoke("list_projects")[0]["project"]
     ui.click('[data-project="' + initial["project_id"] + '"]')
+    ui.idle()
+    ui.click('#project-steps [data-go=source]')
     ui.stage("source")
     passed("failed project import resets connection; next one-off export leaves project unchanged")
 
@@ -215,6 +225,7 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     ui.stage("source")
     assert ui.evaluate("document.querySelector('#project-unsaved').hidden")
     passed("saving one chat preserves other drafts and blocks preparation until all are saved")
+    ui.click("#project-privacy-settings > summary")
     ui.value("#privacy-preset", "people")
     ui.click("#btn-project-review")
     ui.stage("privacy")
@@ -250,7 +261,7 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         assert "локальный тестовый стенд" in ui.evaluate("document.querySelector('#analysis-review-destination').textContent")
         ui.click("#btn-analysis-run")
         ui.stage("result")
-        assert "Готово" in ui.evaluate("document.querySelector('#analysis-result-status').textContent")
+        assert ui.evaluate("document.querySelector('#analysis-result-status').dataset.state") == "succeeded"
         assert ui.evaluate("document.querySelector('#analysis-result-body').textContent.trim().length > 0")
         assert ui.evaluate("document.querySelector('#analysis-result-body img')===null")
         ui.screenshot(report_dir / (agent + "-result.png"))
@@ -264,10 +275,17 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     # Rust canonicalization uses the extended-length prefix on Windows.
     assert os.path.samefile(forum["archive_path"], root / "single.json")
     assert forum["selection"]["filter"]["topic_ids"] == ["100"]
-    assert ui.evaluate("document.querySelector('#project-steps [data-go=review]').disabled")
-    ui.click("#btn-projects")
+    assert ui.evaluate("document.querySelector('#project-flow-steps [data-go=review]').disabled")
+    saved_analyses = ui.invoke("list_project_analyses", {"projectId": pid})
+    ui.click("#btn-projects-back")
     ui.idle()
+    assert not ui.evaluate("document.querySelector('#project-home').hidden")
     ui.click('[data-project="' + pid + '"]')
+    ui.stage("result")
+    assert saved_analyses[0]["run_id"] in ui.evaluate("document.querySelector('#analysis-result-origin').textContent")
+    assert ui.invoke("list_project_analyses", {"projectId": pid}) == saved_analyses
+    assert not ui.evaluate("document.querySelector('#analysis-history-disclosure').open")
+    ui.click('#project-steps [data-go=source]')
     ui.stage("source")
     assert ui.evaluate("document.querySelector(" + json.dumps(card + " [name=from]") + ").value") == "2026-06-20"
     passed("single JSON refresh preserves saved scope, invalidates Review and reopens Project")
@@ -298,6 +316,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     ui.wait("window.__exportCandidateEvents.some(e=>e.project_id===" + json.dumps(pid) + ")", timeout=16)
     assert ui.invoke("open_project", {"projectId": pid})["revision"] == project["revision"], "Background observation cannot publish"
     ui.click('[data-project="' + pid + '"]')
+    ui.idle()
+    ui.click('#project-steps [data-go=source]')
     ui.stage("source")
     ui.click(card + " .assisted-export summary")
     ui.wait("document.querySelector(" + json.dumps(card + " [data-assisted-candidate-list] button") + ") !== null", timeout=12)
@@ -335,6 +355,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     ui.click("#btn-projects")
     ui.idle()
     ui.click('[data-project="' + pid + '"]')
+    ui.idle()
+    ui.click('#project-steps [data-go=source]')
     ui.stage("source")
     ui.click(direct_card + " .assisted-export summary")
     ui.wait("document.querySelector(" + json.dumps(direct_card + " [data-assisted-candidate-list] button") + ") !== null", timeout=12)
@@ -459,6 +481,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         ui.click("#btn-projects")
         ui.idle()
         ui.click('[data-project="' + package_id + '"]')
+        ui.idle()
+        ui.click('#project-steps [data-go=source]')
         ui.stage("source")
         package = '[data-local-package="project"]'
         ui.click(package + ' summary')
@@ -520,6 +544,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         ui.click("#btn-projects")
         ui.idle()
         ui.click('[data-project="' + shared_id + '"]')
+        ui.idle()
+        ui.click('#project-steps [data-go=source]')
         ui.stage("source")
         ui.click("#btn-project-add-source")
         ui.wait("document.body.dataset.screen==='select'")
@@ -595,6 +621,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
         ui.click("#btn-projects")
         ui.idle()
         ui.click('[data-project="' + continuous_id + '"]')
+        ui.idle()
+        ui.click('#project-steps [data-go=source]')
         ui.stage("source")
         group = '[data-source="group"]'
         direct = '[data-source="direct"]'
@@ -794,6 +822,8 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     ui.click("#btn-projects")
     ui.idle()
     ui.click('[data-project="' + future["project_id"] + '"]')
+    ui.idle()
+    ui.click('#project-steps [data-go=source]')
     ui.stage("source")
     assert "ещё не настроено чтение данных" in ui.evaluate("document.querySelector('.source-access[data-access=unverified]').textContent")
     assert ui.evaluate("document.querySelector('[data-refresh]').disabled && document.querySelector('[data-relink]').disabled")
@@ -806,6 +836,10 @@ def exercise(ui, root, report, report_dir, launch_env, binary):
     passed("unimplemented source has no inferred grant; another project cannot show stale output")
 
     ui.click("#btn-projects-back")
+    ui.idle()
+    assert not ui.evaluate("document.querySelector('#project-home').hidden")
+    ui.click("#btn-start")
+    ui.wait("document.body.dataset.screen==='start'")
     ui.click("#dropzone")
     ui.wait("document.body.dataset.screen==='select'")
     assert ui.evaluate("document.querySelectorAll('#list [data-key^=\"c:\"]').length") == 1

@@ -16,6 +16,21 @@ def main():
     assert 1024 <= port <= 65535
     ui = Inspector(port)
 
+    # Exercise the visible header controls rather than clicking through a
+    # closed disclosure. The project-list action is "All projects" when open.
+    click_control = ui.click
+
+    def click(selector):
+        if selector == '#btn-projects' and ui.evaluate("document.querySelector('#btn-projects').hidden"):
+            selector = '#btn-projects-back'
+        menu = ui.evaluate("(() => { const target = document.querySelector(" + json.dumps(selector) + "); const menu = target?.closest('.header-menu'); return menu && !menu.open && !target.closest('summary') ? menu.id : null })()")
+        if menu:
+            click_control('#' + menu + ' > summary')
+            ui.wait('document.getElementById(' + json.dumps(menu) + ').open')
+        click_control(selector)
+
+    ui.click = click
+
     def ev(expression):
         return ui.evaluate(expression)
 
@@ -33,15 +48,15 @@ def main():
         ev(element + '.value=' + json.dumps(content) + ';' + element + '.dispatchEvent(new Event("input",{bubbles:true}))')
 
     def stage(name):
-        assert ev("document.querySelector('#project-steps [aria-current]').dataset.go") == name
+        assert ev("document.querySelector('[data-go][aria-current]').dataset.go") == name
         assert ev("[...document.querySelectorAll('[data-project-panel]')].filter(p=>!p.hidden).length") == 1
 
     # Refuse ordinary builds and nonempty Project stores before any mutation.
     assert invoke('analysis_catalog')['fixtures'] is True, 'Requires synthetic backend'
     assert invoke('list_projects') == [], 'Requires a fresh isolated XDG data directory'
     ev("window.__uiErrors=[];addEventListener('error',e=>__uiErrors.push(e.message));addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)))")
-    ui.wait("document.body.dataset.screen==='start'")
-    assert not ev("document.querySelector('#onboarding').open"), 'Startup must allow direct file selection'
+    ui.wait("document.body.dataset.screen==='projects'")
+    assert not ev("document.querySelector('#onboarding').open"), 'Startup must leave the project workspace usable without onboarding'
     ui.click('#btn-help')
     ui.wait("document.querySelector('#onboarding').open")
     ui.click('#onboarding-next')
@@ -52,7 +67,7 @@ def main():
     assert ev("document.querySelector('#onboarding-agent').value") == 'export'
     ui.click('#onboarding-next')
     assert not ev("document.querySelector('#onboarding').open")
-    assert ev("document.body.dataset.screen") == 'start'
+    assert ev("document.body.dataset.screen") == 'projects'
     ui.click('#btn-projects')
     idle()
     assert not ev("document.querySelector('#project-home').hidden")
@@ -71,6 +86,12 @@ def main():
     idle()
     ui.click('[data-project="' + project_id + '"]')
     idle()
+
+    stage('result')
+    assert ev("document.querySelector('#analysis-result').hidden")
+    assert not ev("document.querySelector('#analysis-history-empty').hidden")
+    ui.click('#btn-result-update')
+    stage('source')
 
     # Regression: act() used to rerender on every error, losing these draft dates.
     value('#project-sources [name=from]', '2026-06-20')
@@ -134,15 +155,29 @@ def main():
         ui.click('#btn-analysis-run')
         idle()
         stage('result')
-        assert 'Готово' in ev("document.querySelector('#analysis-result-status').textContent")
+        assert ev("document.querySelector('#analysis-result-status').dataset.state") == 'succeeded'
         assert ev("document.querySelector('#analysis-result-body img')===null")
-    ui.click('#btn-projects')
+    ui.click('#btn-projects-back')
     idle()
     assert not ev("document.querySelector('#project-home').hidden")
     assert ev("document.querySelector('#project-detail').hidden")
     assert ev("document.querySelector('#project-list button').dataset.project") == project_id
+    saved = invoke('list_project_analyses', {'projectId': project_id})
+    ui.click('[data-project="' + project_id + '"]')
+    idle()
+    stage('result')
+    assert ev("document.querySelector('#analysis-result-status').dataset.state") == 'succeeded'
+    assert saved[0]['run_id'] in ev("document.querySelector('#analysis-result-origin').textContent")
+    assert invoke('list_project_analyses', {'projectId': project_id}) == saved, 'Reopening must not prepare or run analysis'
+    assert not ev("document.querySelector('#analysis-history-disclosure').open")
+    assert ev("[...document.querySelectorAll('.claim-evidence')].every(d=>!d.open)")
+    ui.click('#btn-projects-back')
+    idle()
+    assert not ev("document.querySelector('#project-home').hidden")
+    ui.click('#btn-start')
+    ui.wait("document.body.dataset.screen==='start'")
     assert ev('window.__uiErrors') == [], ev('window.__uiErrors')
-    print('PASS actual Tauri direct startup, optional help, local Project, draft/error/conflict preservation, scope/privacy, local export choice and both synthetic agent flows')
+    print('PASS actual Tauri project-first startup, read-only saved result, project Back, one-off archive, optional help, local Project, draft/error/conflict preservation, scope/privacy, local export choice and both synthetic agent flows')
     ui.ws.close()
 
 

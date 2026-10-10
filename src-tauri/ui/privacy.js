@@ -42,7 +42,11 @@ export function mountPrivacy({ invoke, act, project, update, invalidate, navigat
     dirty()
   })
   form.addEventListener('submit', (event) => { event.preventDefault(); act(persist) })
-  $('#btn-privacy-settings').addEventListener('click', () => { navigate('source'); form.scrollIntoView({ block: 'start' }) })
+  $('#btn-privacy-settings').addEventListener('click', () => {
+    navigate('source')
+    $('#project-privacy-settings').open = true
+    form.scrollIntoView({ block: 'start' })
+  })
 
   async function load({ discard = false } = {}) {
     presets ||= await invoke('privacy_presets')
