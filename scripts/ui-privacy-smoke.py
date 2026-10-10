@@ -13,6 +13,21 @@ from ui_webkit import Inspector
 
 def main():
     ui = Inspector(int(sys.argv[1]))
+
+    # Exercise the visible header controls rather than clicking through a
+    # closed disclosure. The project-list action is "All projects" when open.
+    click_control = ui.click
+
+    def click(selector):
+        if selector == '#btn-projects' and ui.evaluate("document.querySelector('#btn-projects').hidden"):
+            selector = '#btn-projects-back'
+        menu = ui.evaluate("(() => { const target = document.querySelector(" + json.dumps(selector) + "); const menu = target?.closest('.header-menu'); return menu && !menu.open && !target.closest('summary') ? menu.id : null })()")
+        if menu:
+            click_control('#' + menu + ' > summary')
+            ui.wait('document.getElementById(' + json.dumps(menu) + ').open')
+        click_control(selector)
+
+    ui.click = click
     ev = ui.evaluate
 
     def invoke(command, args=None):
@@ -34,14 +49,14 @@ def main():
     assert invoke('analysis_catalog')['fixtures'] is True
     assert invoke('list_projects') == [], 'Requires a fresh isolated XDG profile'
     ev("window.__uiErrors=[];addEventListener('error',e=>__uiErrors.push(e.message));addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)))")
-    ui.wait("document.body.dataset.screen==='start'")
+    ui.wait("document.body.dataset.screen==='projects'")
     assert not ev("document.querySelector('#onboarding').open")
     ui.click('#btn-help')
     ui.wait("document.querySelector('#onboarding').open")
     for _ in range(3):
         ui.click('#onboarding-next')
     ui.wait("!document.querySelector('#onboarding').open")
-    assert ev("document.body.dataset.screen") == 'start'
+    assert ev("document.body.dataset.screen") == 'projects'
 
     with tempfile.TemporaryDirectory(prefix='tgsum-privacy-fixture-') as temp:
         root = Path(temp)
@@ -76,6 +91,7 @@ def main():
         idle()
         ui.click('[data-project="' + project_id + '"]')
         idle()
+        ui.click('#project-steps [data-go=source]')
         assert ev("document.querySelectorAll('[data-privacy-group]').length") == 11
         assert ev("document.querySelectorAll('[data-attachment-choice]').length") == 3
         assert ev("document.querySelectorAll('[data-attachment-choice]:checked').length") == 1
@@ -93,7 +109,7 @@ def main():
         assert ev("document.querySelector('#privacy-terms').value") == 'Project Orion'
         ui.click('#btn-project-review')
         idle()
-        assert ev("document.querySelector('#project-steps [aria-current]').dataset.go") == 'privacy'
+        assert ev("document.querySelector('[data-go][aria-current]').dataset.go") == 'privacy'
         assert current()['settings']['privacy_preset'] == 'work'
         summary = content('#project-review-summary')
         assert 'вложений включено: 1' in summary and 'невключённые вложения: 2' in summary, summary
@@ -158,6 +174,7 @@ def main():
         idle()
         ui.click('[data-project="' + project_id + '"]')
         idle()
+        ui.click('#project-steps [data-go=source]')
         assert ev("document.querySelector('#privacy-preset').value") == 'people'
         assert ev("document.querySelector('#privacy-exceptions').value") == 'alice@example.test'
         assert ev("document.querySelectorAll('[data-attachment-choice]:checked').length") == 2

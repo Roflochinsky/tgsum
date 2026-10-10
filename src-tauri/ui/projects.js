@@ -11,6 +11,7 @@ import { renderSourceAccess } from './source-access.js'
 export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, selection, index, toast }) {
   const $ = (s) => document.querySelector(s)
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])
+  const coverageName = (level) => ({ complete: 'подтверждена', partial: 'неполная история', own_messages_only: 'только собственные сообщения', future_only: 'только новые события', unknown: 'не подтверждена' })[level] || 'не подтверждена'
   let current = null
   let connecting = false
   let working = false
@@ -75,19 +76,27 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       analyze: !!review && review.manifest.privacy.needs_review === 0,
       review: analysis.hasReview(), result: !!current }
     if (!enabled[step]) step = enabled.analyze ? 'analyze' : 'source'
-    for (const button of $('#project-steps').querySelectorAll('[data-go]')) {
-      button.disabled = !enabled[button.dataset.go]
+    for (const button of document.querySelectorAll('[data-go]')) {
+      button.disabled = !enabled[button.dataset.go] || working || busy()
+      button.hidden = !['source', 'result'].includes(button.dataset.go) && !enabled[button.dataset.go]
       if (button.dataset.go === step) button.setAttribute('aria-current', 'step')
       else button.removeAttribute('aria-current')
     }
     for (const panel of document.querySelectorAll('[data-project-panel]')) panel.hidden = panel.dataset.projectPanel !== step
+    document.body.dataset.projectOpen = String(!!current)
+    document.body.dataset.projectStep = step
+    $('#project-steps').hidden = !current
+    $('#project-flow-steps').hidden = !current || ['source', 'result'].includes(step)
+    $('#btn-result-update').hidden = !current
+    $('#btn-show-history').hidden = !current
+    $('#btn-result-update').disabled = working || busy()
     $('#btn-project-destination').disabled = !enabled.analyze
     $('#btn-project-export').disabled = !enabled.analyze
   }
   function navigate(next) {
     step = next
     syncSteps()
-    $('#project-steps').scrollIntoView({ block: 'start' })
+    $('#screen-projects').scrollTop = 0
   }
 
   async function act(job) {
@@ -131,13 +140,13 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     entries.sort((a, b) => rank(a) - rank(b))
     if (current) current = await invoke('open_project', { projectId: current.project_id })
     $('#project-list').innerHTML = entries.map((entry) => entry.state === 'ready'
-      ? `<button type="button" class="btn btn-ghost" data-project="${esc(entry.project.project_id)}">${esc(entry.project.name)}</button>`
+      ? `<button type="button" class="project-tile" data-project="${esc(entry.project.project_id)}"><span class="project-tile-name">${esc(entry.project.name)}</span><span class="hint">Чатов: ${entry.project.sources.length} · ${entry.project.sources.length ? 'Открыть итоги и настройки' : 'Добавьте первые чаты'}</span><span class="project-tile-open">Открыть проект</span></button>`
       : `<div class="alert">Проект недоступен: ${esc(entry.project_id)} — ${esc(entry.message)}</div>`).join('')
     $('#project-list-empty').hidden = entries.length > 0
     await render({ discardPrivacy: true })
   }
 
-  async function render({ discardPrivacy = false, preserveSourceDrafts = false } = {}) {
+  async function render({ discardPrivacy = false, preserveSourceDrafts = false, landing = false } = {}) {
     const epoch = ++renderEpoch
     // Keep unsaved cards alive, including their attachment choices and timers,
     // while a different chat is saved. Rebuilding them discards the user's draft.
@@ -149,7 +158,13 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       : [])
     $('#project-detail').hidden = !current
     $('#project-home').hidden = !!current
-    $('#projects-title').textContent = current?.name || 'Проекты'
+    $('#projects-title').textContent = current?.name || 'Мои проекты'
+    $('#workspace-project-name').textContent = current?.name || 'Мои проекты'
+    $('#workspace-project-name').title = current?.name || 'Мои проекты'
+    $('#project-heading').hidden = !!current
+    $('#btn-projects').hidden = !!current
+    $('#btn-projects-back').hidden = !current
+    $('#project-subtitle').textContent = current ? `Чатов в проекте: ${current.sources.length}. Сообщения выбираете вы.` : 'Итоги переписки и следующие шаги в одном месте.'
     $('#project-conflict').hidden = true
     step = 'source'
     privacyVisible = false
@@ -160,7 +175,11 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     $('#project-export-result').textContent = ''
     $('#btn-project-open-export').hidden = true
     await analysis.invalidate()
-    if (!current) return
+    $('#result-title').textContent = 'Сводка проекта'
+    $('#analysis-result-context').textContent = ''
+    $('#analysis-result-summary').replaceChildren()
+    $('#analysis-result-coverage').textContent = ''
+    if (!current) { syncSteps(); return }
     await privacy.load({ discard: discardPrivacy })
     rememberProject(current.project_id)
     $('#project-review').hidden = true
@@ -190,7 +209,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
           const label = retained.querySelector('.project-stats')
           if (label) {
             label.textContent = `Выбрано сообщений: ${stats.selected} · новых ${stats.created} · изменённых ${stats.edited} · отсутствуют в новом архиве ${stats.missing}`
-            label.nextElementSibling.textContent = `Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота: ${preview.coverage.level === 'partial' ? 'неполная история' : preview.coverage.level === 'unknown' ? 'не подтверждена' : preview.coverage.level}.`
+            label.nextElementSibling.textContent = `Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота: ${coverageName(preview.coverage.level)}.`
           }
         }
         $('#project-sources').append(retained)
@@ -208,12 +227,12 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
       const stats = preview?.stats
       const topics = preview?.topics || []
       card.innerHTML = `<h3>${esc(preview?.title || source.scope.conversation_id)}</h3>
-        <p class="muted">${esc(source.scope.platform)} · ${esc(source.scope.account_local_id)}</p>
+        <p class="source-caption">${esc(source.scope.platform === 'telegram' ? 'Telegram' : source.scope.platform)} · ${esc(source.scope.account_local_id)}</p>
         <div class="source-access"></div>
         <label class="project-check"><input name="enabled" type="checkbox" ${source.selection.enabled ? 'checked' : ''}> Включать в результат</label>
         <label class="project-check"><input name="only_changes" type="checkbox" ${source.selection.only_changes ? 'checked' : ''}> Только новые и изменённые после последнего анализа</label>
         <p class="hint">${preview?.baseline_analysis_id ? 'Режим «Только новые и изменённые» сравнивает сообщения с последним успешным анализом.' : 'Пока анализов нет, выбираются все подходящие сообщения. Простое обновление файла не отмечает их как проанализированные.'}</p>
-        <div class="project-fields">
+        <details class="source-options"><summary>Период, темы и дополнительные параметры</summary><div class="project-fields">
           <label>С даты<input name="from" type="date" value="${esc(filter.dates?.from || '')}"></label>
           <label>По дату включительно<input name="through" type="date" value="${esc(filter.dates?.through || '')}"></label>
           <label>Как считать даты<select name="basis" class="select"><option value="source_date" ${filter.dates?.basis !== 'utc' ? 'selected' : ''}>Как указано в архиве</option><option value="utc" ${filter.dates?.basis === 'utc' ? 'selected' : ''}>По UTC</option></select></label>
@@ -224,8 +243,9 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
           <label class="project-check"><input name="all_topics" type="checkbox" ${filter.topic_ids === null ? 'checked' : ''}> Все темы, включая новые</label>
           ${topics.map((topic) => `<label class="project-check"><input name="topic" type="checkbox" value="${esc(topic.id)}" ${filter.topic_ids?.includes(topic.id) ? 'checked' : ''}> ${esc(topic.title)} · ${topic.count}</label>`).join('')}
         </fieldset>
+        </details>
         ${stats ? `<p class="project-stats" role="status">Выбрано сообщений: <b>${stats.selected}</b> · новых ${stats.created} · изменённых ${stats.edited} · отсутствуют в новом архиве ${stats.missing}</p>
-          <p class="hint">Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота архива: ${esc(preview.coverage.level === 'unknown' ? 'не подтверждена' : preview.coverage.level)}.</p>` : `<p class="alert">${esc(problem)}</p>`}
+          <p class="hint">Без определённой даты: исключено ${stats.excluded_unknown_dates}, включено ${stats.included_unknown_dates}. Полнота архива: ${esc(coverageName(preview.coverage.level))}.</p>` : `<p class="alert">${esc(problem)}</p>`}
         <div class="project-actions"><button class="btn btn-primary" type="submit">Сохранить выбор</button>
           <button class="btn btn-ghost" type="button" data-refresh>Перечитать архив</button>
           <button class="btn btn-ghost" type="button" data-relink>Изменить файл…</button>
@@ -247,7 +267,10 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
     }
     await localPackage.render($('#project-local-package'), { preserveDraft: preserveSourceDrafts })
     if (epoch !== renderEpoch) return
-    await analysis.reset()
+    // Scope edits do not erase a saved result or silently recompute it. Refresh
+    // the read-only saved view while keeping the editor open after a save.
+    await analysis.reset({ openLatest: true, preservePanel: !landing })
+    if (landing && !analysis.hasResult() && current.sources.length > 0) step = 'result'
     syncSteps()
   }
 
@@ -341,16 +364,19 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
 
   $('#btn-projects').addEventListener('click', () => act(async () => { current = null; await open() }))
   $('#btn-project-reload').addEventListener('click', () => act(open))
-  $('#project-steps').addEventListener('click', (e) => {
+  for (const id of ['#project-steps', '#project-flow-steps']) $(id).addEventListener('click', (e) => {
     const button = e.target.closest('[data-go]')
-    if (button && !button.disabled && !working) navigate(button.dataset.go)
+    if (button && !button.disabled && !working && !busy()) navigate(button.dataset.go)
   })
   $('#btn-project-destination').addEventListener('click', () => navigate('analyze'))
-  $('#btn-projects-back').addEventListener('click', () => {
-    if (working) return
-    cancelConnecting()
-    show('start')
+  $('#btn-result-update').addEventListener('click', () => { if (!working && !busy()) navigate('source') })
+  $('#btn-show-history').addEventListener('click', () => {
+    if (working || busy()) return
+    navigate('result')
+    const history = $('#analysis-history-disclosure')
+    if (!history.hidden) { history.open = true; history.scrollIntoView({ block: 'start' }); history.querySelector('summary').focus() }
   })
+  $('#btn-projects-back').addEventListener('click', () => act(async () => { current = null; await open() }))
   $('#new-project-form').addEventListener('submit', (e) => {
     e.preventDefault()
     act(async () => {
@@ -361,7 +387,7 @@ export function mountProjects({ invoke, show, pickFile, startJob, endJob, busy, 
   })
   $('#project-list').addEventListener('click', (e) => {
     const button = e.target.closest('[data-project]')
-    if (button) act(async () => { current = await invoke('open_project', { projectId: button.dataset.project }); await render({ discardPrivacy: true }) })
+    if (button) act(async () => { current = await invoke('open_project', { projectId: button.dataset.project }); await render({ discardPrivacy: true, landing: true }) })
   })
   $('#rename-project-form').addEventListener('submit', (e) => {
     e.preventDefault()

@@ -22,6 +22,21 @@ def main():
     sockets = subprocess.check_output(['ss', '-ltnp', f'sport = :{port}']).decode()
     pid = int(re.search(r'\("tgsum",pid=(\d+)', sockets).group(1))
     ui = Inspector(port)
+
+    # Exercise the visible header controls rather than clicking through a
+    # closed disclosure. The project-list action is "All projects" when open.
+    click_control = ui.click
+
+    def click(selector):
+        if selector == '#btn-projects' and ui.evaluate("document.querySelector('#btn-projects').hidden"):
+            selector = '#btn-projects-back'
+        menu = ui.evaluate("(() => { const target = document.querySelector(" + json.dumps(selector) + "); const menu = target?.closest('.header-menu'); return menu && !menu.open && !target.closest('summary') ? menu.id : null })()")
+        if menu:
+            click_control('#' + menu + ' > summary')
+            ui.wait('document.getElementById(' + json.dumps(menu) + ').open')
+        click_control(selector)
+
+    ui.click = click
     ev = ui.evaluate
 
     def idle():
@@ -56,14 +71,14 @@ def main():
     invalid_client = root / 'not-a-native-client'
     invalid_client.write_text('#!/bin/sh\nexit 1\n')
 
-    ui.wait("document.body.dataset.screen==='start'")
+    ui.wait("document.body.dataset.screen==='projects'")
     assert not ev("document.querySelector('#onboarding').open")
     ui.click('#btn-help')
     ui.wait("document.querySelector('#onboarding').open")
     for _ in range(3):
         ui.click('#onboarding-next')
     ui.wait("!document.querySelector('#onboarding').open")
-    assert ev("document.body.dataset.screen") == 'start'
+    assert ev("document.body.dataset.screen") == 'projects'
     ev("window.__uiErrors=[];addEventListener('error',e=>__uiErrors.push(e.message));addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)))")
     p = invoke('create_project', {'name':'Synthetic assisted export'})
     p = invoke('update_project', {'projectId':p['project_id'],'expectedRevision':p['revision'],'change':{'kind':'source','value':{
@@ -75,6 +90,7 @@ def main():
     idle()
     ui.click('[data-project="' + project_id + '"]')
     idle()
+    ui.click('#project-steps [data-go=source]')
     ui.click('.assisted-export summary')
     picker('[data-assisted-folder]', root / 'exports')
     picker('[data-assisted-pick-client]', client)
@@ -117,6 +133,7 @@ def main():
     idle()
     ui.click('[data-project="' + project_id + '"]')
     idle()
+    ui.click('#project-steps [data-go=source]')
     ui.click('.assisted-export summary')
     assert ev("document.querySelector('[data-assisted-directory]').value") == str(root / 'exports')
     assert ev("document.querySelector('[data-assisted-client]').value") == str(invalid_client)

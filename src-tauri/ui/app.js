@@ -138,6 +138,10 @@ mountBackground({ invoke, toast })
 function show(name) {
   state.screen = name
   document.body.dataset.screen = name
+  for (const [id, active] of [['#btn-projects', name === 'projects' || projects.isConnecting()], ['#btn-start', name !== 'projects' && !projects.isConnecting()]]) {
+    if (active) $(id).setAttribute('aria-current', 'page')
+    else $(id).removeAttribute('aria-current')
+  }
   document.querySelector('.steps').hidden = name === 'projects' || projects.isConnecting()
   for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== `screen-${name}`
   const step = name === 'progress' ? (state.job?.phase === 'extract' ? 3 : 1) : STEPS[name]
@@ -147,6 +151,25 @@ function show(name) {
     li.classList.toggle('is-done', n < step || name === 'done')
   }
 }
+
+// Native disclosure menus: keyboard dismissal restores the trigger, and opening
+// another menu or choosing an action never leaves a floating panel behind.
+for (const menu of document.querySelectorAll('.header-menu')) {
+  menu.addEventListener('toggle', () => {
+    if (menu.open) for (const other of document.querySelectorAll('.header-menu')) if (other !== menu) other.open = false
+  })
+  menu.addEventListener('click', (event) => { if (event.target.closest('button')) menu.open = false })
+}
+for (const id of ['#onboarding', '#background-dialog']) {
+  $(id).addEventListener('close', () => $('#app-menu > summary').focus())
+}
+document.addEventListener('click', (event) => {
+  for (const menu of document.querySelectorAll('.header-menu[open]')) if (!menu.contains(event.target)) menu.open = false
+})
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return
+  for (const menu of document.querySelectorAll('.header-menu[open]')) { menu.open = false; menu.querySelector('summary').focus() }
+})
 
 let toastTimer
 function toast(msg, kind = '') {
@@ -732,7 +755,7 @@ setInterval(openLaunchExport, 1000)
 show('start')
 invoke('initial_path').then(async (path) => {
   if (path) await openExport(path)
-  else show('start')
+  else await projects.open()
 }).catch((e) => toast(errText(e), 'error')).finally(() => {
   launchExportsReady = true
   openLaunchExport()
